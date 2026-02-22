@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GostEditor.UI", "GostEditor.UI\GostEditor.UI.csproj", "{89FEB7E5-8129-4DF4-8BBF-96E0E54969ED}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GostEditor.Core", "GostEditor.Core\GostEditor.Core.csproj", "{6606BCC9-3588-4746-AD7C-EA27E9D35422}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{89FEB7E5-8129-4DF4-8BBF-96E0E54969ED}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{89FEB7E5-8129-4DF4-8BBF-96E0E54969ED}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{89FEB7E5-8129-4DF4-8BBF-96E0E54969ED}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{89FEB7E5-8129-4DF4-8BBF-96E0E54969ED}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
