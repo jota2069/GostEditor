@@ -12,6 +12,7 @@ public static class DependencyInjection
         services.AddSingleton<ITextNormalizerService, TextNormalizerService>();
         services.AddSingleton<ICodeParserService, CodeParserService>();
         services.AddSingleton<IDocumentService, DocumentService>();
+        services.AddSingleton<IExportService, ExportService>();
         return services;
     }
 }
