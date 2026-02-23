@@ -19,7 +19,7 @@ public class CodeParserService : ICodeParserService
     private static readonly HashSet<string> CSharpSkipPrefixes =
         new HashSet<string>()
         {
-            "using ", "namespace ", "#nullable", "#pragma"
+            "using ", "#nullable", "#pragma"
         };
 
     public async Task<IReadOnlyList<CodeListing>> ParseDirectoryAsync(string directoryPath)
