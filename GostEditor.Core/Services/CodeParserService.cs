@@ -12,6 +12,8 @@ public class CodeParserService : ICodeParserService
             [".py"] = "python",
             [".js"] = "javascript",
             [".ts"] = "typescript",
+            [".axaml"] = "xml",
+            [".xaml"] = "xml",
         };
 
     private static readonly HashSet<string> CSharpSkipPrefixes =
@@ -42,7 +44,7 @@ public class CodeParserService : ICodeParserService
 
         foreach (string file in files)
         {
-            CodeListing listing = await Task.Run(() => ParseFile(file));
+            CodeListing listing = await Task.Run(() => ParseFile(file, directoryPath));
             listing.Order = order++;
             listings.Add(listing);
         }
@@ -52,16 +54,26 @@ public class CodeParserService : ICodeParserService
 
     public CodeListing ParseFile(string filePath)
     {
+        return ParseFile(filePath, Path.GetDirectoryName(filePath) ?? string.Empty);
+    }
+
+    private CodeListing ParseFile(string filePath, string rootDirectory)
+    {
         string extension = Path.GetExtension(filePath).ToLower();
         string language = ExtensionToLanguage.GetValueOrDefault(extension, "text");
         string[] rawLines = File.ReadAllLines(filePath);
         IEnumerable<string> cleanedLines = CleanLines(rawLines, language);
 
+        // Вычисляем относительный путь от корневой папки.
+        string relativePath = Path.GetRelativePath(rootDirectory, filePath);
+
         return new CodeListing
         {
             FileName = Path.GetFileName(filePath),
+            RelativePath = relativePath,
             Language = language,
-            Content = string.Join(Environment.NewLine, cleanedLines)
+            Content = string.Join(Environment.NewLine, cleanedLines),
+            IsSelected = true
         };
     }
 
