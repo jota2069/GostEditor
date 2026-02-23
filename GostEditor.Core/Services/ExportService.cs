@@ -7,15 +7,15 @@ namespace GostEditor.Core.Services;
 
 public class ExportService : IExportService
 {
-    // Константы ГОСТ 7.32
+    // Константы ГОСТ 7.32.
     private const string FontName = "Times New Roman";
     private const float FontSize = 14f;
     private const float LineSpacing = 1.5f;
     private const float ParagraphIndent = 1.25f;
 
-    // Поля страницы в сантиметрах: левое, правое, верхнее, нижнее
+    // Поля страницы в сантиметрах.
     private const float MarginLeft = 3.0f;
-    private const float MarginRight = 1.5f;
+    private const float MarginRight = 1.0f;
     private const float MarginTop = 2.0f;
     private const float MarginBottom = 2.0f;
 
@@ -29,16 +29,34 @@ public class ExportService : IExportService
         using DocX doc = DocX.Create(outputPath);
 
         ApplyPageSettings(doc);
+        RecalculateCounters(document);
         AddTitlePage(doc, document.TitlePage);
-        AddSections(doc, document.Sections);
+        AddTableOfContents(doc, document.Sections);
+        AddSections(doc, document.Sections, document.Images);
         AddCodeListings(doc, document.CodeListings);
 
         doc.Save();
     }
 
+    // Пересчитывает все номера рисунков и листингов перед экспортом.
+    private void RecalculateCounters(GostDocument document)
+    {
+        int figureNumber = 1;
+        int listingNumber = 1;
+
+        foreach (ImageAttachment image in document.Images)
+        {
+            image.FigureNumber = figureNumber++;
+        }
+
+        foreach (CodeListing listing in document.CodeListings.Where(l => l.IsSelected))
+        {
+            listing.ListingNumber = listingNumber++;
+        }
+    }
+
     private void ApplyPageSettings(DocX doc)
     {
-        // Поля страницы в сантиметрах
         doc.MarginLeft = CmToTwips(MarginLeft);
         doc.MarginRight = CmToTwips(MarginRight);
         doc.MarginTop = CmToTwips(MarginTop);
@@ -47,25 +65,21 @@ public class ExportService : IExportService
 
     private void AddTitlePage(DocX doc, TitlePageInfo titlePage)
     {
-        // Университет
         Paragraph universityParagraph = doc.InsertParagraph();
         universityParagraph.Append(titlePage.University)
             .Font(FontName)
             .FontSize(FontSize);
         universityParagraph.Alignment = Alignment.center;
 
-        // Кафедра
         Paragraph departmentParagraph = doc.InsertParagraph();
         departmentParagraph.Append(titlePage.Department)
             .Font(FontName)
             .FontSize(FontSize);
         departmentParagraph.Alignment = Alignment.center;
 
-        // Пустые строки перед названием работы
         doc.InsertParagraph();
         doc.InsertParagraph();
 
-        // Название работы жирным
         Paragraph titleParagraph = doc.InsertParagraph();
         titleParagraph.Append(titlePage.WorkTitle)
             .Font(FontName)
@@ -73,32 +87,27 @@ public class ExportService : IExportService
             .Bold();
         titleParagraph.Alignment = Alignment.center;
 
-        // Пустые строки перед данными студента
         doc.InsertParagraph();
         doc.InsertParagraph();
 
-        // Студент
         Paragraph studentParagraph = doc.InsertParagraph();
         studentParagraph.Append($"Выполнил: {titlePage.StudentName}")
             .Font(FontName)
             .FontSize(FontSize);
         studentParagraph.Alignment = Alignment.right;
 
-        // Группа
         Paragraph groupParagraph = doc.InsertParagraph();
         groupParagraph.Append($"Группа: {titlePage.GroupNumber}")
             .Font(FontName)
             .FontSize(FontSize);
         groupParagraph.Alignment = Alignment.right;
 
-        // Преподаватель
         Paragraph teacherParagraph = doc.InsertParagraph();
         teacherParagraph.Append($"Проверил: {titlePage.TeacherName}")
             .Font(FontName)
             .FontSize(FontSize);
         teacherParagraph.Alignment = Alignment.right;
 
-        // Год внизу страницы
         doc.InsertParagraph();
         doc.InsertParagraph();
 
@@ -108,23 +117,53 @@ public class ExportService : IExportService
             .FontSize(FontSize);
         yearParagraph.Alignment = Alignment.center;
 
-        // Разрыв страницы после титульника
+        // Разрыв страницы после титульника.
         doc.InsertParagraph().InsertPageBreakAfterSelf();
     }
 
-    private void AddSections(DocX doc, List<DocumentSection> sections)
+    private void AddTableOfContents(DocX doc, List<DocumentSection> sections)
     {
+        Paragraph tocHeading = doc.InsertParagraph();
+        tocHeading.Append("СОДЕРЖАНИЕ")
+            .Font(FontName)
+            .FontSize(FontSize)
+            .Bold();
+        tocHeading.Alignment = Alignment.center;
+
+        doc.InsertParagraph();
+
+        int pageNumber = 3;
+
         foreach (DocumentSection section in sections)
         {
-            // Заголовок раздела жирным
+            Paragraph tocLine = doc.InsertParagraph();
+            tocLine.Append($"{section.Title}")
+                .Font(FontName)
+                .FontSize(FontSize);
+            tocLine.Alignment = Alignment.left;
+            pageNumber++;
+        }
+
+        // Разрыв страницы после содержания.
+        doc.InsertParagraph().InsertPageBreakAfterSelf();
+    }
+
+    private void AddSections(
+        DocX doc,
+        List<DocumentSection> sections,
+        List<ImageAttachment> images)
+    {
+        int sectionNumber = 1;
+
+        foreach (DocumentSection section in sections)
+        {
             Paragraph headingParagraph = doc.InsertParagraph();
-            headingParagraph.Append(section.Title)
+            headingParagraph.Append($"{sectionNumber}. {section.Title}")
                 .Font(FontName)
                 .FontSize(FontSize)
                 .Bold();
             headingParagraph.Alignment = Alignment.left;
 
-            // Текст раздела
             Paragraph contentParagraph = doc.InsertParagraph();
             contentParagraph.Append(section.Content)
                 .Font(FontName)
@@ -132,38 +171,62 @@ public class ExportService : IExportService
             contentParagraph.Alignment = Alignment.both;
             ApplyParagraphStyle(contentParagraph);
 
+            // Вставляем картинки относящиеся к этому разделу.
+            foreach (ImageAttachment image in images.Where(img => img.Data.Length > 0))
+            {
+                using MemoryStream imageStream = new MemoryStream(image.Data);
+                Xceed.Document.NET.Image docImage = doc.AddImage(imageStream);
+                Picture picture = docImage.CreatePicture();
+                Paragraph imageParagraph = doc.InsertParagraph();
+                imageParagraph.AppendPicture(picture);
+                imageParagraph.Alignment = Alignment.center;
+
+                // Подпись рисунка.
+                Paragraph captionParagraph = doc.InsertParagraph();
+                captionParagraph.Append(
+                    $"Рисунок {image.FigureNumber} — {image.Caption}")
+                    .Font(FontName)
+                    .FontSize(FontSize);
+                captionParagraph.Alignment = Alignment.center;
+            }
+
             doc.InsertParagraph();
+            sectionNumber++;
         }
     }
 
     private void AddCodeListings(DocX doc, List<CodeListing> listings)
     {
-        if (listings.Count == 0)
+        List<CodeListing> selectedListings = listings
+            .Where(l => l.IsSelected)
+            .ToList();
+
+        if (selectedListings.Count == 0)
         {
             return;
         }
 
-        // Заголовок блока листингов
         Paragraph listingsHeading = doc.InsertParagraph();
-        listingsHeading.Append("Листинги программного кода")
+        listingsHeading.Append("ПРИЛОЖЕНИЕ. ЛИСТИНГИ ПРОГРАММНОГО КОДА")
             .Font(FontName)
             .FontSize(FontSize)
             .Bold();
-        listingsHeading.Alignment = Alignment.left;
+        listingsHeading.Alignment = Alignment.center;
 
         doc.InsertParagraph();
 
-        foreach (CodeListing listing in listings)
+        foreach (CodeListing listing in selectedListings)
         {
-            // Название файла
+            // Заголовок листинга с относительным путём.
             Paragraph fileNameParagraph = doc.InsertParagraph();
-            fileNameParagraph.Append($"Листинг — {listing.FileName}")
+            fileNameParagraph.Append(
+                $"Листинг {listing.ListingNumber} — {listing.RelativePath}")
                 .Font(FontName)
                 .FontSize(FontSize)
                 .Italic();
             fileNameParagraph.Alignment = Alignment.left;
 
-            // Код моноширинным шрифтом, размер 12
+            // Код моноширинным шрифтом.
             Paragraph codeParagraph = doc.InsertParagraph();
             codeParagraph.Append(listing.Content)
                 .Font("Courier New")
@@ -176,16 +239,15 @@ public class ExportService : IExportService
 
     private void ApplyParagraphStyle(Paragraph paragraph)
     {
-        // Межстрочный интервал 1.5
+        // Межстрочный интервал 1.5.
         paragraph.LineSpacingAfter = 0;
-        paragraph.LineSpacing = (float)(LineSpacing * 240);
+        paragraph.LineSpacing = LineSpacing * 240f;
 
-        // Отступ первой строки 1.25 см
+        // Отступ первой строки 1.25 см.
         paragraph.IndentationFirstLine = CmToTwips(ParagraphIndent);
     }
 
-    // Конвертация сантиметров в твипы (единица измерения Word)
-    // 1 см = 567 твипов
+    // Конвертация сантиметров в твипы (1 см = 567 твипов).
     private float CmToTwips(float cm)
     {
         return cm * 567f;
