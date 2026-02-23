@@ -6,6 +6,7 @@ public class GostDocument
     public List<DocumentSection> Sections { get; set; } = [];
     public List<CodeListing> CodeListings { get; set; } = [];
     public List<ImageAttachment> Images { get; set; } = [];
+    public DocumentCounters Counters { get; set; } = new DocumentCounters();
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
 }
@@ -33,9 +34,12 @@ public class CodeListing
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string FileName { get; set; } = string.Empty;
+    public string RelativePath { get; set; } = string.Empty;
     public string Language { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
+    public bool IsSelected { get; set; } = true;
     public int Order { get; set; }
+    public int ListingNumber { get; set; }
 }
 
 public class ImageAttachment
@@ -44,4 +48,12 @@ public class ImageAttachment
     public string FileName { get; set; } = string.Empty;
     public byte[] Data { get; set; } = [];
     public string Caption { get; set; } = string.Empty;
+    public int FigureNumber { get; set; }
+}
+
+public class DocumentCounters
+{
+    public int FigureCount { get; set; } = 0;
+    public int TableCount { get; set; } = 0;
+    public int ListingCount { get; set; } = 0;
 }
