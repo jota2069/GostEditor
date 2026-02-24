@@ -39,16 +39,15 @@ public partial class MainWindow : Window
 
     private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        // \uFEFF - невидимый 0-пиксельный маркер жирного
         WrapSelectedText("\uFEFF");
     }
 
     private void OnItalicClick(object? sender, RoutedEventArgs e)
     {
-        // \u2060 - невидимый 0-пиксельный маркер курсива
         WrapSelectedText("\u2060");
     }
 
+    // Метод для оборачивания текста невидимыми маркерами (для жирного и курсива)
     private void WrapSelectedText(string marker)
     {
         IFocusManager? focusManager = TopLevel.GetTopLevel(this)?.FocusManager;
@@ -69,7 +68,6 @@ public partial class MainWindow : Window
 
             if (start == end)
             {
-                // Если ничего не выделено - вставляем пустые рамки и ставим курсор внутрь!
                 string newText = text.Insert(start, $"{marker}{marker}");
                 textBox.Text = newText;
                 textBox.CaretIndex = start + marker.Length;
@@ -77,7 +75,6 @@ public partial class MainWindow : Window
             }
             else
             {
-                // Если текст выделен - оборачиваем его
                 string selected = text.Substring(start, end - start);
                 string newText = text.Remove(start, end - start).Insert(start, $"{marker}{selected}{marker}");
                 textBox.Text = newText;
@@ -85,6 +82,33 @@ public partial class MainWindow : Window
                 textBox.SelectionEnd = start + selected.Length + marker.Length * 2;
                 textBox.Focus();
             }
+        }
+    }
+
+    // НОВЫЙ МЕТОД: Для простой вставки одного символа (например, разрыва страницы)
+    private void InsertText(string textToInsert)
+    {
+        IFocusManager? focusManager = TopLevel.GetTopLevel(this)?.FocusManager;
+        IInputElement? focusedElement = focusManager?.GetFocusedElement();
+
+        if (focusedElement is TextBox textBox && textBox.Name == "PageTextBox")
+        {
+            string text = textBox.Text ?? string.Empty;
+            int start = textBox.SelectionStart;
+            int end = textBox.SelectionEnd;
+
+            if (start > end)
+            {
+                int temp = start;
+                start = end;
+                end = temp;
+            }
+
+            string newText = text.Remove(start, end - start).Insert(start, textToInsert);
+            textBox.Text = newText;
+            textBox.SelectionStart = start + textToInsert.Length;
+            textBox.SelectionEnd = start + textToInsert.Length;
+            textBox.Focus();
         }
     }
 
@@ -102,6 +126,12 @@ public partial class MainWindow : Window
             else if (e.Key == Key.I)
             {
                 WrapSelectedText("\u2060");
+                e.Handled = true;
+            }
+            // ПУНКТ 3 и 4: Разрыв страницы по Ctrl + Enter
+            else if (e.Key == Key.Enter)
+            {
+                InsertText("\f");
                 e.Handled = true;
             }
         }

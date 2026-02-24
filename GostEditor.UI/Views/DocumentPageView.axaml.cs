@@ -7,13 +7,16 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
+using Avalonia.Threading;
 
 namespace GostEditor.UI.Views;
 
 public partial class DocumentPageView : UserControl
 {
-    // Флаг для защиты от спама расчетами (Debouncing)
     private bool _isUpdateQueued = false;
+    private bool _isDragging = false;
+    private bool _isProcessingOverflow = false;
+    private int _dragStart = -1;
 
     public DocumentPageView(int pageNumber, string initialText = "")
     {
@@ -24,8 +27,11 @@ public partial class DocumentPageView : UserControl
 
         PageTextBox.TextChanged += OnTextChanged;
         PageTextBox.KeyDown += OnTextBoxKeyDown;
-
         PageTextBox.PropertyChanged += PageTextBox_PropertyChanged;
+
+        MouseHitLayer.PointerPressed += OnMouseHitLayerPointerPressed;
+        MouseHitLayer.PointerMoved += OnMouseHitLayerPointerMoved;
+        MouseHitLayer.PointerReleased += OnMouseHitLayerPointerReleased;
     }
 
     public event Action<DocumentPageView, string, int>? PageOverflow;
@@ -35,7 +41,44 @@ public partial class DocumentPageView : UserControl
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(QueueCaretAndSelectionUpdate, DispatcherPriority.Loaded);
+    }
+
+    private void OnMouseHitLayerPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        PageTextBox.Focus();
+        Point point = e.GetPosition(RichTextDisplay);
+        TextLayout? layout = RichTextDisplay.TextLayout;
+
+        if (layout != null)
+        {
+            TextHitTestResult hit = layout.HitTestPoint(point);
+            _dragStart = hit.TextPosition;
+            PageTextBox.SelectionStart = _dragStart;
+            PageTextBox.SelectionEnd = _dragStart;
+            PageTextBox.CaretIndex = _dragStart;
+            _isDragging = true;
+            QueueCaretAndSelectionUpdate();
+        }
+    }
+
+    private void OnMouseHitLayerPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_isDragging && RichTextDisplay.TextLayout != null)
+        {
+            Point point = e.GetPosition(RichTextDisplay);
+            TextHitTestResult hit = RichTextDisplay.TextLayout.HitTestPoint(point);
+
+            PageTextBox.SelectionStart = _dragStart;
+            PageTextBox.SelectionEnd = hit.TextPosition;
+
+            QueueCaretAndSelectionUpdate();
+        }
+    }
+
+    private void OnMouseHitLayerPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _isDragging = false;
     }
 
     private void PageTextBox_PropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
@@ -50,12 +93,13 @@ public partial class DocumentPageView : UserControl
 
     private void OnTextChanged(object? sender, TextChangedEventArgs e)
     {
+        if (_isProcessingOverflow) return;
+
         string currentText = PageTextBox.Text ?? string.Empty;
-
         TextChanged?.Invoke(currentText);
-        UpdateRichText(currentText);
 
-        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Background);
+        UpdateRichText(currentText);
+        CheckOverflow();
     }
 
     private void UpdateRichText(string text)
@@ -93,23 +137,13 @@ public partial class DocumentPageView : UserControl
             {
                 FlushText();
                 isBold = !isBold;
-                RichTextDisplay.Inlines!.Add(new Run("\uFEFF")
-                {
-                    Foreground = Brushes.Transparent,
-                    FontFamily = PageTextBox.FontFamily,
-                    FontSize = PageTextBox.FontSize
-                });
+                RichTextDisplay.Inlines!.Add(new Run("\uFEFF") { Foreground = Brushes.Transparent, FontSize = 0.01 });
             }
             else if (c == '\u2060')
             {
                 FlushText();
                 isItalic = !isItalic;
-                RichTextDisplay.Inlines!.Add(new Run("\u2060")
-                {
-                    Foreground = Brushes.Transparent,
-                    FontFamily = PageTextBox.FontFamily,
-                    FontSize = PageTextBox.FontSize
-                });
+                RichTextDisplay.Inlines!.Add(new Run("\u2060") { Foreground = Brushes.Transparent, FontSize = 0.01 });
             }
             else
             {
@@ -121,28 +155,24 @@ public partial class DocumentPageView : UserControl
         QueueCaretAndSelectionUpdate();
     }
 
-    // Если прилетело 10 команд на обновление за миллисекунду, выполнится только 1!
     private void QueueCaretAndSelectionUpdate()
     {
-        if (_isUpdateQueued) return;
+        if (_isUpdateQueued || _isProcessingOverflow) return;
         _isUpdateQueued = true;
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(PerformCaretAndSelectionUpdate, Avalonia.Threading.DispatcherPriority.Render);
+        Dispatcher.UIThread.Post(PerformCaretAndSelectionUpdate, DispatcherPriority.Render);
     }
 
-    //ОПТИМИЗАЦИЯ 2: Пул объектов (Object Pooling)
     private void PerformCaretAndSelectionUpdate()
     {
-        _isUpdateQueued = false; // Сбрасываем флаг
+        _isUpdateQueued = false;
 
-        TextLayout layout = RichTextDisplay.TextLayout;
+        TextLayout? layout = RichTextDisplay.TextLayout;
         if (layout == null) return;
 
         string text = PageTextBox.Text ?? string.Empty;
         int caretIndex = Math.Min(PageTextBox.CaretIndex, text.Length);
 
         Rect hitTest = layout.HitTestTextPosition(caretIndex);
-
         double caretHeight = hitTest.Height > 0 ? hitTest.Height : 28.0;
 
         CustomCaret.Margin = new Thickness(hitTest.X, hitTest.Y, 0, 0);
@@ -163,11 +193,10 @@ public partial class DocumentPageView : UserControl
             foreach (Rect rect in rects)
             {
                 Rectangle highlight;
-
-                // Переиспользуем старые квадраты вместо создания новых (БЕЗ CLEAR!)
                 if (rectIndex < SelectionCanvas.Children.Count)
                 {
                     highlight = (Rectangle)SelectionCanvas.Children[rectIndex];
+                    highlight.Fill = selectionBrush;
                     highlight.IsVisible = true;
                 }
                 else
@@ -178,11 +207,11 @@ public partial class DocumentPageView : UserControl
 
                 highlight.Width = rect.Width;
                 highlight.Height = rect.Height;
-                highlight.Margin = new Thickness(rect.X, rect.Y, 0, 0);
+                Canvas.SetLeft(highlight, rect.X);
+                Canvas.SetTop(highlight, rect.Y);
                 rectIndex++;
             }
 
-            // Прячем лишние квадраты, которые остались от прошлого выделения
             for (int i = rectIndex; i < SelectionCanvas.Children.Count; i++)
             {
                 SelectionCanvas.Children[i].IsVisible = false;
@@ -190,7 +219,6 @@ public partial class DocumentPageView : UserControl
         }
         else
         {
-            // Если ничего не выделено - просто прячем все квадраты
             foreach (Control child in SelectionCanvas.Children)
             {
                 child.IsVisible = false;
@@ -200,29 +228,34 @@ public partial class DocumentPageView : UserControl
 
     private void CheckOverflow()
     {
-        const double maxHeight = 952;
+        if (_isProcessingOverflow) return;
 
-        TextLayout layout = RichTextDisplay.TextLayout;
-        if (layout == null || layout.Height <= maxHeight) return;
-
-        PageTextBox.TextChanged -= OnTextChanged;
-        int originalCaret = PageTextBox.CaretIndex;
         string text = PageTextBox.Text ?? string.Empty;
+        if (string.IsNullOrEmpty(text)) return;
 
-        double currentHeight = 0;
-        int splitIndex = 0;
-
-        foreach (TextLine line in layout.TextLines)
+        int pageBreakIndex = text.IndexOf('\f');
+        if (pageBreakIndex >= 0)
         {
-            double lineHeight = line.Height < 28 ? 28 : line.Height;
-            if (currentHeight + lineHeight > maxHeight) break;
-            currentHeight += lineHeight;
-            splitIndex += line.Length;
+            PerformSplit(pageBreakIndex, 1);
+            return;
+        }
+
+        RichTextDisplay.Measure(new Size(643, double.PositiveInfinity));
+
+        TextLayout? layout = RichTextDisplay.TextLayout;
+        if (layout == null) return;
+
+        if (layout.TextLines.Count <= 34) return;
+
+        int splitIndex = 0;
+        for (int i = 0; i < 34; i++)
+        {
+            splitIndex += layout.TextLines[i].Length;
         }
 
         if (splitIndex < text.Length && splitIndex > 0)
         {
-            int lastSpace = text.LastIndexOfAny([' ', '\n', '\r'], splitIndex);
+            int lastSpace = text.LastIndexOfAny(new[] { ' ', '\n', '\r' }, splitIndex);
             if (lastSpace > 0 && (splitIndex - lastSpace) < 50)
             {
                 splitIndex = lastSpace;
@@ -230,53 +263,97 @@ public partial class DocumentPageView : UserControl
         }
 
         if (splitIndex <= 0) splitIndex = 1;
+        if (splitIndex >= text.Length) return;
 
-        int caretOffset = originalCaret - splitIndex;
-        string pageText = text[..splitIndex];
-        string overflowText = text[splitIndex..];
+        PerformSplit(splitIndex, 0);
+    }
+
+    private void PerformSplit(int splitIndex, int skipChars)
+    {
+        _isProcessingOverflow = true;
+
+        string text = PageTextBox.Text ?? string.Empty;
+        PageTextBox.TextChanged -= OnTextChanged;
+
+        int originalCaret = PageTextBox.CaretIndex;
+
+        string pageText = text.Substring(0, splitIndex);
+        string overflowText = text.Substring(splitIndex + skipChars);
 
         PageTextBox.Text = pageText;
         UpdateRichText(pageText);
-        PageTextBox.TextChanged += OnTextChanged;
 
+        int caretOffset = originalCaret - (splitIndex + skipChars);
         if (caretOffset < 0)
         {
             PageTextBox.CaretIndex = Math.Min(originalCaret, pageText.Length);
         }
 
-        if (!string.IsNullOrEmpty(overflowText))
-        {
-            PageOverflow?.Invoke(this, overflowText, caretOffset);
-        }
+        PageTextBox.TextChanged += OnTextChanged;
+        _isProcessingOverflow = false;
+
+        PageOverflow?.Invoke(this, overflowText, caretOffset);
     }
 
     private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
     {
         string currentText = PageTextBox.Text ?? string.Empty;
         int length = currentText.Length;
+        bool isShiftPressed = (e.KeyModifiers & KeyModifiers.Shift) != 0;
 
         if (e.Key == Key.Right)
         {
-            if (PageTextBox.CaretIndex >= length)
+            if (PageTextBox.CaretIndex >= length && !isShiftPressed)
             {
                 RequestPageChange?.Invoke(this, 1);
                 e.Handled = true;
             }
         }
-        else if (e.Key == Key.Down)
+        else if (e.Key == Key.Left)
         {
-            if (currentText.IndexOf('\n', PageTextBox.CaretIndex) == -1 &&
-                PageTextBox.CaretIndex >= length - 60)
-            {
-                RequestPageChange?.Invoke(this, 1);
-                e.Handled = true;
-            }
-        }
-        else if (e.Key == Key.Up || e.Key == Key.Left)
-        {
-            if (PageTextBox.CaretIndex <= 0)
+            if (PageTextBox.CaretIndex <= 0 && !isShiftPressed)
             {
                 RequestPageChange?.Invoke(this, -1);
+                e.Handled = true;
+            }
+        }
+        else if (e.Key == Key.Up || e.Key == Key.Down)
+        {
+            TextLayout? layout = RichTextDisplay.TextLayout;
+            if (layout != null)
+            {
+                int currentIndex = isShiftPressed ? PageTextBox.SelectionEnd : PageTextBox.CaretIndex;
+
+                if (e.Key == Key.Up && currentIndex <= 0)
+                {
+                    if (!isShiftPressed) RequestPageChange?.Invoke(this, -1);
+                    e.Handled = true;
+                    return;
+                }
+
+                Rect currentHit = layout.HitTestTextPosition(currentIndex);
+                double targetY = currentHit.Y + (e.Key == Key.Down ? 28.0 : -28.0);
+
+                if (targetY >= layout.Height)
+                {
+                    if (!isShiftPressed) RequestPageChange?.Invoke(this, 1);
+                }
+                else if (targetY < 0)
+                {
+                    if (!isShiftPressed) RequestPageChange?.Invoke(this, -1);
+                }
+                else
+                {
+                    TextHitTestResult newHit = layout.HitTestPoint(new Point(currentHit.X, targetY));
+                    if (isShiftPressed)
+                    {
+                        PageTextBox.SelectionEnd = newHit.TextPosition;
+                    }
+                    else
+                    {
+                        PageTextBox.CaretIndex = newHit.TextPosition;
+                    }
+                }
                 e.Handled = true;
             }
         }
@@ -296,6 +373,7 @@ public partial class DocumentPageView : UserControl
         {
             PageTextBox.CaretIndex = PageTextBox.Text?.Length ?? 0;
         }
+        QueueCaretAndSelectionUpdate();
     }
 
     public void SetText(string text)
@@ -304,6 +382,7 @@ public partial class DocumentPageView : UserControl
         PageTextBox.Text = text;
         UpdateRichText(text);
         PageTextBox.TextChanged += OnTextChanged;
-        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Background);
+
+        Dispatcher.UIThread.Post(CheckOverflow, DispatcherPriority.Background);
     }
 }

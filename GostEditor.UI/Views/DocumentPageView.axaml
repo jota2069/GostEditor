@@ -47,8 +47,14 @@
                         </Border.Styles>
                     </Border>
 
+                    <Border Grid.Column="1"
+                            x:Name="MouseHitLayer"
+                            Background="Transparent"
+                            ZIndex="10"/>
+
                     <TextBox Grid.Column="1"
                              x:Name="PageTextBox"
+                             IsHitTestVisible="False"
                              AcceptsReturn="True"
                              AcceptsTab="True"
                              TextWrapping="Wrap"
@@ -71,14 +77,6 @@
                                 <Setter Property="BorderThickness" Value="0"/>
                             </Style>
                             <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
-                                <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                            </Style>
-                            <Style Selector="TextBox:pointerover /template/ Border#PART_BorderElement">
-                                <Setter Property="Background" Value="Transparent"/>
-                                <Setter Property="BorderThickness" Value="0"/>
-                            </Style>
-                            <Style Selector="TextBox:disabled /template/ Border#PART_BorderElement">
                                 <Setter Property="Background" Value="Transparent"/>
                                 <Setter Property="BorderThickness" Value="0"/>
                             </Style>

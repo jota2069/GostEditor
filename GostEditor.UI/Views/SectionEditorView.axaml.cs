@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using GostEditor.Core.Models;
 
 namespace GostEditor.UI.Views;
@@ -11,9 +12,17 @@ public partial class SectionEditorView : UserControl
     private DocumentSection? _section;
     private readonly List<DocumentPageView> _pages = [];
 
+    public int StartPageNumber { get; private set; } = 1;
+
     public SectionEditorView()
     {
         InitializeComponent();
+    }
+
+    public void SetStartPageNumber(int number)
+    {
+        StartPageNumber = number;
+        UpdatePageNumbers();
     }
 
     public void LoadSection(DocumentSection section)
@@ -22,7 +31,6 @@ public partial class SectionEditorView : UserControl
         _pages.Clear();
         PagesContainer.Children.Clear();
 
-        // Грузим 100% чистый текст без извращений с Replace
         string fullText = section.Content ?? string.Empty;
 
         if (string.IsNullOrEmpty(fullText))
@@ -37,7 +45,7 @@ public partial class SectionEditorView : UserControl
 
     private DocumentPageView AddPage(string initialText = "")
     {
-        int pageNumber = _pages.Count + 1;
+        int pageNumber = StartPageNumber + _pages.Count;
         DocumentPageView page = new DocumentPageView(pageNumber, initialText);
 
         page.PageOverflow += OnPageOverflow;
@@ -93,7 +101,10 @@ public partial class SectionEditorView : UserControl
 
         if (caretOffset >= 0)
         {
-            targetPage.FocusEditor(caretOffset);
+            Dispatcher.UIThread.Post(() =>
+            {
+                targetPage.FocusEditor(caretOffset);
+            }, DispatcherPriority.Background);
         }
 
         SaveToSection();
@@ -103,7 +114,7 @@ public partial class SectionEditorView : UserControl
     {
         for (int i = 0; i < _pages.Count; i++)
         {
-            _pages[i].SetPageNumber(i + 1);
+            _pages[i].SetPageNumber(StartPageNumber + i);
         }
     }
 
