@@ -1,6 +1,7 @@
 using System;
-using Avalonia; // Важно для работы OnAttachedToVisualTree
 using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Media.TextFormatting; // Низкоуровневый быстрый движок
 
 namespace GostEditor.UI.Views;
 
@@ -15,26 +16,20 @@ public partial class DocumentPageView : UserControl
         PageTextBox.TextChanged += OnTextChanged;
     }
 
-    public event Action<string, bool>? PageOverflow;
+    // 🔥 ИСПРАВЛЕНИЕ 1: Теперь мы передаем саму страницу (DocumentPageView sender)
+    public event Action<DocumentPageView, string, bool>? PageOverflow;
     public event Action<string>? TextChanged;
 
-    // ОБНОВЛЕНО: Когда создается новая страница (например, при массовой вставке),
-    // мы даем ей команду тоже проверить свои границы после отрисовки.
-    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
-        Avalonia.Threading.Dispatcher.UIThread.Post(
-            CheckOverflow,
-            Avalonia.Threading.DispatcherPriority.Loaded);
+        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
     private void OnTextChanged(object? sender, TextChangedEventArgs e)
     {
         TextChanged?.Invoke(PageTextBox.Text ?? string.Empty);
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(
-            CheckOverflow,
-            Avalonia.Threading.DispatcherPriority.Background);
+        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Background);
     }
 
     private void CheckOverflow()
@@ -42,40 +37,50 @@ public partial class DocumentPageView : UserControl
         const double maxHeight = 1007;
         double width = PageTextBox.Bounds.Width > 0 ? PageTextBox.Bounds.Width : 643;
 
-        // Измеряем реальную высоту текста
-        PageTextBox.Measure(new Avalonia.Size(width, double.PositiveInfinity));
-        double currentHeight = PageTextBox.DesiredSize.Height;
-
-        if (currentHeight <= maxHeight)
-        {
-            return;
-        }
-
         string text = PageTextBox.Text ?? string.Empty;
         if (string.IsNullOrEmpty(text)) return;
+
+        // Мгновенный расчет строк в оперативной памяти (без зависаний)
+        var textLayout = new TextLayout(
+            text,
+            new Typeface(PageTextBox.FontFamily),
+            PageTextBox.FontSize,
+            null,
+            TextAlignment.Left,
+            TextWrapping.Wrap,
+            maxWidth: width,
+            maxHeight: double.PositiveInfinity);
+
+        // Если влезло - ничего не делаем
+        if (textLayout.Height <= maxHeight) return;
 
         PageTextBox.TextChanged -= OnTextChanged;
         int originalCaret = PageTextBox.CaretIndex;
 
-        // --- МАТЕМАТИЧЕСКИЙ РАСЧЕТ БЕЗ ЗАВИСАНИЙ ---
-        // Вычисляем долю текста, которая поместится на страницу.
-        // Умножаем на 0.90 (берем с запасом 10%), чтобы точно влезло и не было дерганий.
-        double ratio = maxHeight / currentHeight;
-        int estimatedLength = (int)(text.Length * ratio * 0.90);
+        double currentHeight = 0;
+        int splitIndex = 0;
 
-        int splitIndex = estimatedLength;
+        foreach (var line in textLayout.TextLines)
+        {
+            // Принудительно учитываем LineHeight="28" из XAML
+            double lineHeight = line.Height < 28 ? 28 : line.Height;
 
-        // Ищем ближайший пробел, чтобы не резать слово пополам
-        if (splitIndex > 0 && splitIndex < text.Length)
+            if (currentHeight + lineHeight > maxHeight) break;
+            currentHeight += lineHeight;
+            splitIndex += line.Length;
+        }
+
+        // Защита от разрыва слов пополам
+        if (splitIndex < text.Length && splitIndex > 0)
         {
             int lastSpace = text.LastIndexOfAny([' ', '\n', '\r'], splitIndex);
-            if (lastSpace > 0)
+            // Если пробел близко - режем по нему. Иначе рубим жестко (абракадабра)
+            if (lastSpace > 0 && (splitIndex - lastSpace) < 50)
             {
                 splitIndex = lastSpace;
             }
         }
 
-        // Защита от пустых страниц
         if (splitIndex <= 0) splitIndex = 1;
 
         string pageText = text[..splitIndex];
@@ -86,14 +91,15 @@ public partial class DocumentPageView : UserControl
         PageTextBox.Text = pageText;
         PageTextBox.TextChanged += OnTextChanged;
 
-        if (!moveCursor && originalCaret <= pageText.Length)
+        if (!moveCursor)
         {
-            PageTextBox.CaretIndex = originalCaret;
+            PageTextBox.CaretIndex = Math.Min(originalCaret, pageText.Length);
         }
 
         if (!string.IsNullOrEmpty(overflowText))
         {
-            PageOverflow?.Invoke(overflowText, moveCursor);
+            // 🔥 Вызываем событие и передаем THIS (саму страницу)
+            PageOverflow?.Invoke(this, overflowText, moveCursor);
         }
     }
 
@@ -111,9 +117,6 @@ public partial class DocumentPageView : UserControl
         PageTextBox.TextChanged -= OnTextChanged;
         PageTextBox.Text = text;
         PageTextBox.TextChanged += OnTextChanged;
-
-        Avalonia.Threading.Dispatcher.UIThread.Post(
-            CheckOverflow,
-            Avalonia.Threading.DispatcherPriority.Background);
+        Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Background);
     }
 }

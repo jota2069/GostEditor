@@ -59,37 +59,33 @@ public partial class SectionEditorView : UserControl
         return page;
     }
 
-    private void OnPageOverflow(string overflowText, bool focusNextPage)
+    // 🔥 ИСПРАВЛЕНИЕ 2: Принимаем саму страницу-отправителя
+    private void OnPageOverflow(DocumentPageView senderPage, string overflowText, bool focusNextPage)
     {
-        int overflowIndex = _pages.Count - 1;
-
-        for (int i = 0; i < _pages.Count; i++)
-        {
-            if (PagesContainer.Children[i] == _pages[i])
-            {
-                overflowIndex = i;
-                break;
-            }
-        }
+        // Находим ТОЧНЫЙ индекс страницы, которая переполнилась
+        int senderIndex = _pages.IndexOf(senderPage);
+        if (senderIndex == -1) return;
 
         DocumentPageView targetPage;
 
-        if (overflowIndex + 1 < _pages.Count)
+        // Если следующая страница уже существует, льем текст на неё
+        if (senderIndex + 1 < _pages.Count)
         {
-            targetPage = _pages[overflowIndex + 1];
+            targetPage = _pages[senderIndex + 1];
             string existing = targetPage.GetText();
 
-            // Защита от слипания слов
+            // Аккуратная склейка текста
             string combined = overflowText + (string.IsNullOrEmpty(existing) || existing.StartsWith(" ") || existing.StartsWith("\n") ? existing : " " + existing);
             targetPage.SetText(combined);
         }
-        else
+        else // Если следующей страницы нет — создаем новую
         {
             targetPage = AddPage(overflowText);
             UpdatePageNumbers();
         }
 
-        if (focusNextPage)
+        // Двигаем курсор, только если текст небольшой (пользователь печатает)
+        if (focusNextPage && overflowText.Length < 1000)
         {
             targetPage.FocusEditor();
         }
@@ -107,11 +103,7 @@ public partial class SectionEditorView : UserControl
 
     private void SaveToSection()
     {
-        if (_section is null)
-        {
-            return;
-        }
-
+        if (_section is null) return;
         _section.Content = string.Join("\n", _pages.Select(p => p.GetText()));
     }
 }
