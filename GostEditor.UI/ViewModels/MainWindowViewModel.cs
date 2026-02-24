@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.UI.Services;
+using System.Collections.Generic;
 
 namespace GostEditor.UI.ViewModels;
 
@@ -145,7 +146,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // ─── Конструктор ────────────────────────────────────────────────────────
 
-    public MainViewModel(
+    public MainWindowViewModel(
         IDocumentService documentService,
         IExportService exportService,
         ICodeParserService codeParserService,
@@ -343,7 +344,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             HasUnsavedChanges = true;
-            StatusMessage = $"Найдено файлов: {parsed.Count}";
+            StatusMessage = $"Найдено файлов: {parsed.Count.ToString()}";
         }
         catch (Exception ex)
         {
