@@ -23,25 +23,13 @@ public partial class SectionEditorView : UserControl
         PagesContainer.Children.Clear();
 
         string fullText = section.Content ?? string.Empty;
-        const int maxLines = 34;
-
-        string[] allLines = fullText.Split('\n');
-        List<string> pageTexts = [];
-
-        for (int i = 0; i < allLines.Length; i += maxLines)
+        if (string.IsNullOrEmpty(fullText))
         {
-            string[] chunk = allLines[i..Math.Min(i + maxLines, allLines.Length)];
-            pageTexts.Add(string.Join("\n", chunk));
+            AddPage("");
         }
-
-        if (pageTexts.Count == 0)
+        else
         {
-            pageTexts.Add(string.Empty);
-        }
-
-        foreach (string pageText in pageTexts)
-        {
-            AddPage(pageText);
+            AddPage(fullText);
         }
     }
 
@@ -53,41 +41,61 @@ public partial class SectionEditorView : UserControl
         page.PageOverflow += OnPageOverflow;
         page.TextChanged += _ => SaveToSection();
 
+        // ДОБАВЛЕНО: Подписываемся на запросы перехода по стрелочкам
+        page.RequestPageChange += OnRequestPageChange;
+
         _pages.Add(page);
         PagesContainer.Children.Add(page);
 
         return page;
     }
 
-    // 🔥 ИСПРАВЛЕНИЕ 2: Принимаем саму страницу-отправителя
-    private void OnPageOverflow(DocumentPageView senderPage, string overflowText, bool focusNextPage)
+    // ДОБАВЛЕНО: Метод, который перекидывает фокус на соседние листы
+    private void OnRequestPageChange(DocumentPageView senderPage, int direction)
     {
-        // Находим ТОЧНЫЙ индекс страницы, которая переполнилась
+        int senderIndex = _pages.IndexOf(senderPage);
+        if (senderIndex == -1) return;
+
+        int targetIndex = senderIndex + direction;
+
+        // Проверяем, существует ли соседняя страница
+        if (targetIndex >= 0 && targetIndex < _pages.Count)
+        {
+            DocumentPageView targetPage = _pages[targetIndex];
+
+            if (direction == 1) // Идем вперед (Вниз/Вправо)
+            {
+                targetPage.FocusEditor(0); // Ставим курсор в самое начало новой страницы
+            }
+            else // Идем назад (Вверх/Влево)
+            {
+                targetPage.FocusEditor(-1); // Ставим курсор в самый конец предыдущей страницы
+            }
+        }
+    }
+
+    private void OnPageOverflow(DocumentPageView senderPage, string overflowText, int caretOffset)
+    {
         int senderIndex = _pages.IndexOf(senderPage);
         if (senderIndex == -1) return;
 
         DocumentPageView targetPage;
 
-        // Если следующая страница уже существует, льем текст на неё
         if (senderIndex + 1 < _pages.Count)
         {
             targetPage = _pages[senderIndex + 1];
             string existing = targetPage.GetText();
-
-            // Аккуратная склейка текста
-            string combined = overflowText + (string.IsNullOrEmpty(existing) || existing.StartsWith(" ") || existing.StartsWith("\n") ? existing : " " + existing);
-            targetPage.SetText(combined);
+            targetPage.SetText(overflowText + existing);
         }
-        else // Если следующей страницы нет — создаем новую
+        else
         {
             targetPage = AddPage(overflowText);
             UpdatePageNumbers();
         }
 
-        // Двигаем курсор, только если текст небольшой (пользователь печатает)
-        if (focusNextPage && overflowText.Length < 1000)
+        if (caretOffset >= 0)
         {
-            targetPage.FocusEditor();
+            targetPage.FocusEditor(caretOffset);
         }
 
         SaveToSection();
@@ -104,6 +112,6 @@ public partial class SectionEditorView : UserControl
     private void SaveToSection()
     {
         if (_section is null) return;
-        _section.Content = string.Join("\n", _pages.Select(p => p.GetText()));
+        _section.Content = string.Join("", _pages.Select(p => p.GetText()));
     }
 }

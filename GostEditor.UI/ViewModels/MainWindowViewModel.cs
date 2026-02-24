@@ -50,6 +50,16 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool _isBusy;
 
     [ObservableProperty]
+    private double _zoomLevel = 1.0;
+
+    public string ZoomPercentage => $"{(int)(ZoomLevel * 100)}%";
+
+    partial void OnZoomLevelChanged(double value)
+    {
+        OnPropertyChanged(nameof(ZoomPercentage));
+    }
+
+    [ObservableProperty]
     private string _windowTitle = "GostEditor — ГОСТ 7.32-2017";
 
     public string University

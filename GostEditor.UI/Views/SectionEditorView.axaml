@@ -4,13 +4,20 @@
              Background="#F5F5F5">
 
     <ScrollViewer x:Name="EditorScrollViewer"
-                  HorizontalScrollBarVisibility="Disabled"
+                  HorizontalScrollBarVisibility="Auto"
                   VerticalScrollBarVisibility="Auto"
                   Padding="0,32,0,32">
 
-        <StackPanel x:Name="PagesContainer"
-                    HorizontalAlignment="Center"
-                    Spacing="0"/>
+        <LayoutTransformControl HorizontalAlignment="Center" x:CompileBindings="False">
+            <LayoutTransformControl.LayoutTransform>
+                <ScaleTransform ScaleX="{Binding $parent[Window].DataContext.ZoomLevel, FallbackValue=1.0}"
+                                ScaleY="{Binding $parent[Window].DataContext.ZoomLevel, FallbackValue=1.0}"/>
+            </LayoutTransformControl.LayoutTransform>
+
+            <StackPanel x:Name="PagesContainer"
+                        HorizontalAlignment="Center"
+                        Spacing="0"/>
+        </LayoutTransformControl>
 
     </ScrollViewer>
 

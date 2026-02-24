@@ -56,7 +56,6 @@
 
     <DockPanel>
 
-        <!-- Тулбар сверху -->
         <Border DockPanel.Dock="Top"
                 Background="White"
                 BorderBrush="#E0E0E0"
@@ -95,6 +94,22 @@
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
+                <Button Content="Ж"
+                        FontWeight="Bold"
+                        Classes="toolbar"
+                        Focusable="False"
+                        Click="OnBoldClick"
+                        ToolTip.Tip="Жирный текст"/>
+
+                <Button Content="К"
+                        FontStyle="Italic"
+                        Classes="toolbar"
+                        Focusable="False"
+                        Click="OnItalicClick"
+                        ToolTip.Tip="Курсив"/>
+
+                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
+
                 <Button Content="Парсить код"
                         Classes="toolbar"
                         Command="{Binding ParseCodeFolderCommand}"
@@ -108,18 +123,25 @@
             </StackPanel>
         </Border>
 
-        <!-- Статусная строка -->
         <Border DockPanel.Dock="Bottom"
                 Background="White"
                 BorderBrush="#E0E0E0"
                 BorderThickness="0,1,0,0"
                 Padding="16,5">
             <DockPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding ZoomPercentage}" Foreground="#666666" FontSize="12" VerticalAlignment="Center" Width="40" TextAlignment="Right"/>
+                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}" Width="150" VerticalAlignment="Center" TickFrequency="0.1" IsSnapToTickEnabled="True"/>
+                </StackPanel>
+
                 <ProgressBar DockPanel.Dock="Right"
                              IsVisible="{Binding IsBusy}"
                              IsIndeterminate="True"
                              Width="120" Height="3"
+                             Margin="0,0,16,0"
                              VerticalAlignment="Center"/>
+
                 <TextBlock Text="{Binding StatusMessage}"
                            Foreground="#888888"
                            FontSize="12"
@@ -127,10 +149,8 @@
             </DockPanel>
         </Border>
 
-        <!-- Основной контент -->
         <Grid ColumnDefinitions="220,1,*">
 
-            <!-- Левая панель -->
             <Border Grid.Column="0"
                     Background="White"
                     BorderBrush="#E0E0E0"
@@ -174,6 +194,7 @@
                                             Content="×"
                                             Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}"
                                             CommandParameter="{Binding}"
+                                            x:CompileBindings="False"
                                             Background="Transparent"
                                             BorderThickness="0"
                                             Foreground="#AAAAAA"
@@ -188,15 +209,12 @@
                 </DockPanel>
             </Border>
 
-            <!-- Разделитель -->
             <Border Grid.Column="1" Background="#E0E0E0"/>
 
-            <!-- Правая часть -->
             <TabControl Grid.Column="2"
                         Background="#F5F5F5"
                         BorderThickness="0">
 
-                <!-- Редактор -->
                 <TabItem Header="Редактор">
                     <Grid Background="#F5F5F5">
 
@@ -220,7 +238,6 @@
                     </Grid>
                 </TabItem>
 
-                <!-- Титульный лист -->
                 <TabItem Header="Титульный лист">
                     <ScrollViewer Background="#F5F5F5" Padding="0,32,0,32">
                         <Border Background="White"
@@ -302,7 +319,6 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <!-- Листинги кода -->
                 <TabItem Header="Листинги кода">
                     <DockPanel Background="#F5F5F5" Margin="24">
 
