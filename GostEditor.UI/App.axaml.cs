@@ -39,7 +39,7 @@ public partial class App : Application
         {
             MainWindow mainWindow = new MainWindow
             {
-                DataContext = _serviceProvider.GetRequiredService<MainViewModel>()
+                DataContext = _serviceProvider.GetRequiredService<MainWindowViewModel>()
             };
 
             desktop.MainWindow = mainWindow;
