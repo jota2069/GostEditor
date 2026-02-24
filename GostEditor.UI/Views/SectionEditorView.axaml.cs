@@ -1,5 +1,3 @@
-using Avalonia.Controls;
-using GostEditor.Core.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -24,7 +22,6 @@ public partial class SectionEditorView : UserControl
         _pages.Clear();
         PagesContainer.Children.Clear();
 
-        // Разбиваем существующий текст по страницам.
         string fullText = section.Content ?? string.Empty;
         const int maxLines = 34;
 
@@ -62,7 +59,7 @@ public partial class SectionEditorView : UserControl
         return page;
     }
 
-    private void OnPageOverflow(string overflowText)
+    private void OnPageOverflow(string overflowText, bool focusNextPage)
     {
         int overflowIndex = _pages.Count - 1;
 
@@ -75,17 +72,26 @@ public partial class SectionEditorView : UserControl
             }
         }
 
+        DocumentPageView targetPage;
+
         if (overflowIndex + 1 < _pages.Count)
         {
-            string existing = _pages[overflowIndex + 1].GetText();
-            string combined = overflowText + "\n" + existing;
-            _pages[overflowIndex + 1].SetText(combined);
+            targetPage = _pages[overflowIndex + 1];
+            string existing = targetPage.GetText();
+
+            // Защита от слипания слов
+            string combined = overflowText + (string.IsNullOrEmpty(existing) || existing.StartsWith(" ") || existing.StartsWith("\n") ? existing : " " + existing);
+            targetPage.SetText(combined);
         }
         else
         {
-            DocumentPageView newPage = AddPage(overflowText);
+            targetPage = AddPage(overflowText);
             UpdatePageNumbers();
-            newPage.FocusEditor();
+        }
+
+        if (focusNextPage)
+        {
+            targetPage.FocusEditor();
         }
 
         SaveToSection();
@@ -106,10 +112,6 @@ public partial class SectionEditorView : UserControl
             return;
         }
 
-        // Собираем текст со всех страниц.
         _section.Content = string.Join("\n", _pages.Select(p => p.GetText()));
     }
-
-
-
 }
