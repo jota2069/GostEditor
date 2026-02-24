@@ -1,8 +1,10 @@
 using System;
-using System.Text.RegularExpressions;
+using System.Collections.Generic;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
-using Avalonia.Input; // ДОБАВЛЕНО для работы с клавиатурой
+using Avalonia.Controls.Shapes;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 
@@ -10,28 +12,40 @@ namespace GostEditor.UI.Views;
 
 public partial class DocumentPageView : UserControl
 {
+    // Флаг для защиты от спама расчетами (Debouncing)
+    private bool _isUpdateQueued = false;
+
     public DocumentPageView(int pageNumber, string initialText = "")
     {
         InitializeComponent();
 
         PageNumberText.Text = pageNumber.ToString();
         PageTextBox.Text = initialText;
-        PageTextBox.TextChanged += OnTextChanged;
 
-        // ДОБАВЛЕНО: Слушаем нажатия стрелочек на клавиатуре
+        PageTextBox.TextChanged += OnTextChanged;
         PageTextBox.KeyDown += OnTextBoxKeyDown;
+
+        PageTextBox.PropertyChanged += PageTextBox_PropertyChanged;
     }
 
     public event Action<DocumentPageView, string, int>? PageOverflow;
     public event Action<string>? TextChanged;
-
-    // ДОБАВЛЕНО: Событие запроса перехода (direction: 1 = вперед, -1 = назад)
     public event Action<DocumentPageView, int>? RequestPageChange;
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
         base.OnAttachedToVisualTree(e);
         Avalonia.Threading.Dispatcher.UIThread.Post(CheckOverflow, Avalonia.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void PageTextBox_PropertyChanged(object? sender, Avalonia.AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property == TextBox.CaretIndexProperty ||
+            e.Property == TextBox.SelectionStartProperty ||
+            e.Property == TextBox.SelectionEndProperty)
+        {
+            QueueCaretAndSelectionUpdate();
+        }
     }
 
     private void OnTextChanged(object? sender, TextChangedEventArgs e)
@@ -47,38 +61,139 @@ public partial class DocumentPageView : UserControl
     private void UpdateRichText(string text)
     {
         RichTextDisplay.Inlines?.Clear();
-        if (string.IsNullOrEmpty(text)) return;
-
-        Regex regex = new Regex(@"(\*\*.*?\*\*|\*.*?\*)");
-        string[] parts = regex.Split(text);
-
-        foreach (string part in parts)
+        if (string.IsNullOrEmpty(text))
         {
-            if (string.IsNullOrEmpty(part)) continue;
+            QueueCaretAndSelectionUpdate();
+            return;
+        }
 
-            if (part.StartsWith("**") && part.EndsWith("**") && part.Length >= 4)
+        bool isBold = false;
+        bool isItalic = false;
+        System.Text.StringBuilder currentText = new System.Text.StringBuilder();
+
+        void FlushText()
+        {
+            if (currentText.Length > 0)
             {
-                RichTextDisplay.Inlines!.Add(new Run("**") { Foreground = Brushes.Transparent });
-                RichTextDisplay.Inlines!.Add(new Run(part.Substring(2, part.Length - 4))
+                RichTextDisplay.Inlines!.Add(new Run(currentText.ToString())
                 {
-                    FontWeight = FontWeight.Bold,
-                    Foreground = Brushes.Black
+                    FontWeight = isBold ? FontWeight.Bold : FontWeight.Normal,
+                    FontStyle = isItalic ? FontStyle.Italic : FontStyle.Normal,
+                    Foreground = Brushes.Black,
+                    FontFamily = PageTextBox.FontFamily,
+                    FontSize = PageTextBox.FontSize
                 });
-                RichTextDisplay.Inlines!.Add(new Run("**") { Foreground = Brushes.Transparent });
+                currentText.Clear();
             }
-            else if (part.StartsWith("*") && part.EndsWith("*") && part.Length >= 2)
+        }
+
+        foreach (char c in text)
+        {
+            if (c == '\uFEFF')
             {
-                RichTextDisplay.Inlines!.Add(new Run("*") { Foreground = Brushes.Transparent });
-                RichTextDisplay.Inlines!.Add(new Run(part.Substring(1, part.Length - 2))
+                FlushText();
+                isBold = !isBold;
+                RichTextDisplay.Inlines!.Add(new Run("\uFEFF")
                 {
-                    FontStyle = FontStyle.Italic,
-                    Foreground = Brushes.Black
+                    Foreground = Brushes.Transparent,
+                    FontFamily = PageTextBox.FontFamily,
+                    FontSize = PageTextBox.FontSize
                 });
-                RichTextDisplay.Inlines!.Add(new Run("*") { Foreground = Brushes.Transparent });
+            }
+            else if (c == '\u2060')
+            {
+                FlushText();
+                isItalic = !isItalic;
+                RichTextDisplay.Inlines!.Add(new Run("\u2060")
+                {
+                    Foreground = Brushes.Transparent,
+                    FontFamily = PageTextBox.FontFamily,
+                    FontSize = PageTextBox.FontSize
+                });
             }
             else
             {
-                RichTextDisplay.Inlines!.Add(new Run(part) { Foreground = Brushes.Black });
+                currentText.Append(c);
+            }
+        }
+
+        FlushText();
+        QueueCaretAndSelectionUpdate();
+    }
+
+    // Если прилетело 10 команд на обновление за миллисекунду, выполнится только 1!
+    private void QueueCaretAndSelectionUpdate()
+    {
+        if (_isUpdateQueued) return;
+        _isUpdateQueued = true;
+
+        Avalonia.Threading.Dispatcher.UIThread.Post(PerformCaretAndSelectionUpdate, Avalonia.Threading.DispatcherPriority.Render);
+    }
+
+    //ОПТИМИЗАЦИЯ 2: Пул объектов (Object Pooling)
+    private void PerformCaretAndSelectionUpdate()
+    {
+        _isUpdateQueued = false; // Сбрасываем флаг
+
+        TextLayout layout = RichTextDisplay.TextLayout;
+        if (layout == null) return;
+
+        string text = PageTextBox.Text ?? string.Empty;
+        int caretIndex = Math.Min(PageTextBox.CaretIndex, text.Length);
+
+        Rect hitTest = layout.HitTestTextPosition(caretIndex);
+
+        double caretHeight = hitTest.Height > 0 ? hitTest.Height : 28.0;
+
+        CustomCaret.Margin = new Thickness(hitTest.X, hitTest.Y, 0, 0);
+        CustomCaret.Height = caretHeight;
+
+        int start = PageTextBox.SelectionStart;
+        int end = PageTextBox.SelectionEnd;
+
+        if (start != end)
+        {
+            int min = Math.Min(start, end);
+            int length = Math.Abs(start - end);
+
+            IEnumerable<Rect> rects = layout.HitTestTextRange(min, length);
+            IBrush selectionBrush = Brush.Parse("#440078D7");
+
+            int rectIndex = 0;
+            foreach (Rect rect in rects)
+            {
+                Rectangle highlight;
+
+                // Переиспользуем старые квадраты вместо создания новых (БЕЗ CLEAR!)
+                if (rectIndex < SelectionCanvas.Children.Count)
+                {
+                    highlight = (Rectangle)SelectionCanvas.Children[rectIndex];
+                    highlight.IsVisible = true;
+                }
+                else
+                {
+                    highlight = new Rectangle { Fill = selectionBrush };
+                    SelectionCanvas.Children.Add(highlight);
+                }
+
+                highlight.Width = rect.Width;
+                highlight.Height = rect.Height;
+                highlight.Margin = new Thickness(rect.X, rect.Y, 0, 0);
+                rectIndex++;
+            }
+
+            // Прячем лишние квадраты, которые остались от прошлого выделения
+            for (int i = rectIndex; i < SelectionCanvas.Children.Count; i++)
+            {
+                SelectionCanvas.Children[i].IsVisible = false;
+            }
+        }
+        else
+        {
+            // Если ничего не выделено - просто прячем все квадраты
+            foreach (Control child in SelectionCanvas.Children)
+            {
+                child.IsVisible = false;
             }
         }
     }
@@ -86,31 +201,18 @@ public partial class DocumentPageView : UserControl
     private void CheckOverflow()
     {
         const double maxHeight = 952;
-        double width = PageTextBox.Bounds.Width > 0 ? PageTextBox.Bounds.Width : 643;
 
-        string text = PageTextBox.Text ?? string.Empty;
-        if (string.IsNullOrEmpty(text)) return;
-
-        TextLayout textLayout = new TextLayout(
-            text: text,
-            typeface: new Typeface(PageTextBox.FontFamily),
-            fontSize: PageTextBox.FontSize,
-            foreground: null,
-            textAlignment: TextAlignment.Left,
-            textWrapping: TextWrapping.Wrap,
-            maxWidth: width,
-            maxHeight: double.PositiveInfinity,
-            lineHeight: 28.0);
-
-        if (textLayout.Height <= maxHeight) return;
+        TextLayout layout = RichTextDisplay.TextLayout;
+        if (layout == null || layout.Height <= maxHeight) return;
 
         PageTextBox.TextChanged -= OnTextChanged;
         int originalCaret = PageTextBox.CaretIndex;
+        string text = PageTextBox.Text ?? string.Empty;
 
         double currentHeight = 0;
         int splitIndex = 0;
 
-        foreach (TextLine line in textLayout.TextLines)
+        foreach (TextLine line in layout.TextLines)
         {
             double lineHeight = line.Height < 28 ? 28 : line.Height;
             if (currentHeight + lineHeight > maxHeight) break;
@@ -148,21 +250,28 @@ public partial class DocumentPageView : UserControl
         }
     }
 
-    // ДОБАВЛЕНО: Логика перехода между страницами по стрелочкам
     private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
     {
-        int length = PageTextBox.Text?.Length ?? 0;
+        string currentText = PageTextBox.Text ?? string.Empty;
+        int length = currentText.Length;
 
-        // Если нажали Вниз или Вправо, находясь в самом конце текста
-        if (e.Key == Key.Down || e.Key == Key.Right)
+        if (e.Key == Key.Right)
         {
             if (PageTextBox.CaretIndex >= length)
             {
                 RequestPageChange?.Invoke(this, 1);
-                e.Handled = true; // Глушим стандартное поведение
+                e.Handled = true;
             }
         }
-        // Если нажали Вверх или Влево, находясь в самом начале текста
+        else if (e.Key == Key.Down)
+        {
+            if (currentText.IndexOf('\n', PageTextBox.CaretIndex) == -1 &&
+                PageTextBox.CaretIndex >= length - 60)
+            {
+                RequestPageChange?.Invoke(this, 1);
+                e.Handled = true;
+            }
+        }
         else if (e.Key == Key.Up || e.Key == Key.Left)
         {
             if (PageTextBox.CaretIndex <= 0)

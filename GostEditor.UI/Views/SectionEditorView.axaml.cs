@@ -22,7 +22,9 @@ public partial class SectionEditorView : UserControl
         _pages.Clear();
         PagesContainer.Children.Clear();
 
+        // Грузим 100% чистый текст без извращений с Replace
         string fullText = section.Content ?? string.Empty;
+
         if (string.IsNullOrEmpty(fullText))
         {
             AddPage("");
@@ -40,8 +42,6 @@ public partial class SectionEditorView : UserControl
 
         page.PageOverflow += OnPageOverflow;
         page.TextChanged += _ => SaveToSection();
-
-        // ДОБАВЛЕНО: Подписываемся на запросы перехода по стрелочкам
         page.RequestPageChange += OnRequestPageChange;
 
         _pages.Add(page);
@@ -50,7 +50,6 @@ public partial class SectionEditorView : UserControl
         return page;
     }
 
-    // ДОБАВЛЕНО: Метод, который перекидывает фокус на соседние листы
     private void OnRequestPageChange(DocumentPageView senderPage, int direction)
     {
         int senderIndex = _pages.IndexOf(senderPage);
@@ -58,18 +57,17 @@ public partial class SectionEditorView : UserControl
 
         int targetIndex = senderIndex + direction;
 
-        // Проверяем, существует ли соседняя страница
         if (targetIndex >= 0 && targetIndex < _pages.Count)
         {
             DocumentPageView targetPage = _pages[targetIndex];
 
-            if (direction == 1) // Идем вперед (Вниз/Вправо)
+            if (direction == 1)
             {
-                targetPage.FocusEditor(0); // Ставим курсор в самое начало новой страницы
+                targetPage.FocusEditor(0);
             }
-            else // Идем назад (Вверх/Влево)
+            else
             {
-                targetPage.FocusEditor(-1); // Ставим курсор в самый конец предыдущей страницы
+                targetPage.FocusEditor(-1);
             }
         }
     }

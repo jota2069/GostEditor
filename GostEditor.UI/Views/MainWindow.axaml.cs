@@ -1,6 +1,5 @@
 using System;
 using Avalonia.Controls;
-using GostEditor.UI.ViewModels;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 
@@ -11,32 +10,27 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        DataContextChanged += OnDataContextChanged;
+        AddHandler(PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
     }
 
-    private void OnDataContextChanged(object? sender, EventArgs e)
+    protected override void OnDataContextChanged(EventArgs e)
     {
-        if (DataContext is MainWindowViewModel viewModel)
-        {
-            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        base.OnDataContextChanged(e);
 
-            // Если раздел уже выбран при загрузке — загружаем сразу.
-            if (viewModel.SelectedSection is not null)
+        if (DataContext is GostEditor.UI.ViewModels.MainWindowViewModel vm)
+        {
+            vm.PropertyChanged += (sender, args) =>
             {
-                SectionEditor.LoadSection(viewModel.SelectedSection);
-            }
-        }
-    }
+                if (args.PropertyName == nameof(vm.SelectedSection))
+                {
+                    if (vm.SelectedSection != null)
+                    {
+                        SectionEditor.LoadSection(vm.SelectedSection);
+                    }
+                }
+            };
 
-    private void OnViewModelPropertyChanged(
-        object? sender,
-        System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(MainWindowViewModel.SelectedSection))
-        {
-            MainWindowViewModel? vm = DataContext as MainWindowViewModel;
-
-            if (vm?.SelectedSection is not null)
+            if (vm.SelectedSection != null)
             {
                 SectionEditor.LoadSection(vm.SelectedSection);
             }
@@ -45,30 +39,27 @@ public partial class MainWindow : Window
 
     private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        WrapSelectedText("**", "**");
+        // \uFEFF - невидимый 0-пиксельный маркер жирного
+        WrapSelectedText("\uFEFF");
     }
 
     private void OnItalicClick(object? sender, RoutedEventArgs e)
     {
-        WrapSelectedText("*", "*");
+        // \u2060 - невидимый 0-пиксельный маркер курсива
+        WrapSelectedText("\u2060");
     }
 
-    private void WrapSelectedText(string prefix, string suffix)
+    private void WrapSelectedText(string marker)
     {
-        // ИСПРАВЛЕНИЕ: Используем интерфейс IFocusManager
         IFocusManager? focusManager = TopLevel.GetTopLevel(this)?.FocusManager;
         IInputElement? focusedElement = focusManager?.GetFocusedElement();
 
-        // Проверяем, что курсор сейчас стоит именно в нашем текстовом поле на листе А4
         if (focusedElement is TextBox textBox && textBox.Name == "PageTextBox")
         {
             string text = textBox.Text ?? string.Empty;
             int start = textBox.SelectionStart;
             int end = textBox.SelectionEnd;
 
-            if (start == end) return; // Если ничего не выделено - выходим
-
-            // Если пользователь выделял текст мышкой справа налево (индексы перепутаны)
             if (start > end)
             {
                 int temp = start;
@@ -76,15 +67,62 @@ public partial class MainWindow : Window
                 end = temp;
             }
 
-            string selected = text.Substring(start, end - start);
-            string newText = text.Remove(start, end - start).Insert(start, $"{prefix}{selected}{suffix}");
-
-            textBox.Text = newText;
-
-            // Возвращаем выделение обратно, чтобы пользователь видел результат
-            textBox.SelectionStart = start;
-            textBox.SelectionEnd = start + selected.Length + prefix.Length + suffix.Length;
+            if (start == end)
+            {
+                // Если ничего не выделено - вставляем пустые рамки и ставим курсор внутрь!
+                string newText = text.Insert(start, $"{marker}{marker}");
+                textBox.Text = newText;
+                textBox.CaretIndex = start + marker.Length;
+                textBox.Focus();
+            }
+            else
+            {
+                // Если текст выделен - оборачиваем его
+                string selected = text.Substring(start, end - start);
+                string newText = text.Remove(start, end - start).Insert(start, $"{marker}{selected}{marker}");
+                textBox.Text = newText;
+                textBox.SelectionStart = start;
+                textBox.SelectionEnd = start + selected.Length + marker.Length * 2;
+                textBox.Focus();
+            }
         }
     }
 
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+
+        if ((e.KeyModifiers & KeyModifiers.Control) != 0)
+        {
+            if (e.Key == Key.B)
+            {
+                WrapSelectedText("\uFEFF");
+                e.Handled = true;
+            }
+            else if (e.Key == Key.I)
+            {
+                WrapSelectedText("\u2060");
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void OnWindowPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        if ((e.KeyModifiers & KeyModifiers.Control) != 0)
+        {
+            if (DataContext is GostEditor.UI.ViewModels.MainWindowViewModel vm)
+            {
+                double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
+                double newZoom = Math.Round(vm.ZoomLevel + delta, 1);
+
+                if (newZoom >= 0.5 && newZoom <= 2.0)
+                {
+                    vm.ZoomLevel = newZoom;
+                }
+
+                e.Handled = true;
+            }
+        }
+    }
 }
