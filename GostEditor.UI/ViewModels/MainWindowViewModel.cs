@@ -1,64 +1,56 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.UI.Services;
-using System.Collections.Generic;
 
 namespace GostEditor.UI.ViewModels;
 
-/// <summary>
-/// Главная ViewModel приложения. Связывает UI с сервисами Core.
-/// </summary>
 public partial class MainWindowViewModel : ViewModelBase
 {
-    // Сервисы из Core — инжектируются через конструктор.
     private readonly IDocumentService _documentService;
     private readonly IExportService _exportService;
     private readonly ICodeParserService _codeParserService;
     private readonly ITextNormalizerService _textNormalizerService;
-
-    // Диалоговый сервис — только в UI, Core о нём не знает.
+    private readonly IValidationService _validationService;
     private readonly DialogService _dialogService;
 
-    // ─── Свойства, связанные с документом ───────────────────────────────────
+    // Путь к текущему открытому файлу.
+    private string? _currentFilePath;
 
-    /// <summary>
-    /// Текущий открытый документ.
-    /// </summary>
+    // Таймер автосохранения.
+    private System.Threading.Timer? _autoSaveTimer;
+
     [ObservableProperty]
     private GostDocument _currentDocument = new GostDocument();
 
-    /// <summary>
-    /// Флаг: есть ли несохранённые изменения.
-    /// </summary>
     [ObservableProperty]
-    private bool _hasUnsavedChanges = false;
+    private ObservableCollection<DocumentSection> _sections =
+        new ObservableCollection<DocumentSection>();
 
-    /// <summary>
-    /// Текст статусной строки внизу окна.
-    /// </summary>
+    [ObservableProperty]
+    private DocumentSection? _selectedSection;
+
+    [ObservableProperty]
+    private ObservableCollection<CodeListing> _codeListings =
+        new ObservableCollection<CodeListing>();
+
+    [ObservableProperty]
+    private bool _hasUnsavedChanges;
+
     [ObservableProperty]
     private string _statusMessage = "Готово.";
 
-    /// <summary>
-    /// Флаг: выполняется ли долгая операция (блокирует кнопки).
-    /// </summary>
     [ObservableProperty]
-    private bool _isBusy = false;
+    private bool _isBusy;
 
-    /// <summary>
-    /// Коллекция листингов кода для отображения в списке.
-    /// При парсинге папки сюда попадают все найденные файлы.
-    /// </summary>
     [ObservableProperty]
-    private ObservableCollection<CodeListing> _codeListings = new ObservableCollection<CodeListing>();
-
-    // ─── Свойства титульного листа (прокси к CurrentDocument.TitlePage) ─────
-    // Биндим отдельно, чтобы поля формы работали без доп. конвертеров.
+    private string _windowTitle = "GostEditor — ГОСТ 7.32-2017";
 
     public string University
     {
@@ -70,6 +62,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.University = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
@@ -84,6 +77,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.Department = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
@@ -98,6 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.WorkTitle = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
@@ -112,6 +107,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.StudentName = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
@@ -126,6 +122,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.GroupNumber = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
@@ -140,47 +137,74 @@ public partial class MainWindowViewModel : ViewModelBase
                 CurrentDocument.TitlePage.TeacherName = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
+                UpdateWindowTitle();
             }
         }
     }
-
-    // ─── Конструктор ────────────────────────────────────────────────────────
 
     public MainWindowViewModel(
         IDocumentService documentService,
         IExportService exportService,
         ICodeParserService codeParserService,
         ITextNormalizerService textNormalizerService,
+        IValidationService validationService,
         DialogService dialogService)
     {
         _documentService = documentService;
         _exportService = exportService;
         _codeParserService = codeParserService;
         _textNormalizerService = textNormalizerService;
+        _validationService = validationService;
         _dialogService = dialogService;
+
+        // Автосохранение каждые 3 минуты.
+        _autoSaveTimer = new System.Threading.Timer(
+            callback: _ => AutoSave(),
+            state: null,
+            dueTime: TimeSpan.FromMinutes(3),
+            period: TimeSpan.FromMinutes(3));
     }
 
-    // ─── Команды ────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Создать новый пустой документ.
-    /// </summary>
     [RelayCommand]
     private void NewDocument()
     {
-        // IDocumentService.CreateNew() — синхронный, просто возвращает новый GostDocument.
         CurrentDocument = _documentService.CreateNew();
         CodeListings.Clear();
+        Sections.Clear();
+        SelectedSection = null;
+        _currentFilePath = null;
         HasUnsavedChanges = false;
         StatusMessage = "Создан новый документ.";
-
-        // Уведомляем UI об обновлении всех прокси-свойств титульного листа.
         RefreshTitlePageBindings();
+        UpdateWindowTitle();
     }
 
-    /// <summary>
-    /// Сохранить текущий документ в файл .gost.
-    /// </summary>
+    [RelayCommand]
+    private void AddSection()
+    {
+        DocumentSection section = new DocumentSection
+        {
+            Title = $"Раздел {Sections.Count + 1}",
+            Order = Sections.Count
+        };
+
+        Sections.Add(section);
+        CurrentDocument.Sections.Add(section);
+        SelectedSection = section;
+        HasUnsavedChanges = true;
+        UpdateWindowTitle();
+    }
+
+    [RelayCommand]
+    private void DeleteSection(DocumentSection section)
+    {
+        Sections.Remove(section);
+        CurrentDocument.Sections.Remove(section);
+        SelectedSection = Sections.Count > 0 ? Sections[0] : null;
+        HasUnsavedChanges = true;
+        UpdateWindowTitle();
+    }
+
     [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveDocumentAsync()
     {
@@ -199,10 +223,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // DocumentService.SaveAsync() — пакует JSON + картинки в ZIP-архив .gost.
             await _documentService.SaveAsync(CurrentDocument, filePath);
+            _currentFilePath = filePath;
             HasUnsavedChanges = false;
             StatusMessage = $"Сохранено: {filePath}";
+            UpdateWindowTitle();
         }
         catch (Exception ex)
         {
@@ -219,9 +244,6 @@ public partial class MainWindowViewModel : ViewModelBase
         return !IsBusy;
     }
 
-    /// <summary>
-    /// Открыть существующий документ из файла .gost.
-    /// </summary>
     [RelayCommand(CanExecute = nameof(CanLoad))]
     private async Task LoadDocumentAsync()
     {
@@ -239,20 +261,26 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // DocumentService.LoadAsync() — распаковывает ZIP, десериализует JSON,
-            // восстанавливает байты картинок из entries архива.
             CurrentDocument = await _documentService.LoadAsync(filePath);
 
-            // Синхронизируем ObservableCollection с загруженными листингами.
+            Sections.Clear();
+            foreach (DocumentSection section in CurrentDocument.Sections)
+            {
+                Sections.Add(section);
+            }
+
             CodeListings.Clear();
             foreach (CodeListing listing in CurrentDocument.CodeListings)
             {
                 CodeListings.Add(listing);
             }
 
+            SelectedSection = Sections.Count > 0 ? Sections[0] : null;
+            _currentFilePath = filePath;
             HasUnsavedChanges = false;
             StatusMessage = $"Открыт: {filePath}";
             RefreshTitlePageBindings();
+            UpdateWindowTitle();
         }
         catch (Exception ex)
         {
@@ -269,12 +297,19 @@ public partial class MainWindowViewModel : ViewModelBase
         return !IsBusy;
     }
 
-    /// <summary>
-    /// Экспортировать документ в Word (.docx) по ГОСТ 7.32.
-    /// </summary>
     [RelayCommand(CanExecute = nameof(CanExport))]
     private async Task ExportToDocxAsync()
     {
+        List<string> errors = _validationService.Validate(CurrentDocument);
+
+        if (errors.Count > 0)
+        {
+            string errorText = string.Join("\n", errors.Select(e => $"• {e}"));
+            StatusMessage = $"Ошибки: {errors.Count}. Исправьте перед экспортом.";
+            await _dialogService.ShowMessageAsync("Документ не готов к экспорту", errorText);
+            return;
+        }
+
         string? outputPath = await _dialogService.ShowSaveFileDialogAsync(
             title: "Экспорт в Word",
             defaultExtension: "docx",
@@ -290,8 +325,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // ExportService.ExportToDocxAsync() — строит .docx через Xceed,
-            // применяет все правила ГОСТ 7.32-2017: шрифты, отступы, листинги.
             await _exportService.ExportToDocxAsync(CurrentDocument, outputPath);
             StatusMessage = $"Экспортировано: {outputPath}";
         }
@@ -310,9 +343,6 @@ public partial class MainWindowViewModel : ViewModelBase
         return !IsBusy;
     }
 
-    /// <summary>
-    /// Выбрать папку с исходным кодом и распарсить все файлы.
-    /// </summary>
     [RelayCommand(CanExecute = nameof(CanParseCode))]
     private async Task ParseCodeFolderAsync()
     {
@@ -329,8 +359,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            // CodeParserService.ParseDirectoryAsync() — рекурсивно обходит папку,
-            // находит .cs/.py/.js и т.д., очищает мусор (using, #pragma), возвращает список.
             IReadOnlyList<CodeListing> parsed =
                 await _codeParserService.ParseDirectoryAsync(folderPath);
 
@@ -345,6 +373,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             HasUnsavedChanges = true;
             StatusMessage = $"Найдено файлов: {parsed.Count.ToString()}";
+            UpdateWindowTitle();
         }
         catch (Exception ex)
         {
@@ -361,10 +390,6 @@ public partial class MainWindowViewModel : ViewModelBase
         return !IsBusy;
     }
 
-    /// <summary>
-    /// Нормализовать текст из буфера обмена и вставить в нужное поле.
-    /// Вызывается вручную — пользователь вставляет "грязный" текст с мусорными символами.
-    /// </summary>
     [RelayCommand]
     private async Task PasteNormalizedAsync()
     {
@@ -376,20 +401,44 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        // TextNormalizerService.Normalize() — убирает мягкие дефисы, NBSP,
-        // нулевые символы, нормализует переносы строк, trim каждой строки.
         string normalized = _textNormalizerService.Normalize(clipboardText);
-
         await _dialogService.SetClipboardTextAsync(normalized);
         StatusMessage = "Текст нормализован и скопирован в буфер.";
     }
 
-    // ─── Вспомогательные методы ─────────────────────────────────────────────
+    private void AutoSave()
+    {
+        if (!HasUnsavedChanges || _currentFilePath is null)
+        {
+            return;
+        }
 
-    /// <summary>
-    /// Уведомляет Avalonia об обновлении всех прокси-свойств титульного листа.
-    /// Вызывается после загрузки или создания нового документа.
-    /// </summary>
+        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
+        {
+            try
+            {
+                await _documentService.SaveAsync(CurrentDocument, _currentFilePath);
+                HasUnsavedChanges = false;
+                StatusMessage = $"Автосохранено: {DateTime.Now:HH:mm}";
+                UpdateWindowTitle();
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"Ошибка автосохранения: {ex.Message}";
+            }
+        });
+    }
+
+    private void UpdateWindowTitle()
+    {
+        string fileName = _currentFilePath is not null
+            ? System.IO.Path.GetFileName(_currentFilePath)
+            : "Новый документ";
+
+        string unsaved = HasUnsavedChanges ? " *" : "";
+        WindowTitle = $"{fileName}{unsaved} — GostEditor";
+    }
+
     private void RefreshTitlePageBindings()
     {
         OnPropertyChanged(nameof(University));

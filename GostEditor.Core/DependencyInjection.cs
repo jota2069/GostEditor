@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddSingleton<ICodeParserService, CodeParserService>();
         services.AddSingleton<IDocumentService, DocumentService>();
         services.AddSingleton<IExportService, ExportService>();
+        services.AddSingleton<IValidationService, ValidationService>();
         return services;
     }
 }

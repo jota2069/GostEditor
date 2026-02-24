@@ -1,9 +1,55 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="GostEditor.UI.Views.DocumentPageView">
-    Welcome to Avalonia!
-</UserControl>
 
+    <!-- Тень и отступ между страницами -->
+    <Border Margin="0,0,0,32"
+            HorizontalAlignment="Center">
+
+        <!-- Страница A4: 794x1123px при 96dpi -->
+        <Border Background="White"
+                BorderBrush="#BBBBBB"
+                BorderThickness="1"
+                Width="794"
+                Height="1123"
+                BoxShadow="0 4 16 0 #33000000">
+
+            <!-- Поля ГОСТ: лево 113px(3см), право 38px(1см), верх 76px(2см), низ 76px(2см) -->
+            <Grid RowDefinitions="76,*,40">
+
+                <!-- Верхнее поле — пустое -->
+                <Border Grid.Row="0"/>
+
+                <!-- Рабочая область с левым и правым полем -->
+                <Grid Grid.Row="1" ColumnDefinitions="113,*,38">
+                    <TextBox Grid.Column="1"
+                             x:Name="PageTextBox"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             Background="White"
+                             BorderThickness="0"
+                             FontFamily="Times New Roman"
+                             FontSize="18.67"
+                             Foreground="#111111"
+                             VerticalContentAlignment="Top"
+                             Padding="0"
+                             LineHeight="28"/>
+                </Grid>
+
+                <!-- Нижнее поле — номер страницы -->
+                <Grid Grid.Row="2" ColumnDefinitions="113,*,38">
+                    <TextBlock Grid.Column="1"
+                               x:Name="PageNumberText"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               FontFamily="Times New Roman"
+                               FontSize="18.67"
+                               Foreground="#111111"/>
+                </Grid>
+
+            </Grid>
+
+        </Border>
+    </Border>
+
+</UserControl>

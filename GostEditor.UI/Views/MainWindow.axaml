@@ -1,109 +1,366 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:GostEditor.UI.ViewModels"
+        xmlns:models="using:GostEditor.Core.Models"
+        xmlns:views="using:GostEditor.UI.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        mc:Ignorable="d"
         x:Class="GostEditor.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
-        Title="GostEditor — ГОСТ 7.32-2017"
-        MinWidth="800" MinHeight="500">
+        Title="{Binding WindowTitle}"
+        MinWidth="1000" MinHeight="650"
+        Background="#F5F5F5">
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+    <Window.Styles>
+
+        <Style Selector="Button.toolbar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.toolbar:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EBEBEB"/>
+        </Style>
+
+        <Style Selector="Button.accent">
+            <Setter Property="Background" Value="#2B579A"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1E3F7A"/>
+        </Style>
+
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#DDEAFF"/>
+        </Style>
+        <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#EEEEEE"/>
+        </Style>
+
+    </Window.Styles>
 
     <DockPanel>
 
-        <!-- Панель кнопок сверху -->
-        <StackPanel DockPanel.Dock="Top"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    Margin="12,10">
+        <!-- Тулбар сверху -->
+        <Border DockPanel.Dock="Top"
+                Background="White"
+                BorderBrush="#E0E0E0"
+                BorderThickness="0,0,0,1"
+                Padding="12,8">
+            <StackPanel Orientation="Horizontal" Spacing="6">
 
-            <Button Content="Новый"
-                    Command="{Binding NewDocumentCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-            <Button Content="Открыть"
-                    Command="{Binding LoadDocumentCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-            <Button Content="Сохранить"
-                    Command="{Binding SaveDocumentCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-            <Button Content="Экспорт в DOCX"
-                    Command="{Binding ExportToDocxCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-            <Button Content="Парсить код"
-                    Command="{Binding ParseCodeFolderCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-            <Button Content="Вставить нормализованный"
-                    Command="{Binding PasteNormalizedCommand}"
-                    IsEnabled="{Binding !IsBusy}"/>
-
-        </StackPanel>
-
-        <!-- Статусная строка снизу -->
-        <TextBlock DockPanel.Dock="Bottom"
-                   Text="{Binding StatusMessage}"
-                   Margin="12,6"
-                   FontSize="12"
-                   Opacity="0.7"/>
-
-        <!-- Основной контент -->
-        <ScrollViewer>
-            <StackPanel Margin="12,0,12,12" Spacing="10">
-
-                <!-- Титульный лист -->
-                <TextBlock Text="Титульный лист"
-                           FontSize="16"
+                <TextBlock Text="GostEditor"
+                           FontSize="15"
                            FontWeight="Bold"
-                           Margin="0,8,0,4"/>
+                           Foreground="#2B579A"
+                           VerticalAlignment="Center"
+                           Margin="0,0,16,0"/>
 
-                <TextBox Watermark="Университет"
-                         Text="{Binding University}"/>
+                <Button Content="Новый"
+                        Classes="toolbar"
+                        Command="{Binding NewDocumentCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
-                <TextBox Watermark="Кафедра"
-                         Text="{Binding Department}"/>
+                <Button Content="Открыть"
+                        Classes="toolbar"
+                        Command="{Binding LoadDocumentCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
-                <TextBox Watermark="Название работы"
-                         Text="{Binding WorkTitle}"/>
+                <Button Content="Сохранить"
+                        Classes="toolbar"
+                        Command="{Binding SaveDocumentCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
-                <TextBox Watermark="ФИО студента"
-                         Text="{Binding StudentName}"/>
+                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <TextBox Watermark="Номер группы"
-                         Text="{Binding GroupNumber}"/>
+                <Button Content="Экспорт в DOCX"
+                        Classes="accent"
+                        Command="{Binding ExportToDocxCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
-                <TextBox Watermark="ФИО преподавателя"
-                         Text="{Binding TeacherName}"/>
+                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <!-- Листинги кода -->
-                <TextBlock Text="Файлы кода"
-                           FontSize="16"
-                           FontWeight="Bold"
-                           Margin="0,12,0,4"/>
+                <Button Content="Парсить код"
+                        Classes="toolbar"
+                        Command="{Binding ParseCodeFolderCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
-                <ListBox ItemsSource="{Binding CodeListings}"
-                         MaxHeight="200">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <CheckBox IsChecked="{Binding IsSelected}"/>
-                                <TextBlock Text="{Binding RelativePath}"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Button Content="Вставить текст"
+                        Classes="toolbar"
+                        Command="{Binding PasteNormalizedCommand}"
+                        IsEnabled="{Binding !IsBusy}"/>
 
             </StackPanel>
-        </ScrollViewer>
+        </Border>
+
+        <!-- Статусная строка -->
+        <Border DockPanel.Dock="Bottom"
+                Background="White"
+                BorderBrush="#E0E0E0"
+                BorderThickness="0,1,0,0"
+                Padding="16,5">
+            <DockPanel>
+                <ProgressBar DockPanel.Dock="Right"
+                             IsVisible="{Binding IsBusy}"
+                             IsIndeterminate="True"
+                             Width="120" Height="3"
+                             VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding StatusMessage}"
+                           Foreground="#888888"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Основной контент -->
+        <Grid ColumnDefinitions="220,1,*">
+
+            <!-- Левая панель -->
+            <Border Grid.Column="0"
+                    Background="White"
+                    BorderBrush="#E0E0E0"
+                    BorderThickness="0,0,1,0">
+                <DockPanel>
+
+                    <Border DockPanel.Dock="Top"
+                            Padding="12,10"
+                            BorderBrush="#F0F0F0"
+                            BorderThickness="0,0,0,1">
+                        <TextBlock Text="СОДЕРЖАНИЕ"
+                                   Foreground="#AAAAAA"
+                                   FontSize="10"
+                                   FontWeight="Bold"/>
+                    </Border>
+
+                    <Button DockPanel.Dock="Bottom"
+                            Content="+ Новый раздел"
+                            Classes="toolbar"
+                            Command="{Binding AddSectionCommand}"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Center"
+                            Margin="8" Padding="8,6"/>
+
+                    <ListBox ItemsSource="{Binding Sections}"
+                             SelectedItem="{Binding SelectedSection}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Margin="6,4">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:DocumentSection">
+                                <Grid ColumnDefinitions="*,Auto">
+
+                                    <TextBlock Grid.Column="0"
+                                               Text="{Binding Title}"
+                                               Foreground="#333333"
+                                               FontSize="13"
+                                               VerticalAlignment="Center"/>
+
+                                    <Button Grid.Column="1"
+                                            Content="×"
+                                            Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Foreground="#AAAAAA"
+                                            FontSize="16"
+                                            Padding="4,0"
+                                            VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                </DockPanel>
+            </Border>
+
+            <!-- Разделитель -->
+            <Border Grid.Column="1" Background="#E0E0E0"/>
+
+            <!-- Правая часть -->
+            <TabControl Grid.Column="2"
+                        Background="#F5F5F5"
+                        BorderThickness="0">
+
+                <!-- Редактор -->
+                <TabItem Header="Редактор">
+                    <Grid Background="#F5F5F5">
+
+                        <StackPanel IsVisible="{Binding SelectedSection, Converter={x:Static ObjectConverters.IsNull}}"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="8">
+                            <TextBlock Text="Выберите раздел слева"
+                                       Foreground="#BBBBBB"
+                                       FontSize="16"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock Text="или создайте новый"
+                                       Foreground="#CCCCCC"
+                                       FontSize="13"
+                                       HorizontalAlignment="Center"/>
+                        </StackPanel>
+
+                        <views:SectionEditorView x:Name="SectionEditor"
+                                                 IsVisible="{Binding SelectedSection, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+
+                    </Grid>
+                </TabItem>
+
+                <!-- Титульный лист -->
+                <TabItem Header="Титульный лист">
+                    <ScrollViewer Background="#F5F5F5" Padding="0,32,0,32">
+                        <Border Background="White"
+                                BorderBrush="#CCCCCC"
+                                BorderThickness="1"
+                                Width="600"
+                                HorizontalAlignment="Center"
+                                Padding="48">
+                            <StackPanel Spacing="14">
+
+                                <TextBlock Text="Титульный лист"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="#1A1A1A"
+                                           Margin="0,0,0,8"/>
+
+                                <TextBlock Text="Университет" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding University}"
+                                         Watermark="Название университета"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                                <TextBlock Text="Кафедра" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding Department}"
+                                         Watermark="Название кафедры"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                                <TextBlock Text="Название работы" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding WorkTitle}"
+                                         Watermark="Тема лабораторной работы"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                                <TextBlock Text="ФИО студента" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding StudentName}"
+                                         Watermark="Иванов Иван Иванович"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                                <TextBlock Text="Номер группы" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding GroupNumber}"
+                                         Watermark="ИВТ-21"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                                <TextBlock Text="ФИО преподавателя" Foreground="#999999" FontSize="11"/>
+                                <TextBox Text="{Binding TeacherName}"
+                                         Watermark="Петров Пётр Петрович"
+                                         Background="White"
+                                         Foreground="#111111"
+                                         BorderBrush="#CCCCCC"
+                                         BorderThickness="1"
+                                         Padding="10,7"
+                                         CornerRadius="4"/>
+
+                            </StackPanel>
+                        </Border>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- Листинги кода -->
+                <TabItem Header="Листинги кода">
+                    <DockPanel Background="#F5F5F5" Margin="24">
+
+                        <Border DockPanel.Dock="Top"
+                                Background="White"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="16,12"
+                                Margin="0,0,0,16">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right"
+                                        Content="Выбрать папку"
+                                        Classes="accent"
+                                        Command="{Binding ParseCodeFolderCommand}"
+                                        IsEnabled="{Binding !IsBusy}"/>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="Исходный код"
+                                               FontWeight="SemiBold"
+                                               FontSize="14"
+                                               Foreground="#1A1A1A"/>
+                                    <TextBlock Text="Выберите папку с проектом"
+                                               FontSize="12"
+                                               Foreground="#888888"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border Background="White"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="6">
+                            <ListBox ItemsSource="{Binding CodeListings}"
+                                     Background="Transparent"
+                                     BorderThickness="0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="models:CodeListing">
+                                        <StackPanel Orientation="Horizontal"
+                                                    Spacing="10"
+                                                    Margin="4,2">
+                                            <CheckBox IsChecked="{Binding IsSelected}"/>
+                                            <TextBlock Text="{Binding RelativePath}"
+                                                       Foreground="#333333"
+                                                       VerticalAlignment="Center"
+                                                       FontFamily="Consolas, monospace"
+                                                       FontSize="13"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
+
+                    </DockPanel>
+                </TabItem>
+
+            </TabControl>
+
+        </Grid>
 
     </DockPanel>
 

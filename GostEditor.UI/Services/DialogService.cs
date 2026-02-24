@@ -1,18 +1,18 @@
-﻿using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Input.Platform;
+using Avalonia.Input;
 
 namespace GostEditor.UI.Services;
 
-/// <summary>
-/// Сервис для работы с диалогами ОС: открытие файлов, папок, сохранение, буфер обмена.
-/// Core об этом сервисе ничего не знает — он живёт только в UI слое.
-/// </summary>
 public sealed class DialogService
 {
-    // Получаем главное окно через IClassicDesktopStyleApplicationLifetime.
     private Window? GetMainWindow()
     {
         IClassicDesktopStyleApplicationLifetime? desktop =
@@ -22,10 +22,6 @@ public sealed class DialogService
         return desktop?.MainWindow;
     }
 
-    /// <summary>
-    /// Показывает диалог открытия файла.
-    /// Возвращает путь или null если пользователь отменил.
-    /// </summary>
     public async Task<string?> ShowOpenFileDialogAsync(string title, string filter)
     {
         Window? window = GetMainWindow();
@@ -53,10 +49,6 @@ public sealed class DialogService
         return files[0].Path.LocalPath;
     }
 
-    /// <summary>
-    /// Показывает диалог сохранения файла.
-    /// Возвращает путь или null если пользователь отменил.
-    /// </summary>
     public async Task<string?> ShowSaveFileDialogAsync(
         string title,
         string defaultExtension,
@@ -81,10 +73,6 @@ public sealed class DialogService
         return file?.Path.LocalPath;
     }
 
-    /// <summary>
-    /// Показывает диалог выбора папки.
-    /// Возвращает путь или null если пользователь отменил.
-    /// </summary>
     public async Task<string?> ShowOpenFolderDialogAsync(string title)
     {
         Window? window = GetMainWindow();
@@ -111,9 +99,6 @@ public sealed class DialogService
         return folders[0].Path.LocalPath;
     }
 
-    /// <summary>
-    /// Получить текст из буфера обмена.
-    /// </summary>
     public async Task<string?> GetClipboardTextAsync()
     {
         Window? window = GetMainWindow();
@@ -123,12 +108,9 @@ public sealed class DialogService
             return null;
         }
 
-        return await window.Clipboard.GetTextAsync();
+        return await window.Clipboard.TryGetTextAsync();
     }
 
-    /// <summary>
-    /// Установить текст в буфер обмена.
-    /// </summary>
     public async Task SetClipboardTextAsync(string text)
     {
         Window? window = GetMainWindow();
@@ -141,14 +123,65 @@ public sealed class DialogService
         await window.Clipboard.SetTextAsync(text);
     }
 
-    /// <summary>
-    /// Парсит строку фильтра формата "Описание (*.ext)|*.ext" в список FilePickerFileType.
-    /// </summary>
-    private System.Collections.Generic.List<FilePickerFileType> ParseFilter(string filter)
+    public async Task ShowMessageAsync(string title, string message)
     {
-        System.Collections.Generic.List<FilePickerFileType> result =
-            new System.Collections.Generic.List<FilePickerFileType>();
+        Window? window = GetMainWindow();
 
+        if (window is null)
+        {
+            return;
+        }
+
+        Window dialog = new Window
+        {
+            Title = title,
+            Width = 420,
+            Height = 300,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Background = Brushes.White,
+            CanResize = false
+        };
+
+        Button okButton = new Button
+        {
+            Content = "Понятно",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Padding = new Thickness(24, 8),
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+
+        StackPanel panel = new StackPanel
+        {
+            Margin = new Thickness(24),
+            Spacing = 8
+        };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontWeight = FontWeight.Bold,
+            FontSize = 15,
+            Foreground = Brushes.Black
+        });
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = message,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = Brushes.Black,
+            FontSize = 13
+        });
+
+        panel.Children.Add(okButton);
+        dialog.Content = panel;
+        okButton.Click += (_, _) => dialog.Close();
+
+        await dialog.ShowDialog(window);
+    }
+
+    private List<FilePickerFileType> ParseFilter(string filter)
+    {
+        List<FilePickerFileType> result = new List<FilePickerFileType>();
         string[] parts = filter.Split('|');
 
         for (int i = 0; i + 1 < parts.Length; i += 2)

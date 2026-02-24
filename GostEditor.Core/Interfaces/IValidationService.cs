@@ -1,6 +1,8 @@
+using GostEditor.Core.Models;
+
 namespace GostEditor.Core.Interfaces;
 
-public class IValidationService
+public interface IValidationService
 {
-    
+    List<string> Validate(GostDocument document);
 }

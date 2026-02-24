@@ -29,6 +29,7 @@ public class ExportService : IExportService
         using DocX doc = DocX.Create(outputPath);
 
         ApplyPageSettings(doc);
+        AddPageNumbers(doc);
         RecalculateCounters(document);
         AddTitlePage(doc, document.TitlePage);
         AddTableOfContents(doc, document.Sections);
@@ -251,5 +252,18 @@ public class ExportService : IExportService
     private float CmToTwips(float cm)
     {
         return cm * 567f;
+    }
+
+    private void AddPageNumbers(DocX doc)
+    {
+        // Нумерация страниц снизу по центру.
+        // По ГОСТ титульник не нумеруется — нумерация видимая с третьей страницы,
+        // но физически начинается с первой (титульник считается как страница 1).
+        Footer footer = doc.Footers.Odd;
+        Paragraph footerParagraph = footer.Paragraphs.First();
+        footerParagraph.Alignment = Alignment.center;
+        footerParagraph.AppendPageNumber(PageNumberFormat.normal)
+            .Font(FontName)
+            .FontSize(FontSize);
     }
 }
