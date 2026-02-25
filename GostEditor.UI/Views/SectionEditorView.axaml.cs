@@ -11,8 +11,10 @@ public partial class SectionEditorView : UserControl
 {
     private DocumentSection? _section;
     private readonly List<DocumentPageView> _pages = [];
+    private DocumentPageView? _activePage;
 
     public int StartPageNumber { get; private set; } = 1;
+    public bool IsGlobalSelectionActive { get; private set; } = false;
 
     public SectionEditorView()
     {
@@ -25,11 +27,75 @@ public partial class SectionEditorView : UserControl
         UpdatePageNumbers();
     }
 
+    public void ClearAll()
+    {
+        _pages.Clear();
+        PagesContainer.Children.Clear();
+        if (_section != null) _section.Content = string.Empty;
+        _activePage = null;
+        IsGlobalSelectionActive = false;
+        AddPage("");
+    }
+
+    public string GetFullText()
+    {
+        return string.Join("", _pages.Select(p => p.GetText()));
+    }
+
+    public void ClearFormatting()
+    {
+        if (IsGlobalSelectionActive)
+        {
+            foreach (DocumentPageView page in _pages) page.ClearFormatting();
+        }
+        else if (_activePage != null)
+        {
+            _activePage.ClearFormatting();
+        }
+    }
+
+    public void ApplyFormatting(string marker)
+    {
+        if (_activePage != null) _activePage.WrapSelectedText(marker);
+    }
+
+    public void InsertText(string text)
+    {
+        if (_activePage != null) _activePage.InsertTextAtCaret(text);
+    }
+
+    public void SelectAllPages()
+    {
+        IsGlobalSelectionActive = true;
+        foreach (DocumentPageView page in _pages)
+        {
+            page.SelectAllText();
+        }
+    }
+
+    private void OnPageInteraction(DocumentPageView activePage)
+    {
+        _activePage = activePage;
+        if (IsGlobalSelectionActive)
+        {
+            IsGlobalSelectionActive = false;
+            foreach (DocumentPageView page in _pages)
+            {
+                if (page != activePage)
+                {
+                    page.ClearSelectionVisually();
+                }
+            }
+        }
+    }
+
     public void LoadSection(DocumentSection section)
     {
         _section = section;
         _pages.Clear();
         PagesContainer.Children.Clear();
+        _activePage = null;
+        IsGlobalSelectionActive = false;
 
         string fullText = section.Content ?? string.Empty;
 
@@ -51,9 +117,12 @@ public partial class SectionEditorView : UserControl
         page.PageOverflow += OnPageOverflow;
         page.TextChanged += _ => SaveToSection();
         page.RequestPageChange += OnRequestPageChange;
+        page.PageInteraction += OnPageInteraction;
 
         _pages.Add(page);
         PagesContainer.Children.Add(page);
+
+        _activePage = page;
 
         return page;
     }
@@ -77,6 +146,7 @@ public partial class SectionEditorView : UserControl
             {
                 targetPage.FocusEditor(-1);
             }
+            _activePage = targetPage;
         }
     }
 

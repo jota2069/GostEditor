@@ -17,6 +17,7 @@ public partial class DocumentPageView : UserControl
     private bool _isDragging = false;
     private bool _isProcessingOverflow = false;
     private int _dragStart = -1;
+    private const double IndentSize = 47.0;
 
     public DocumentPageView(int pageNumber, string initialText = "")
     {
@@ -37,6 +38,7 @@ public partial class DocumentPageView : UserControl
     public event Action<DocumentPageView, string, int>? PageOverflow;
     public event Action<string>? TextChanged;
     public event Action<DocumentPageView, int>? RequestPageChange;
+    public event Action<DocumentPageView>? PageInteraction;
 
     protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
     {
@@ -44,8 +46,100 @@ public partial class DocumentPageView : UserControl
         Dispatcher.UIThread.Post(QueueCaretAndSelectionUpdate, DispatcherPriority.Loaded);
     }
 
+    public void SelectAllText()
+    {
+        string text = PageTextBox.Text ?? string.Empty;
+        PageTextBox.SelectionStart = 0;
+        PageTextBox.SelectionEnd = text.Length;
+        PageTextBox.CaretIndex = text.Length;
+        QueueCaretAndSelectionUpdate();
+    }
+
+    public void ClearSelectionVisually()
+    {
+        PageTextBox.SelectionStart = PageTextBox.CaretIndex;
+        PageTextBox.SelectionEnd = PageTextBox.CaretIndex;
+        QueueCaretAndSelectionUpdate();
+    }
+
+    public void ClearFormatting()
+    {
+        string text = PageTextBox.Text ?? string.Empty;
+        if (string.IsNullOrEmpty(text)) return;
+
+        int start = Math.Min(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+        int end = Math.Max(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+
+        if (start == end)
+        {
+            PageTextBox.Text = text.Replace("\uFEFF", "").Replace("\u2060", "");
+            PageTextBox.Focus();
+            return;
+        }
+
+        while (start > 0 && (text[start - 1] == '\uFEFF' || text[start - 1] == '\u2060')) start--;
+        while (end < text.Length && (text[end] == '\uFEFF' || text[end] == '\u2060')) end++;
+
+        string selected = text.Substring(start, end - start);
+        string clean = selected.Replace("\uFEFF", "").Replace("\u2060", "");
+
+        string newText = text.Remove(start, end - start).Insert(start, clean);
+        PageTextBox.Text = newText;
+        PageTextBox.SelectionStart = start;
+        PageTextBox.SelectionEnd = start + clean.Length;
+        PageTextBox.CaretIndex = PageTextBox.SelectionEnd;
+        PageTextBox.Focus();
+
+        QueueCaretAndSelectionUpdate();
+    }
+
+    public void WrapSelectedText(string marker)
+    {
+        string text = PageTextBox.Text ?? string.Empty;
+        int start = Math.Min(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+        int end = Math.Max(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+
+        if (start == end)
+        {
+            string newText = text.Insert(start, $"{marker}{marker}");
+            PageTextBox.Text = newText;
+            PageTextBox.CaretIndex = start + marker.Length;
+            PageTextBox.SelectionStart = PageTextBox.CaretIndex;
+            PageTextBox.SelectionEnd = PageTextBox.CaretIndex;
+        }
+        else
+        {
+            string selected = text.Substring(start, end - start);
+            string newText = text.Remove(start, end - start).Insert(start, $"{marker}{selected}{marker}");
+            PageTextBox.Text = newText;
+            PageTextBox.SelectionStart = start;
+            PageTextBox.SelectionEnd = start + selected.Length + marker.Length * 2;
+        }
+
+        PageTextBox.Focus();
+        QueueCaretAndSelectionUpdate();
+    }
+
+    public void InsertTextAtCaret(string textToInsert)
+    {
+        string text = PageTextBox.Text ?? string.Empty;
+        int start = Math.Min(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+        int end = Math.Max(PageTextBox.SelectionStart, PageTextBox.SelectionEnd);
+
+        string newText = text.Remove(start, end - start).Insert(start, textToInsert);
+        PageTextBox.Text = newText;
+        PageTextBox.SelectionStart = start + textToInsert.Length;
+        PageTextBox.SelectionEnd = start + textToInsert.Length;
+        PageTextBox.CaretIndex = PageTextBox.SelectionEnd;
+
+        PageTextBox.Focus();
+        QueueCaretAndSelectionUpdate();
+    }
+
     private void OnMouseHitLayerPointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        PageInteraction?.Invoke(this);
+
         PageTextBox.Focus();
         Point point = e.GetPosition(RichTextDisplay);
         TextLayout? layout = RichTextDisplay.TextLayout;
@@ -297,6 +391,12 @@ public partial class DocumentPageView : UserControl
 
     private void OnTextBoxKeyDown(object? sender, KeyEventArgs e)
     {
+        bool isModifier = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Alt)) != 0;
+        if (!isModifier && e.Key != Key.LeftShift && e.Key != Key.RightShift)
+        {
+            PageInteraction?.Invoke(this);
+        }
+
         string currentText = PageTextBox.Text ?? string.Empty;
         int length = currentText.Length;
         bool isShiftPressed = (e.KeyModifiers & KeyModifiers.Shift) != 0;

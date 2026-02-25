@@ -1,16 +1,23 @@
 using System;
+using System.IO;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 
 namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
+    private string _currentFilePath = string.Empty;
+
     public MainWindow()
     {
         InitializeComponent();
         AddHandler(PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
+        AddHandler(KeyDownEvent, OnGlobalPreviewKeyDown, RoutingStrategies.Tunnel);
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -39,101 +46,155 @@ public partial class MainWindow : Window
 
     private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        WrapSelectedText("\uFEFF");
+        SectionEditor?.ApplyFormatting("\uFEFF");
     }
 
     private void OnItalicClick(object? sender, RoutedEventArgs e)
     {
-        WrapSelectedText("\u2060");
+        SectionEditor?.ApplyFormatting("\u2060");
     }
 
-    // Метод для оборачивания текста невидимыми маркерами (для жирного и курсива)
-    private void WrapSelectedText(string marker)
+    private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
     {
-        IFocusManager? focusManager = TopLevel.GetTopLevel(this)?.FocusManager;
-        IInputElement? focusedElement = focusManager?.GetFocusedElement();
+        SectionEditor?.ClearFormatting();
+    }
 
-        if (focusedElement is TextBox textBox && textBox.Name == "PageTextBox")
+    private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
+    {
+        if (e.NewValue.HasValue)
         {
-            string text = textBox.Text ?? string.Empty;
-            int start = textBox.SelectionStart;
-            int end = textBox.SelectionEnd;
-
-            if (start > end)
+            if (CurrentStartPageLabel != null)
             {
-                int temp = start;
-                start = end;
-                end = temp;
+                CurrentStartPageLabel.Text = $"(Сейчас: {e.NewValue.Value})";
             }
 
-            if (start == end)
+            if (SectionEditor != null)
             {
-                string newText = text.Insert(start, $"{marker}{marker}");
-                textBox.Text = newText;
-                textBox.CaretIndex = start + marker.Length;
-                textBox.Focus();
-            }
-            else
-            {
-                string selected = text.Substring(start, end - start);
-                string newText = text.Remove(start, end - start).Insert(start, $"{marker}{selected}{marker}");
-                textBox.Text = newText;
-                textBox.SelectionStart = start;
-                textBox.SelectionEnd = start + selected.Length + marker.Length * 2;
-                textBox.Focus();
+                SectionEditor.SetStartPageNumber((int)e.NewValue.Value);
             }
         }
     }
 
-    // НОВЫЙ МЕТОД: Для простой вставки одного символа (например, разрыва страницы)
-    private void InsertText(string textToInsert)
+    private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        IFocusManager? focusManager = TopLevel.GetTopLevel(this)?.FocusManager;
-        IInputElement? focusedElement = focusManager?.GetFocusedElement();
-
-        if (focusedElement is TextBox textBox && textBox.Name == "PageTextBox")
+        if (SectionEditor != null && SectionEditor.IsGlobalSelectionActive)
         {
-            string text = textBox.Text ?? string.Empty;
-            int start = textBox.SelectionStart;
-            int end = textBox.SelectionEnd;
-
-            if (start > end)
+            if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.C)
             {
-                int temp = start;
-                start = end;
-                end = temp;
+                IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard != null)
+                {
+                    _ = clipboard.SetTextAsync(SectionEditor.GetFullText());
+                }
+                e.Handled = true;
+                return;
             }
-
-            string newText = text.Remove(start, end - start).Insert(start, textToInsert);
-            textBox.Text = newText;
-            textBox.SelectionStart = start + textToInsert.Length;
-            textBox.SelectionEnd = start + textToInsert.Length;
-            textBox.Focus();
+            else if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.X)
+            {
+                IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard != null)
+                {
+                    _ = clipboard.SetTextAsync(SectionEditor.GetFullText());
+                }
+                SectionEditor.ClearAll();
+                e.Handled = true;
+                return;
+            }
+            else if (e.Key == Key.Back || e.Key == Key.Delete)
+            {
+                SectionEditor.ClearAll();
+                e.Handled = true;
+                return;
+            }
         }
-    }
-
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        base.OnKeyDown(e);
 
         if ((e.KeyModifiers & KeyModifiers.Control) != 0)
         {
             if (e.Key == Key.B)
             {
-                WrapSelectedText("\uFEFF");
+                SectionEditor?.ApplyFormatting("\uFEFF");
                 e.Handled = true;
             }
             else if (e.Key == Key.I)
             {
-                WrapSelectedText("\u2060");
+                SectionEditor?.ApplyFormatting("\u2060");
                 e.Handled = true;
             }
-            // ПУНКТ 3 и 4: Разрыв страницы по Ctrl + Enter
             else if (e.Key == Key.Enter)
             {
-                InsertText("\f");
+                SectionEditor?.InsertText("\f");
                 e.Handled = true;
             }
+            else if (e.Key == Key.S)
+            {
+                await SaveDocumentAsync();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.A)
+            {
+                SectionEditor?.SelectAllPages();
+                e.Handled = true;
+            }
+        }
+    }
+
+    private async void OnNewDocumentClick(object? sender, RoutedEventArgs e)
+    {
+        Window dialog = new Window
+        {
+            Title = "Внимание",
+            Width = 350, Height = 150,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false
+        };
+
+        StackPanel panel = new StackPanel { Margin = new Avalonia.Thickness(20) };
+        panel.Children.Add(new TextBlock { Text = "Создать новый документ?", Margin = new Avalonia.Thickness(0, 0, 0, 20) });
+
+        StackPanel buttonsPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        Button btnYes = new Button { Content = "Да", Margin = new Avalonia.Thickness(0, 0, 10, 0) };
+        Button btnNo = new Button { Content = "Нет" };
+
+        btnYes.Click += async (_, _) =>
+        {
+            dialog.Close();
+            await SaveDocumentAsync();
+            _currentFilePath = string.Empty;
+            SectionEditor?.ClearAll();
+        };
+        btnNo.Click += (_, _) => { dialog.Close(); };
+
+        buttonsPanel.Children.Add(btnYes);
+        buttonsPanel.Children.Add(btnNo);
+        panel.Children.Add(buttonsPanel);
+        dialog.Content = panel;
+
+        await dialog.ShowDialog(this);
+    }
+
+    private async Task SaveDocumentAsync()
+    {
+        if (SectionEditor == null) return;
+
+        if (string.IsNullOrEmpty(_currentFilePath))
+        {
+            IStorageProvider storage = TopLevel.GetTopLevel(this)!.StorageProvider;
+            IStorageFile? file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Сохранить документ",
+                DefaultExtension = "gost",
+                SuggestedFileName = "Новый_документ"
+            });
+
+            if (file != null)
+            {
+                _currentFilePath = file.Path.LocalPath;
+                await File.WriteAllTextAsync(_currentFilePath, SectionEditor.GetFullText());
+            }
+        }
+        else
+        {
+            await File.WriteAllTextAsync(_currentFilePath, SectionEditor.GetFullText());
         }
     }
 
