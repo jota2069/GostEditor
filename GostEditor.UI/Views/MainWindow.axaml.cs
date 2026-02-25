@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 
@@ -30,33 +29,29 @@ public partial class MainWindow : Window
             {
                 if (args.PropertyName == nameof(vm.SelectedSection))
                 {
-                    if (vm.SelectedSection != null)
-                    {
-                        SectionEditor.LoadSection(vm.SelectedSection);
-                    }
+                    // ВРЕМЕННО ОТКЛЮЧЕНО:
+                    // if (vm.SelectedSection != null) SectionEditor.LoadSection(vm.SelectedSection);
                 }
             };
 
-            if (vm.SelectedSection != null)
-            {
-                SectionEditor.LoadSection(vm.SelectedSection);
-            }
+            // ВРЕМЕННО ОТКЛЮЧЕНО:
+            // if (vm.SelectedSection != null) SectionEditor.LoadSection(vm.SelectedSection);
         }
     }
 
     private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        SectionEditor?.ApplyFormatting("\uFEFF");
+        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ApplyFormatting("\uFEFF");
     }
 
     private void OnItalicClick(object? sender, RoutedEventArgs e)
     {
-        SectionEditor?.ApplyFormatting("\u2060");
+        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ApplyFormatting("\u2060");
     }
 
     private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
     {
-        SectionEditor?.ClearFormatting();
+        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ClearFormatting();
     }
 
     private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
@@ -67,74 +62,18 @@ public partial class MainWindow : Window
             {
                 CurrentStartPageLabel.Text = $"(Сейчас: {e.NewValue.Value})";
             }
-
-            if (SectionEditor != null)
-            {
-                SectionEditor.SetStartPageNumber((int)e.NewValue.Value);
-            }
+            // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.SetStartPageNumber((int)e.NewValue.Value);
         }
     }
 
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (SectionEditor != null && SectionEditor.IsGlobalSelectionActive)
-        {
-            if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.C)
-            {
-                IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-                if (clipboard != null)
-                {
-                    _ = clipboard.SetTextAsync(SectionEditor.GetFullText());
-                }
-                e.Handled = true;
-                return;
-            }
-            else if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.X)
-            {
-                IClipboard? clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
-                if (clipboard != null)
-                {
-                    _ = clipboard.SetTextAsync(SectionEditor.GetFullText());
-                }
-                SectionEditor.ClearAll();
-                e.Handled = true;
-                return;
-            }
-            else if (e.Key == Key.Back || e.Key == Key.Delete)
-            {
-                SectionEditor.ClearAll();
-                e.Handled = true;
-                return;
-            }
-        }
+        // ВРЕМЕННО ОТКЛЮЧЕНО: Логика горячих клавиш старого редактора отключена на время тестов нового движка
 
-        if ((e.KeyModifiers & KeyModifiers.Control) != 0)
+        if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
         {
-            if (e.Key == Key.B)
-            {
-                SectionEditor?.ApplyFormatting("\uFEFF");
-                e.Handled = true;
-            }
-            else if (e.Key == Key.I)
-            {
-                SectionEditor?.ApplyFormatting("\u2060");
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Enter)
-            {
-                SectionEditor?.InsertText("\f");
-                e.Handled = true;
-            }
-            else if (e.Key == Key.S)
-            {
-                await SaveDocumentAsync();
-                e.Handled = true;
-            }
-            else if (e.Key == Key.A)
-            {
-                SectionEditor?.SelectAllPages();
-                e.Handled = true;
-            }
+            await SaveDocumentAsync();
+            e.Handled = true;
         }
     }
 
@@ -160,7 +99,7 @@ public partial class MainWindow : Window
             dialog.Close();
             await SaveDocumentAsync();
             _currentFilePath = string.Empty;
-            SectionEditor?.ClearAll();
+            // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ClearAll();
         };
         btnNo.Click += (_, _) => { dialog.Close(); };
 
@@ -174,28 +113,12 @@ public partial class MainWindow : Window
 
     private async Task SaveDocumentAsync()
     {
+        // ВРЕМЕННО ОТКЛЮЧЕНО (заглушка для сохранения)
+        /*
         if (SectionEditor == null) return;
-
-        if (string.IsNullOrEmpty(_currentFilePath))
-        {
-            IStorageProvider storage = TopLevel.GetTopLevel(this)!.StorageProvider;
-            IStorageFile? file = await storage.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Сохранить документ",
-                DefaultExtension = "gost",
-                SuggestedFileName = "Новый_документ"
-            });
-
-            if (file != null)
-            {
-                _currentFilePath = file.Path.LocalPath;
-                await File.WriteAllTextAsync(_currentFilePath, SectionEditor.GetFullText());
-            }
-        }
-        else
-        {
-            await File.WriteAllTextAsync(_currentFilePath, SectionEditor.GetFullText());
-        }
+        ...
+        */
+        await Task.CompletedTask;
     }
 
     private void OnWindowPointerWheelChanged(object? sender, PointerWheelEventArgs e)
@@ -211,7 +134,6 @@ public partial class MainWindow : Window
                 {
                     vm.ZoomLevel = newZoom;
                 }
-
                 e.Handled = true;
             }
         }

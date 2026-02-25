@@ -228,30 +228,14 @@
                 <TabItem Header="Редактор">
                     <Grid Background="#F5F5F5">
 
-                        <StackPanel IsVisible="{Binding SelectedSection, Converter={x:Static ObjectConverters.IsNull}}"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center"
-                                    Spacing="8">
-                            <TextBlock Text="Выберите раздел слева"
-                                       Foreground="#BBBBBB"
-                                       FontSize="16"
-                                       HorizontalAlignment="Center"/>
-                            <TextBlock Text="или создайте новый"
-                                       Foreground="#CCCCCC"
-                                       FontSize="13"
-                                       HorizontalAlignment="Center"/>
-                        </StackPanel>
+                        <LayoutTransformControl>
+                            <LayoutTransformControl.LayoutTransform>
+                                <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
+                            </LayoutTransformControl.LayoutTransform>
 
-                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                            <LayoutTransformControl>
-                                <LayoutTransformControl.LayoutTransform>
-                                    <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
-                                </LayoutTransformControl.LayoutTransform>
+                            <views:DocumentEngineView />
 
-                                <views:SectionEditorView x:Name="SectionEditor"
-                                                         IsVisible="{Binding SelectedSection, Converter={x:Static ObjectConverters.IsNotNull}}"/>
-                            </LayoutTransformControl>
-                        </ScrollViewer>
+                        </LayoutTransformControl>
 
                     </Grid>
                 </TabItem>
