@@ -25,51 +25,67 @@ public partial class MainWindow : Window
 
         if (DataContext is GostEditor.UI.ViewModels.MainWindowViewModel vm)
         {
-            vm.PropertyChanged += (sender, args) =>
+            vm.PropertyChanged += (object? sender, System.ComponentModel.PropertyChangedEventArgs args) =>
             {
                 if (args.PropertyName == nameof(vm.SelectedSection))
                 {
-                    // ВРЕМЕННО ОТКЛЮЧЕНО:
-                    // if (vm.SelectedSection != null) SectionEditor.LoadSection(vm.SelectedSection);
+
                 }
             };
-
-            // ВРЕМЕННО ОТКЛЮЧЕНО:
-            // if (vm.SelectedSection != null) SectionEditor.LoadSection(vm.SelectedSection);
         }
     }
 
     private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ApplyFormatting("\uFEFF");
+        MainEditor?.ApplyBold();
+        MainEditor?.Focus();
     }
 
     private void OnItalicClick(object? sender, RoutedEventArgs e)
     {
-        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ApplyFormatting("\u2060");
+        MainEditor?.ApplyItalic();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignLeftClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignLeft();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignCenterClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignCenter();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignRightClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignRight();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignJustifyClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignJustify();
+        MainEditor?.Focus();
     }
 
     private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
     {
-        // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ClearFormatting();
+        MainEditor?.Focus();
     }
 
     private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
-        if (e.NewValue.HasValue)
+        if (e.NewValue.HasValue && CurrentStartPageLabel != null)
         {
-            if (CurrentStartPageLabel != null)
-            {
-                CurrentStartPageLabel.Text = $"(Сейчас: {e.NewValue.Value})";
-            }
-            // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.SetStartPageNumber((int)e.NewValue.Value);
+            CurrentStartPageLabel.Text = $"(Сейчас: {e.NewValue.Value})";
         }
     }
 
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        // ВРЕМЕННО ОТКЛЮЧЕНО: Логика горячих клавиш старого редактора отключена на время тестов нового движка
-
         if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
         {
             await SaveDocumentAsync();
@@ -79,45 +95,11 @@ public partial class MainWindow : Window
 
     private async void OnNewDocumentClick(object? sender, RoutedEventArgs e)
     {
-        Window dialog = new Window
-        {
-            Title = "Внимание",
-            Width = 350, Height = 150,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false
-        };
 
-        StackPanel panel = new StackPanel { Margin = new Avalonia.Thickness(20) };
-        panel.Children.Add(new TextBlock { Text = "Создать новый документ?", Margin = new Avalonia.Thickness(0, 0, 0, 20) });
-
-        StackPanel buttonsPanel = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-        Button btnYes = new Button { Content = "Да", Margin = new Avalonia.Thickness(0, 0, 10, 0) };
-        Button btnNo = new Button { Content = "Нет" };
-
-        btnYes.Click += async (_, _) =>
-        {
-            dialog.Close();
-            await SaveDocumentAsync();
-            _currentFilePath = string.Empty;
-            // ВРЕМЕННО ОТКЛЮЧЕНО: SectionEditor?.ClearAll();
-        };
-        btnNo.Click += (_, _) => { dialog.Close(); };
-
-        buttonsPanel.Children.Add(btnYes);
-        buttonsPanel.Children.Add(btnNo);
-        panel.Children.Add(buttonsPanel);
-        dialog.Content = panel;
-
-        await dialog.ShowDialog(this);
     }
 
     private async Task SaveDocumentAsync()
     {
-        // ВРЕМЕННО ОТКЛЮЧЕНО (заглушка для сохранения)
-        /*
-        if (SectionEditor == null) return;
-        ...
-        */
         await Task.CompletedTask;
     }
 
@@ -129,11 +111,7 @@ public partial class MainWindow : Window
             {
                 double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
                 double newZoom = Math.Round(vm.ZoomLevel + delta, 1);
-
-                if (newZoom >= 0.5 && newZoom <= 2.0)
-                {
-                    vm.ZoomLevel = newZoom;
-                }
+                if (newZoom >= 0.5 && newZoom <= 2.0) vm.ZoomLevel = newZoom;
                 e.Handled = true;
             }
         }

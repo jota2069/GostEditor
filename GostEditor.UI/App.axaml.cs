@@ -30,7 +30,7 @@ public partial class App : Application
 
         // Регистрируем UI-специфичные сервисы.
         services.AddSingleton<DialogService>();
-        
+
         services.AddTransient<MainWindowViewModel>();
 
         _serviceProvider = services.BuildServiceProvider();

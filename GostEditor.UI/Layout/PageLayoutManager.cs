@@ -4,13 +4,14 @@ using Avalonia.Media.TextFormatting;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
 using System.Collections.Generic;
-using System.Linq; // Важно для .ToList()
+using System.Linq;
+using Avalonia.Utilities;
 
 namespace GostEditor.UI.Layout;
 
 public class PageLayoutManager
 {
-    public List<RenderedPage> BuildLayout(GostDocument document, DocumentEditor editor)
+    public List<RenderedPage> BuildLayout(GostDocument document, DocumentEditor editor, Typeface typeface)
     {
         List<RenderedPage> pages = new List<RenderedPage>();
         RenderedPage currentPage = new RenderedPage { PageNumber = 1 };
@@ -19,10 +20,9 @@ public class PageLayoutManager
         double maxBottom = document.PageHeight - document.MarginBottom;
         double contentWidth = document.ContentWidth;
 
-        Typeface typeface = new Typeface("Times New Roman");
         double fontSize = 18.67;
 
-        var (selStart, selEnd) = editor.GetNormalizedSelection();
+        (DocumentPosition selStart, DocumentPosition selEnd) = editor.GetNormalizedSelection();
 
         for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
         {
@@ -30,14 +30,48 @@ public class PageLayoutManager
             string plainText = paragraph.GetPlainText();
             if (string.IsNullOrEmpty(plainText)) plainText = "\u200B";
 
+            List<ValueSpan<TextRunProperties>> styleOverrides = new List<ValueSpan<TextRunProperties>>();
+            int currentPos = 0;
+
+            foreach (GostEditor.Core.TextEngine.DOM.TextRun run in paragraph.Runs)
+            {
+                if (string.IsNullOrEmpty(run.Text)) continue;
+
+                if (run.IsBold || run.IsItalic)
+                {
+                    FontStyle style = run.IsItalic ? FontStyle.Italic : FontStyle.Normal;
+                    FontWeight weight = run.IsBold ? FontWeight.Bold : FontWeight.Normal;
+
+                    Typeface runTypeface = new Typeface(typeface.FontFamily, style, weight);
+                    TextRunProperties props = new GenericTextRunProperties(runTypeface, fontSize, null, Brushes.Black);
+
+                    styleOverrides.Add(new ValueSpan<TextRunProperties>(currentPos, run.Text.Length, props));
+                }
+
+                currentPos += run.Text.Length;
+            }
+
+            Avalonia.Media.TextAlignment avaloniaAlignment = paragraph.Alignment switch
+            {
+                GostEditor.Core.TextEngine.DOM.GostAlignment.Center => Avalonia.Media.TextAlignment.Center,
+                GostEditor.Core.TextEngine.DOM.GostAlignment.Right => Avalonia.Media.TextAlignment.Right,
+                GostEditor.Core.TextEngine.DOM.GostAlignment.Justify => Avalonia.Media.TextAlignment.Justify,
+                _ => Avalonia.Media.TextAlignment.Left
+            };
+
             TextLayout layout = new TextLayout(
-                plainText, typeface, fontSize, Brushes.Black,
-                TextAlignment.Left, TextWrapping.Wrap, maxWidth: contentWidth);
+                plainText,
+                typeface,
+                fontSize,
+                Brushes.Black,
+                avaloniaAlignment,
+                TextWrapping.Wrap,
+                maxWidth: contentWidth,
+                textStyleOverrides: styleOverrides);
 
             double paragraphInternalY = 0;
             bool isFirstLineOfParagraph = true;
 
-            // Расчет прямоугольников выделения для всего абзаца сразу
             List<Rect> selectionRects = new List<Rect>();
             if (editor.HasSelection && pIndex >= selStart.ParagraphIndex && pIndex <= selEnd.ParagraphIndex)
             {
@@ -46,7 +80,6 @@ public class PageLayoutManager
 
                 if (end > start)
                 {
-                    // Исправлено: добавляем .ToList() для преобразования типов
                     selectionRects = layout.HitTestTextRange(start, end - start).ToList();
                 }
             }
@@ -66,7 +99,6 @@ public class PageLayoutManager
                 Point location = new Point(currentX, currentY);
                 currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, paragraphInternalY, layout));
 
-                // Привязываем прямоугольники выделения к конкретной строке на странице
                 foreach (Rect rect in selectionRects)
                 {
                     if (rect.Y >= paragraphInternalY - 0.1 && rect.Y < paragraphInternalY + textLine.Height - 0.1)
@@ -77,7 +109,6 @@ public class PageLayoutManager
                     }
                 }
 
-                // Каретка
                 if (pIndex == editor.CaretPosition.ParagraphIndex)
                 {
                     Rect charRect = layout.HitTestTextPosition(editor.CaretPosition.Offset);
@@ -101,16 +132,17 @@ public class PageLayoutManager
 
     public DocumentPosition? GetPositionFromPoint(RenderedPage page, Point clickPoint)
     {
-        foreach (var line in page.Lines)
+        foreach (TextLinePlacement line in page.Lines)
         {
             if (clickPoint.Y >= line.Location.Y && clickPoint.Y <= line.Location.Y + line.Line.Height)
             {
                 double layoutX = clickPoint.X - line.Location.X;
                 double layoutY = line.InternalY + (clickPoint.Y - line.Location.Y);
+
                 if (layoutX > line.Line.Width) layoutX = line.Line.Width;
                 if (layoutX < 0) layoutX = 0;
 
-                var hitTest = line.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
+                TextHitTestResult hitTest = line.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
                 return new DocumentPosition(line.ParagraphIndex, hitTest.TextPosition);
             }
         }

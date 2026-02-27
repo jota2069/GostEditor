@@ -2,24 +2,33 @@ using System.Collections.Generic;
 
 namespace GostEditor.Core.TextEngine.DOM;
 
-/// <summary>
-/// Представляет один абзац текста, состоящий из разных фрагментов форматирования
-/// </summary>
+public enum GostAlignment
+{
+    Left,
+    Center,
+    Right,
+    Justify
+}
+
 public class Paragraph
 {
-    // Список фрагментов текста внутри абзаца
-    public List<TextRun> Runs { get; set; } = new();
+    public List<TextRun> Runs { get; set; } = new List<TextRun>();
 
-    // Настройки абзаца (ГОСТ требует 1.25 см)
-    public double FirstLineIndent { get; set; } = 47.0; // 1.25 см в пикселях
+    public double FirstLineIndent { get; set; } = 47.0;
 
-    public double LineSpacing { get; set; } = 1.5; // Межстрочный интервал
+    public double LineSpacing { get; set; } = 1.5;
 
-    // Метод для получения чистого текста без форматирования (для поиска или экспорта)
+    // ИСПРАВЛЕНО: Теперь мы используем наш GostAlignment.
+    // Никаких 'Avalonia' здесь быть не должно!
+    public GostAlignment Alignment { get; set; } = GostAlignment.Left;
+
     public string GetPlainText()
     {
-        var sb = new System.Text.StringBuilder();
-        foreach (var run in Runs) sb.Append(run.Text);
+        System.Text.StringBuilder sb = new System.Text.StringBuilder();
+        foreach (TextRun run in Runs)
+        {
+            sb.Append(run.Text);
+        }
         return sb.ToString();
     }
 }

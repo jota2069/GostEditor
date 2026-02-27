@@ -53,7 +53,6 @@
     </Window.Styles>
 
     <DockPanel>
-
         <Border DockPanel.Dock="Top"
                 Background="White"
                 BorderBrush="#E0E0E0"
@@ -108,6 +107,13 @@
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
+                <Button Content="Лево" Classes="toolbar" Focusable="False" Click="OnAlignLeftClick"/>
+                <Button Content="Центр" Classes="toolbar" Focusable="False" Click="OnAlignCenterClick"/>
+                <Button Content="Право" Classes="toolbar" Focusable="False" Click="OnAlignRightClick"/>
+                <Button Content="Ширина" Classes="toolbar" Focusable="False" Click="OnAlignJustifyClick"/>
+
+                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
+
                 <Button Content="Парсить код"
                         Classes="toolbar"
                         Command="{Binding ParseCodeFolderCommand}"
@@ -127,7 +133,6 @@
                 BorderThickness="0,1,0,0"
                 Padding="16,5">
             <DockPanel>
-
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="5" Margin="10,0,0,0">
                     <Button Content="Новый" Click="OnNewDocumentClick"/>
                     <Button Content="Убрать форматирование" Click="OnClearFormattingClick"/>
@@ -155,7 +160,6 @@
                             Width="100" VerticalAlignment="Center"
                             TickFrequency="0.1" IsSnapToTickEnabled="True"/>
                 </StackPanel>
-
             </DockPanel>
         </Border>
 
@@ -166,7 +170,6 @@
                     BorderBrush="#E0E0E0"
                     BorderThickness="0,0,1,0">
                 <DockPanel>
-
                     <Border DockPanel.Dock="Top"
                             Padding="12,10"
                             BorderBrush="#F0F0F0"
@@ -193,13 +196,11 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:DocumentSection">
                                 <Grid ColumnDefinitions="*,Auto">
-
                                     <TextBlock Grid.Column="0"
                                                Text="{Binding Title}"
                                                Foreground="#333333"
                                                FontSize="13"
                                                VerticalAlignment="Center"/>
-
                                     <Button Grid.Column="1"
                                             Content="×"
                                             Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}"
@@ -215,7 +216,6 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
-
                 </DockPanel>
             </Border>
 
@@ -227,95 +227,34 @@
 
                 <TabItem Header="Редактор">
                     <Grid Background="#F5F5F5">
-
                         <LayoutTransformControl>
                             <LayoutTransformControl.LayoutTransform>
                                 <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
                             </LayoutTransformControl.LayoutTransform>
 
-                            <views:DocumentEngineView />
+                            <views:DocumentEngineView x:Name="MainEditor" />
 
                         </LayoutTransformControl>
-
                     </Grid>
                 </TabItem>
 
                 <TabItem Header="Титульный лист">
                     <ScrollViewer Background="#F5F5F5" Padding="0,32,0,32">
-                        <Border Background="White"
-                                BorderBrush="#CCCCCC"
-                                BorderThickness="1"
-                                Width="600"
-                                HorizontalAlignment="Center"
-                                Padding="48">
+                        <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" Width="600" HorizontalAlignment="Center" Padding="48">
                             <StackPanel Spacing="14">
-
-                                <TextBlock Text="Титульный лист"
-                                           FontSize="18"
-                                           FontWeight="Bold"
-                                           Foreground="#1A1A1A"
-                                           Margin="0,0,0,8"/>
-
+                                <TextBlock Text="Титульный лист" FontSize="18" FontWeight="Bold" Foreground="#1A1A1A" Margin="0,0,0,8"/>
                                 <TextBlock Text="Университет" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding University}"
-                                         Watermark="Название университета"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding University}" Watermark="Название университета" Background="White"/>
                                 <TextBlock Text="Кафедра" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding Department}"
-                                         Watermark="Название кафедры"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding Department}" Watermark="Название кафедры" Background="White"/>
                                 <TextBlock Text="Название работы" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding WorkTitle}"
-                                         Watermark="Тема лабораторной работы"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding WorkTitle}" Watermark="Тема лабораторной работы" Background="White"/>
                                 <TextBlock Text="ФИО студента" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding StudentName}"
-                                         Watermark="Иванов Иван Иванович"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding StudentName}" Watermark="Иванов Иван Иванович" Background="White"/>
                                 <TextBlock Text="Номер группы" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding GroupNumber}"
-                                         Watermark="ИВТ-21"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding GroupNumber}" Watermark="ИВТ-21" Background="White"/>
                                 <TextBlock Text="ФИО преподавателя" Foreground="#999999" FontSize="11"/>
-                                <TextBox Text="{Binding TeacherName}"
-                                         Watermark="Петров Пётр Петрович"
-                                         Background="White"
-                                         Foreground="#111111"
-                                         BorderBrush="#CCCCCC"
-                                         BorderThickness="1"
-                                         Padding="10,7"
-                                         CornerRadius="4"/>
-
+                                <TextBox Text="{Binding TeacherName}" Watermark="Петров Пётр Петрович" Background="White"/>
                             </StackPanel>
                         </Border>
                     </ScrollViewer>
@@ -323,63 +262,32 @@
 
                 <TabItem Header="Листинги кода">
                     <DockPanel Background="#F5F5F5" Margin="24">
-
-                        <Border DockPanel.Dock="Top"
-                                Background="White"
-                                BorderBrush="#E0E0E0"
-                                BorderThickness="1"
-                                CornerRadius="6"
-                                Padding="16,12"
-                                Margin="0,0,0,16">
+                        <Border DockPanel.Dock="Top" Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="6" Padding="16,12" Margin="0,0,0,16">
                             <DockPanel>
-                                <Button DockPanel.Dock="Right"
-                                        Content="Выбрать папку"
-                                        Classes="accent"
-                                        Command="{Binding ParseCodeFolderCommand}"
-                                        IsEnabled="{Binding !IsBusy}"/>
+                                <Button DockPanel.Dock="Right" Content="Выбрать папку" Classes="accent" Command="{Binding ParseCodeFolderCommand}"/>
                                 <StackPanel Spacing="2">
-                                    <TextBlock Text="Исходный код"
-                                               FontWeight="SemiBold"
-                                               FontSize="14"
-                                               Foreground="#1A1A1A"/>
-                                    <TextBlock Text="Выберите папку с проектом"
-                                               FontSize="12"
-                                               Foreground="#888888"/>
+                                    <TextBlock Text="Исходный код" FontWeight="SemiBold" FontSize="14" Foreground="#1A1A1A"/>
+                                    <TextBlock Text="Выберите папку с проектом" FontSize="12" Foreground="#888888"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
 
-                        <Border Background="White"
-                                BorderBrush="#E0E0E0"
-                                BorderThickness="1"
-                                CornerRadius="6">
-                            <ListBox ItemsSource="{Binding CodeListings}"
-                                     Background="Transparent"
-                                     BorderThickness="0">
+                        <Border Background="White" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="6">
+                            <ListBox ItemsSource="{Binding CodeListings}" Background="Transparent" BorderThickness="0">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate x:DataType="models:CodeListing">
-                                        <StackPanel Orientation="Horizontal"
-                                                    Spacing="10"
-                                                    Margin="4,2">
+                                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="4,2">
                                             <CheckBox IsChecked="{Binding IsSelected}"/>
-                                            <TextBlock Text="{Binding RelativePath}"
-                                                       Foreground="#333333"
-                                                       VerticalAlignment="Center"
-                                                       FontFamily="Consolas, monospace"
-                                                       FontSize="13"/>
+                                            <TextBlock Text="{Binding RelativePath}" Foreground="#333333" VerticalAlignment="Center" FontFamily="Consolas, monospace" FontSize="13"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
                         </Border>
-
                     </DockPanel>
                 </TabItem>
 
             </TabControl>
-
         </Grid>
-
     </DockPanel>
-
 </Window>
