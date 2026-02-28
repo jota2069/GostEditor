@@ -5,24 +5,33 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Core.Services;
+using GostEditor.Core.Models;
 using GostEditor.UI.Controls;
 using GostEditor.UI.Layout;
+
+// ПСЕВДОНИМЫ ДЛЯ РАЗРЕШЕНИЯ КОНФЛИКТОВ
+using DOMDocument = GostEditor.Core.TextEngine.DOM.GostDocument;
+using DOMTextRun = GostEditor.Core.TextEngine.DOM.TextRun;
 
 namespace GostEditor.UI.Views;
 
 public partial class DocumentEngineView : UserControl
 {
-    public static readonly Typeface DefaultTypeface = new Typeface("Times New Roman");
+    private static readonly Typeface DefaultTypeface = new Typeface("Times New Roman");
 
     private DocumentEditor? _editor;
     private PageLayoutManager? _layoutManager;
-    private double? _desiredX = null;
+    private double? _desiredX;
 
-    private bool _isDragging = false;
-    private List<RenderedPage> _currentPages = new List<RenderedPage>();
+    private bool _isDragging;
+
+    // Используем современный синтаксис коллекций (C# 12)
+    private List<RenderedPage> _currentPages = [];
 
     public DocumentEngineView()
     {
@@ -34,12 +43,22 @@ public partial class DocumentEngineView : UserControl
         InitEngine();
     }
 
+    // ЯВНАЯ ТИПИЗАЦИЯ
+    public int StartPageNumber { get; private set; } = 1;
+
+    public void SetStartPageNumber(int startPage)
+    {
+        StartPageNumber = startPage;
+        RefreshView();
+    }
+
     private void InitEngine()
     {
-        GostDocument document = new GostDocument();
+        // Используем наши псевдонимы (DOMDocument и DOMTextRun)
+        DOMDocument document = new DOMDocument();
         Paragraph p1 = new Paragraph();
 
-        GostEditor.Core.TextEngine.DOM.TextRun welcomeRun = new GostEditor.Core.TextEngine.DOM.TextRun("Добро пожаловать в новый движок! Выдели это слово и нажми 'Ж'. ");
+        DOMTextRun welcomeRun = new DOMTextRun("Добро пожаловать в новый движок! Жми Ctrl+I для импорта кода.");
 
         p1.Runs.Add(welcomeRun);
         document.Paragraphs.Add(p1);
@@ -56,6 +75,14 @@ public partial class DocumentEngineView : UserControl
     {
         if (_editor == null) return;
         _editor.ToggleBold();
+        RefreshView();
+        Focus();
+    }
+
+    public void ApplyFontSize(double fontSize)
+    {
+        if (_editor == null) return;
+        _editor.SetFontSize(fontSize);
         RefreshView();
         Focus();
     }
@@ -80,76 +107,197 @@ public partial class DocumentEngineView : UserControl
     {
         if (_editor == null) return;
 
-        bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
-        bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-
-        DocumentPosition? oldAnchor = _editor.SelectionAnchor;
-
-        if (isCtrl)
+        try
         {
-            Avalonia.Controls.TopLevel? topLevel = Avalonia.Controls.TopLevel.GetTopLevel(this);
+            bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+            bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
 
-            if (e.Key == Key.C && _editor.HasSelection && topLevel?.Clipboard != null)
+            DocumentPosition? oldAnchor = _editor.SelectionAnchor;
+
+            if (isCtrl)
             {
-                string textToCopy = _editor.GetSelectedText();
-                await topLevel.Clipboard.SetTextAsync(textToCopy);
-                e.Handled = true;
-                return;
+                TopLevel? topLevel = TopLevel.GetTopLevel(this);
+
+                if (e.Key == Key.A)
+                {
+                    _editor.SelectAll();
+                    RefreshView();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.Z)
+                {
+                    _editor.History.Undo();
+                    RefreshView();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.Y)
+                {
+                    _editor.History.Redo();
+                    RefreshView();
+                    e.Handled = true;
+                    return;
+                }
+
+#pragma warning disable CS0618
+                if (e.Key == Key.C && _editor.HasSelection && topLevel?.Clipboard != null)
+                {
+                    string textToCopy = _editor.GetSelectedText();
+                    await topLevel.Clipboard.SetTextAsync(textToCopy);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.X && _editor.HasSelection && topLevel?.Clipboard != null)
+                {
+                    string textToCut = _editor.GetSelectedText();
+                    await topLevel.Clipboard.SetTextAsync(textToCut);
+                    _editor.DeleteSelection();
+                    RefreshView();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.V && topLevel?.Clipboard != null)
+                {
+                    string? pastedText = await topLevel.Clipboard.GetTextAsync();
+                    if (!string.IsNullOrEmpty(pastedText))
+                    {
+                        _editor.PasteText(pastedText);
+                        RefreshView();
+                    }
+                    e.Handled = true;
+                    return;
+                }
+#pragma warning restore CS0618
             }
 
-            if (e.Key == Key.X && _editor.HasSelection && topLevel?.Clipboard != null)
+            bool isHandled = true;
+            switch (e.Key)
             {
-                string textToCut = _editor.GetSelectedText();
-                await topLevel.Clipboard.SetTextAsync(textToCut);
-                _editor.DeleteSelection();
+                case Key.Back: _editor.Backspace(); _desiredX = null; break;
+                case Key.Enter: _editor.InsertNewLine(); _desiredX = null; break;
+                case Key.Left: _editor.MoveLeft(); _desiredX = null; break;
+                case Key.Right: _editor.MoveRight(); _desiredX = null; break;
+                case Key.Up: MoveVertical(true); break;
+                case Key.Down: MoveVertical(false); break;
+                default: isHandled = false; break;
+            }
+
+            if (isHandled)
+            {
+                if (isShift)
+                {
+                    _editor.SelectionAnchor = oldAnchor;
+                }
+                else
+                {
+                    if (e.Key != Key.Up && e.Key != Key.Down) _desiredX = null;
+                    _editor.SelectionAnchor = _editor.CaretPosition;
+                }
+
                 RefreshView();
                 e.Handled = true;
-                return;
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка в OnKeyDown: {ex.Message}");
+        }
+    }
 
-            if (e.Key == Key.V && topLevel?.Clipboard != null)
+    // ==========================================
+    // ОБРАБОТЧИКИ КОНТЕКСТНОГО МЕНЮ (ПКМ)
+    // ==========================================
+
+    private async void OnCopyClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            if (_editor == null || !_editor.HasSelection) return;
+
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
             {
+#pragma warning disable CS0618
+                string textToCopy = _editor.GetSelectedText();
+                await topLevel.Clipboard.SetTextAsync(textToCopy);
+#pragma warning restore CS0618
+            }
+        }
+        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
+        finally { Focus(); }
+    }
+
+    private async void OnCutClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            if (_editor == null || !_editor.HasSelection) return;
+
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
+            {
+#pragma warning disable CS0618
+                string textToCut = _editor.GetSelectedText();
+                await topLevel.Clipboard.SetTextAsync(textToCut);
+#pragma warning restore CS0618
+
+                _editor.DeleteSelection();
+                RefreshView();
+            }
+        }
+        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
+        finally { Focus(); }
+    }
+
+    private async void OnPasteClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        try
+        {
+            if (_editor == null) return;
+
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
+            {
+#pragma warning disable CS0618
                 string? pastedText = await topLevel.Clipboard.GetTextAsync();
                 if (!string.IsNullOrEmpty(pastedText))
                 {
                     _editor.PasteText(pastedText);
                     RefreshView();
                 }
-                e.Handled = true;
-                return;
+#pragma warning restore CS0618
             }
         }
-
-        bool isHandled = true;
-        switch (e.Key)
-        {
-            case Key.Back: _editor.Backspace(); _desiredX = null; break;
-            case Key.Enter: _editor.InsertNewLine(); _desiredX = null; break;
-            case Key.Left: _editor.MoveLeft(); _desiredX = null; break;
-            case Key.Right: _editor.MoveRight(); _desiredX = null; break;
-            case Key.Up: MoveVertical(true); break;
-            case Key.Down: MoveVertical(false); break;
-            default: isHandled = false; break;
-        }
-
-        if (isHandled)
-        {
-            if (isShift)
-            {
-                _editor.SelectionAnchor = oldAnchor;
-            }
-            else
-            {
-                if (e.Key != Key.Up && e.Key != Key.Down) _desiredX = null;
-                _editor.SelectionAnchor = _editor.CaretPosition;
-            }
-
-            RefreshView();
-            e.Handled = true;
-        }
+        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
+        finally { Focus(); }
     }
 
-    public void RefreshView()
+    private void OnSelectAllClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_editor == null) return;
+        _editor.SelectAll();
+        RefreshView();
+        Focus();
+    }
+
+    private void OnUndoClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_editor == null) return;
+        _editor.History.Undo();
+        RefreshView();
+        Focus();
+    }
+
+    // ==========================================
+    // РЕНДЕР И НАВИГАЦИЯ
+    // ==========================================
+
+    private void RefreshView()
     {
         if (_editor == null || _layoutManager == null) return;
 
@@ -171,11 +319,13 @@ public partial class DocumentEngineView : UserControl
 
         for (int i = 0; i < _currentPages.Count; i++)
         {
-            GostPageControl pageControl = (GostPageControl)PagesStackPanel.Children[i];
-            pageControl.SetPageData(_currentPages[i], _editor.Document.PageWidth, _editor.Document.PageHeight);
+            if (PagesStackPanel.Children[i] is GostPageControl pageControl)
+            {
+                pageControl.SetPageData(_currentPages[i], _editor.Document.PageWidth, _editor.Document.PageHeight, StartPageNumber);
+            }
         }
 
-        Dispatcher.UIThread.Post(ScrollToCaret, (DispatcherPriority)1);
+        Dispatcher.UIThread.Post(ScrollToCaret, DispatcherPriority.Normal);
     }
 
     private void OnPagePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -228,7 +378,7 @@ public partial class DocumentEngineView : UserControl
 
             for (int i = 0; i < PagesStackPanel.Children.Count; i++)
             {
-                Avalonia.Controls.Control child = PagesStackPanel.Children[i];
+                Control child = PagesStackPanel.Children[i];
 
                 if (globalPoint.Y >= child.Bounds.Top && globalPoint.Y <= child.Bounds.Bottom)
                 {
@@ -246,7 +396,7 @@ public partial class DocumentEngineView : UserControl
             else if (targetPageIndex == -1 && PagesStackPanel.Children.Count > 0 && globalPoint.Y > PagesStackPanel.Bounds.Bottom)
             {
                 targetPageIndex = PagesStackPanel.Children.Count - 1;
-                Avalonia.Controls.Control lastChild = PagesStackPanel.Children[^1];
+                Control lastChild = PagesStackPanel.Children[^1];
                 localPoint = new Point(globalPoint.X, lastChild.Bounds.Height);
             }
 
@@ -268,7 +418,7 @@ public partial class DocumentEngineView : UserControl
     {
         _isDragging = false;
 
-        if (sender is GostPageControl pageControl)
+        if (sender is GostPageControl)
         {
             e.Pointer.Capture(null);
         }
@@ -293,9 +443,10 @@ public partial class DocumentEngineView : UserControl
 
         if (pageIndex == -1) return;
 
-        if (_desiredX == null) _desiredX = caretRect.X;
+        double targetX = _desiredX ?? caretRect.X;
+        _desiredX = targetX;
 
-        List<TextLinePlacement> allLines = new List<TextLinePlacement>();
+        List<TextLinePlacement> allLines = [];
 
         foreach (RenderedPage page in _currentPages)
         {
@@ -324,7 +475,7 @@ public partial class DocumentEngineView : UserControl
 
         TextLinePlacement targetLine = allLines[targetLineIndex];
 
-        double layoutX = _desiredX.Value - targetLine.Location.X;
+        double layoutX = targetX - targetLine.Location.X;
 
         if (layoutX < 0) layoutX = 0;
         if (layoutX > targetLine.Line.Width) layoutX = targetLine.Line.Width;
@@ -344,8 +495,8 @@ public partial class DocumentEngineView : UserControl
         {
             if (_currentPages[i].CaretBounds.HasValue)
             {
-                Avalonia.Rect caretRect = _currentPages[i].CaretBounds.Value;
-                Avalonia.Controls.Control pageControl = PagesStackPanel.Children[i];
+                Rect caretRect = _currentPages[i].CaretBounds.Value;
+                Control pageControl = PagesStackPanel.Children[i];
 
                 double safeY = caretRect.Y - 50;
                 if (safeY < 0)
@@ -353,7 +504,7 @@ public partial class DocumentEngineView : UserControl
                     safeY = 0;
                 }
 
-                Avalonia.Rect viewRect = new Avalonia.Rect(
+                Rect viewRect = new Rect(
                     caretRect.X,
                     safeY,
                     caretRect.Width,
@@ -369,7 +520,7 @@ public partial class DocumentEngineView : UserControl
     public void AlignLeft()
     {
         if (_editor == null) return;
-        _editor.SetAlignment(GostEditor.Core.TextEngine.DOM.GostAlignment.Left);
+        _editor.SetAlignment(GostAlignment.Left);
         RefreshView();
         Focus();
     }
@@ -377,7 +528,7 @@ public partial class DocumentEngineView : UserControl
     public void AlignCenter()
     {
         if (_editor == null) return;
-        _editor.SetAlignment(GostEditor.Core.TextEngine.DOM.GostAlignment.Center);
+        _editor.SetAlignment(GostAlignment.Center);
         RefreshView();
         Focus();
     }
@@ -385,7 +536,7 @@ public partial class DocumentEngineView : UserControl
     public void AlignRight()
     {
         if (_editor == null) return;
-        _editor.SetAlignment(GostEditor.Core.TextEngine.DOM.GostAlignment.Right);
+        _editor.SetAlignment(GostAlignment.Right);
         RefreshView();
         Focus();
     }
@@ -393,8 +544,36 @@ public partial class DocumentEngineView : UserControl
     public void AlignJustify()
     {
         if (_editor == null) return;
-        _editor.SetAlignment(GostEditor.Core.TextEngine.DOM.GostAlignment.Justify);
+        _editor.SetAlignment(GostAlignment.Justify);
         RefreshView();
         Focus();
     }
+
+    /// <summary>
+    /// Принимает готовые абзацы извне (например, листинги кода) и вставляет их в документ через систему команд.
+    /// </summary>
+    public void AppendParagraphs(System.Collections.Generic.List<GostEditor.Core.TextEngine.DOM.Paragraph> paragraphs)
+    {
+        if (_editor == null) return;
+
+        _editor.AppendParagraphs(paragraphs);
+        RefreshView();
+    }
+
+    /// <summary>
+    /// Применяет стиль к выделенным абзацам и обновляет экран.
+    /// </summary>
+    public void ApplyParagraphStyle(GostEditor.Core.TextEngine.DOM.ParagraphStyle style)
+    {
+        if (_editor == null) return;
+
+        // Передаем команду ядру
+        _editor.SetParagraphStyle(style);
+
+        RefreshView();
+        Focus();
+    }
+
+
+
 }

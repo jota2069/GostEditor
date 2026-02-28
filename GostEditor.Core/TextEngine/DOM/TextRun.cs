@@ -15,6 +15,8 @@ public class TextRun
     // Можно добавить цвет или размер в будущем
     public uint Color { get; set; } = 0xFF000000; // Черный по умолчанию
 
+    public double FontSize { get; set; } = 14.0;
+
     public TextRun() { }
 
     public TextRun(string text, bool isBold = false, bool isItalic = false)

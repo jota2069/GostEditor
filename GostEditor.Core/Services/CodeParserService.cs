@@ -116,4 +116,53 @@ public class CodeParserService : ICodeParserService
 
         return result;
     }
+
+    /// <summary>
+    /// Превращает список выбранных листингов кода в готовые абзацы для вставки в редактор.
+    /// </summary>
+    public List<GostEditor.Core.TextEngine.DOM.Paragraph> GenerateAppendixParagraphs(IEnumerable<CodeListing> listings)
+    {
+        // ЯВНАЯ ТИПИЗАЦИЯ
+        List<GostEditor.Core.TextEngine.DOM.Paragraph> appendixParagraphs = new List<GostEditor.Core.TextEngine.DOM.Paragraph>();
+
+        // Заголовок приложения (По центру)
+        GostEditor.Core.TextEngine.DOM.Paragraph titlePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Center };
+        titlePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun("ПРИЛОЖЕНИЕ А", isBold: true, isItalic: false));
+        appendixParagraphs.Add(titlePara);
+
+        // Пустая строка после заголовка
+        appendixParagraphs.Add(new GostEditor.Core.TextEngine.DOM.Paragraph());
+
+        int listingCounter = 1;
+
+        foreach (CodeListing listing in listings)
+        {
+            // Пропускаем файлы, с которых сняли галочку в UI
+            if (!listing.IsSelected) continue;
+
+            // Название листинга (Листинг 1. Файл Models/ProcessInfo.cs)
+            GostEditor.Core.TextEngine.DOM.Paragraph fileTitlePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Left };
+            fileTitlePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun($"Листинг {listingCounter}. Файл {listing.RelativePath}", isBold: false, isItalic: false));
+            appendixParagraphs.Add(fileTitlePara);
+
+            // Разбиваем код на строки и добавляем
+            string[] lines = listing.Content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                string cleanLine = line.Replace("\t", "    ");
+
+                GostEditor.Core.TextEngine.DOM.Paragraph linePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Left };
+                linePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun(cleanLine, isBold: false, isItalic: false));
+                appendixParagraphs.Add(linePara);
+            }
+
+            // Отступ между файлами
+            appendixParagraphs.Add(new GostEditor.Core.TextEngine.DOM.Paragraph());
+            listingCounter++;
+        }
+
+        return appendixParagraphs;
+    }
+
 }

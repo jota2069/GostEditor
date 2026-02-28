@@ -1,4 +1,5 @@
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Core.TextEngine.Commands;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -8,14 +9,10 @@ namespace GostEditor.Core.TextEngine;
 public class DocumentEditor
 {
     public GostDocument Document { get; }
-
-    // Позиция мигающего курсора
     public DocumentPosition CaretPosition { get; set; }
-
-    // Точка, где мы нажали мышку (начало выделения)
     public DocumentPosition? SelectionAnchor { get; set; }
+    public CommandManager History { get; } = new CommandManager();
 
-    // Проверка, выделено ли что-то в данный момент
     public bool HasSelection => SelectionAnchor.HasValue && SelectionAnchor.Value.CompareTo(CaretPosition) != 0;
 
     public DocumentEditor(GostDocument document)
@@ -24,9 +21,20 @@ public class DocumentEditor
         CaretPosition = new DocumentPosition(0, 0);
     }
 
-    /// <summary>
-    /// Возвращает упорядоченные границы выделения (от меньшего к большему).
-    /// </summary>
+    public void SelectAll()
+    {
+        int paragraphCount = Document.Paragraphs.Count;
+        if (paragraphCount == 0) return;
+
+        SelectionAnchor = new DocumentPosition(0, 0);
+
+        int lastParagraphIndex = paragraphCount - 1;
+        Paragraph lastParagraph = Document.Paragraphs[lastParagraphIndex];
+        int lastOffset = lastParagraph.GetPlainText().Length;
+
+        CaretPosition = new DocumentPosition(lastParagraphIndex, lastOffset);
+    }
+
     public (DocumentPosition Start, DocumentPosition End) GetNormalizedSelection()
     {
         if (!HasSelection) return (CaretPosition, CaretPosition);
@@ -36,64 +44,26 @@ public class DocumentEditor
             : (CaretPosition, SelectionAnchor.Value);
     }
 
-    /// <summary>
-    /// Сбрасывает выделение, оставляя только курсор.
-    /// </summary>
     public void ClearSelection()
     {
         SelectionAnchor = null;
     }
 
-    /// <summary>
-    /// Вставляет текст в текущую позицию.
-    /// </summary>
     public void InsertText(string text)
     {
+        if (string.IsNullOrEmpty(text)) return;
+
         if (HasSelection)
         {
-            // Если есть выделение, удаляем его.
-            // Каретка сама встанет в начало удаленного куска.
             DeleteSelection();
         }
 
         ClearSelection();
 
-        Paragraph currentParagraph = Document.Paragraphs[CaretPosition.ParagraphIndex];
-
-        // Если абзац оказался абсолютно пустым (удалили все Runs)
-        if (currentParagraph.Runs.Count == 0)
-        {
-            currentParagraph.Runs.Add(new TextRun(text));
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, text.Length);
-            return;
-        }
-
-        int currentOffset = 0;
-        TextRun? targetRun = null;
-
-        // ЯВНАЯ ТИПИЗАЦИЯ: TextRun вместо var
-        foreach (TextRun run in currentParagraph.Runs)
-        {
-            // Находим кусок текста, в который попадает каретка
-            if (CaretPosition.Offset <= currentOffset + run.Text.Length)
-            {
-                targetRun = run;
-                break;
-            }
-            currentOffset += run.Text.Length;
-        }
-
-        if (targetRun != null)
-        {
-            int insertIndexInRun = CaretPosition.Offset - currentOffset;
-            targetRun.Text = targetRun.Text.Insert(insertIndexInRun, text);
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset + text.Length);
-        }
+        InsertTextCommand command = new InsertTextCommand(this, text, CaretPosition);
+        History.ExecuteCommand(command);
     }
 
-    /// <summary>
-    /// Перенос строки (Enter).
-    /// </summary>
     public void InsertNewLine()
     {
         ClearSelection();
@@ -114,9 +84,6 @@ public class DocumentEditor
         CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
     }
 
-    /// <summary>
-    /// Удаление символа (Backspace).
-    /// </summary>
     public void Backspace()
     {
         if (HasSelection)
@@ -188,11 +155,6 @@ public class DocumentEditor
         }
     }
 
-
-    /// <summary>
-    /// Гарантирует, что в указанном смещении (offset) заканчивается один TextRun и начинается другой.
-    /// Это нужно, чтобы мы могли менять стиль куска текста, не затрагивая соседей.
-    /// </summary>
     private void SplitAt(int paragraphIndex, int offset)
     {
         Paragraph p = Document.Paragraphs[paragraphIndex];
@@ -202,18 +164,11 @@ public class DocumentEditor
         {
             TextRun run = p.Runs[i];
 
-            // Если смещение попадает прямо внутрь этого куска текста
             if (offset > currentOffset && offset < currentOffset + run.Text.Length)
             {
                 int splitIdx = offset - currentOffset;
-
-                // Создаем новый кусок с той же стилистикой
                 TextRun nextRun = new TextRun(run.Text.Substring(splitIdx), run.IsBold, run.IsItalic);
-
-                // Обрезаем старый
                 run.Text = run.Text.Substring(0, splitIdx);
-
-                // Вставляем новый следом
                 p.Runs.Insert(i + 1, nextRun);
                 return;
             }
@@ -221,40 +176,30 @@ public class DocumentEditor
         }
     }
 
-
-    /// <summary>
-    /// Инвертирует жирность у выделенного текста (применяет или снимает).
-    /// </summary>
     public void ToggleBold()
     {
         if (!HasSelection) return;
 
         (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
-        // Проходим по всем абзацам, которые затронуты выделением
         for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
         {
             Paragraph p = Document.Paragraphs[pIdx];
 
-            // 1. Подготавливаем границы (разрезаем куски на стыках выделения)
             int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
             int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
 
-            // Важное правило: сначала режем с конца, потом с начала.
             SplitAt(pIdx, pEndOffset);
             SplitAt(pIdx, pStartOffset);
 
-            // 2. Проходим по всем TextRun этого абзаца и меняем стиль тем, кто ВНУТРИ
             int currentOffset = 0;
             foreach (TextRun run in p.Runs)
             {
                 int runStart = currentOffset;
                 int runEnd = currentOffset + run.Text.Length;
 
-                // Если этот кусок полностью лежит внутри выделенного диапазона
                 if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
                 {
-                    // Инвертируем: если был обычный - станет жирным, и наоборот
                     run.IsBold = !run.IsBold;
                 }
                 currentOffset += run.Text.Length;
@@ -262,98 +207,50 @@ public class DocumentEditor
         }
     }
 
-   /// <summary>
-    /// Полностью удаляет текст внутри выделенного диапазона, включая объединение абзацев.
-    /// </summary>
+    public void SetFontSize(double fontSize)
+    {
+        if (!HasSelection) return;
+
+        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+        {
+            Paragraph p = Document.Paragraphs[pIdx];
+
+            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
+            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
+
+            SplitAt(pIdx, pEndOffset);
+            SplitAt(pIdx, pStartOffset);
+
+            int currentOffset = 0;
+            foreach (TextRun run in p.Runs)
+            {
+                int runStart = currentOffset;
+                int runEnd = currentOffset + run.Text.Length;
+
+                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
+                {
+                    // Устанавливаем новый размер
+                    run.FontSize = fontSize;
+                }
+                currentOffset += run.Text.Length;
+            }
+        }
+    }
+
     public void DeleteSelection()
     {
         if (!HasSelection) return;
 
-        // ЯВНАЯ ТИПИЗАЦИЯ: Явно указываем типы в кортеже
         (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
-        // Разрезаем куски точно по границам выделения
-        SplitAt(end.ParagraphIndex, end.Offset);
-        SplitAt(start.ParagraphIndex, start.Offset);
+        DeleteRangeInternal(start, end);
 
-        if (start.ParagraphIndex == end.ParagraphIndex)
-        {
-            // --- ЛОГИКА 1: Удаление внутри ОДНОГО абзаца ---
-            Paragraph paragraph = Document.Paragraphs[start.ParagraphIndex];
-            int currentOffset = 0;
-
-            for (int i = 0; i < paragraph.Runs.Count; i++)
-            {
-                // ЯВНАЯ ТИПИЗАЦИЯ
-                TextRun run = paragraph.Runs[i];
-                int runStart = currentOffset;
-                int runEnd = currentOffset + run.Text.Length;
-
-                currentOffset += run.Text.Length;
-
-                // Если кусок полностью внутри выделения - сносим его
-                if (runStart >= start.Offset && runEnd <= end.Offset)
-                {
-                    paragraph.Runs.RemoveAt(i);
-                    i--; // Сдвигаем индекс назад, так как список уменьшился
-                }
-            }
-        }
-        else
-        {
-            // --- ЛОГИКА 2: Удаление через НЕСКОЛЬКО абзацев ---
-            // ЯВНАЯ ТИПИЗАЦИЯ
-            Paragraph startP = Document.Paragraphs[start.ParagraphIndex];
-            Paragraph endP = Document.Paragraphs[end.ParagraphIndex];
-
-            // 1. Очищаем первый абзац от всего, что правее старта выделения
-            int currentOffset = 0;
-            for (int i = 0; i < startP.Runs.Count; i++)
-            {
-                int runStart = currentOffset;
-                currentOffset += startP.Runs[i].Text.Length;
-
-                if (runStart >= start.Offset)
-                {
-                    startP.Runs.RemoveAt(i);
-                    i--;
-                }
-            }
-
-            // 2. Очищаем последний абзац от всего, что левее конца выделения
-            currentOffset = 0;
-            for (int i = 0; i < endP.Runs.Count; i++)
-            {
-                int runEnd = currentOffset + endP.Runs[i].Text.Length;
-                currentOffset += endP.Runs[i].Text.Length;
-
-                if (runEnd <= end.Offset)
-                {
-                    endP.Runs.RemoveAt(i);
-                    i--;
-                }
-            }
-
-            // 3. Приклеиваем "хвост" последнего абзаца к первому
-            startP.Runs.AddRange(endP.Runs);
-
-            // 4. Удаляем все промежуточные абзацы и сам последний
-            int paragraphsToRemove = end.ParagraphIndex - start.ParagraphIndex;
-            for (int i = 0; i < paragraphsToRemove; i++)
-            {
-                // Всегда удаляем индекс start+1, так как после удаления элементы сдвигаются
-                Document.Paragraphs.RemoveAt(start.ParagraphIndex + 1);
-            }
-        }
-
-        // Ставим каретку в начало удаленного куска и сбрасываем выделение
         CaretPosition = start;
         ClearSelection();
     }
 
-    /// <summary>
-    /// Инвертирует курсив у выделенного текста.
-    /// </summary>
     public void ToggleItalic()
     {
         if (!HasSelection) return;
@@ -371,14 +268,13 @@ public class DocumentEditor
             SplitAt(pIdx, pStartOffset);
 
             int currentOffset = 0;
-            foreach (GostEditor.Core.TextEngine.DOM.TextRun run in p.Runs)
+            foreach (TextRun run in p.Runs)
             {
                 int runStart = currentOffset;
                 int runEnd = currentOffset + run.Text.Length;
 
                 if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
                 {
-                    // Инвертируем наклон
                     run.IsItalic = !run.IsItalic;
                 }
                 currentOffset += run.Text.Length;
@@ -386,10 +282,6 @@ public class DocumentEditor
         }
     }
 
-
-    /// <summary>
-    /// Возвращает выделенный текст в виде строки для буфера обмена.
-    /// </summary>
     public string GetSelectedText()
     {
         if (!HasSelection) return string.Empty;
@@ -416,9 +308,6 @@ public class DocumentEditor
         return resultBuilder.ToString();
     }
 
-    /// <summary>
-    /// Вставляет многострочный текст из буфера обмена.
-    /// </summary>
     public void PasteText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
@@ -428,10 +317,7 @@ public class DocumentEditor
             DeleteSelection();
         }
 
-        // Очищаем текст от возврата каретки \r (оставляем только \n)
         string normalizedText = text.Replace("\r", "");
-
-        // ЯВНАЯ ТИПИЗАЦИЯ: Массив строк
         string[] lines = normalizedText.Split('\n');
 
         for (int i = 0; i < lines.Length; i++)
@@ -440,10 +326,9 @@ public class DocumentEditor
 
             if (!string.IsNullOrEmpty(line))
             {
-                InsertText(line); // Вызываем наш надежный метод для одной строки
+                InsertText(line);
             }
 
-            // Если это не последняя строка, делаем перенос
             if (i < lines.Length - 1)
             {
                 InsertNewLine();
@@ -451,19 +336,141 @@ public class DocumentEditor
         }
     }
 
-    /// <summary>
-    /// Применяет выравнивание ко всем выделенным абзацам (или к текущему, если выделения нет).
-    /// </summary>
-    public void SetAlignment(GostEditor.Core.TextEngine.DOM.GostAlignment alignment)
+    public void SetAlignment(GostAlignment alignment)
     {
-        // ЯВНАЯ ТИПИЗАЦИЯ
-        (GostEditor.Core.TextEngine.DOM.DocumentPosition start, GostEditor.Core.TextEngine.DOM.DocumentPosition end) = GetNormalizedSelection();
+        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
         for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
         {
-            GostEditor.Core.TextEngine.DOM.Paragraph p = Document.Paragraphs[pIdx];
+            Paragraph p = Document.Paragraphs[pIdx];
             p.Alignment = alignment;
         }
+    }
+
+    internal DocumentPosition InsertTextInternal(DocumentPosition position, string text)
+    {
+        Paragraph currentParagraph = Document.Paragraphs[position.ParagraphIndex];
+
+        if (currentParagraph.Runs.Count == 0)
+        {
+            currentParagraph.Runs.Add(new TextRun(text));
+            return new DocumentPosition(position.ParagraphIndex, text.Length);
+        }
+
+        int currentOffset = 0;
+        TextRun? targetRun = null;
+
+        foreach (TextRun run in currentParagraph.Runs)
+        {
+            if (position.Offset <= currentOffset + run.Text.Length)
+            {
+                targetRun = run;
+                break;
+            }
+            currentOffset += run.Text.Length;
+        }
+
+        if (targetRun != null)
+        {
+            int insertIndexInRun = position.Offset - currentOffset;
+            targetRun.Text = targetRun.Text.Insert(insertIndexInRun, text);
+            return new DocumentPosition(position.ParagraphIndex, position.Offset + text.Length);
+        }
+
+        return position;
+    }
+
+    internal void DeleteRangeInternal(DocumentPosition start, DocumentPosition end)
+    {
+        SplitAt(end.ParagraphIndex, end.Offset);
+        SplitAt(start.ParagraphIndex, start.Offset);
+
+        if (start.ParagraphIndex == end.ParagraphIndex)
+        {
+            Paragraph paragraph = Document.Paragraphs[start.ParagraphIndex];
+            int currentOffset = 0;
+
+            for (int i = 0; i < paragraph.Runs.Count; i++)
+            {
+                TextRun run = paragraph.Runs[i];
+                int runStart = currentOffset;
+                int runEnd = currentOffset + run.Text.Length;
+
+                currentOffset += run.Text.Length;
+
+                if (runStart >= start.Offset && runEnd <= end.Offset)
+                {
+                    paragraph.Runs.RemoveAt(i);
+                    i--;
+                }
+            }
+        }
+        else
+        {
+            Paragraph startP = Document.Paragraphs[start.ParagraphIndex];
+            Paragraph endP = Document.Paragraphs[end.ParagraphIndex];
+
+            int currentOffset = 0;
+            for (int i = 0; i < startP.Runs.Count; i++)
+            {
+                int runStart = currentOffset;
+                currentOffset += startP.Runs[i].Text.Length;
+
+                if (runStart >= start.Offset)
+                {
+                    startP.Runs.RemoveAt(i);
+                    i--;
+                }
+            }
+
+            currentOffset = 0;
+            for (int i = 0; i < endP.Runs.Count; i++)
+            {
+                int runEnd = currentOffset + endP.Runs[i].Text.Length;
+                currentOffset += endP.Runs[i].Text.Length;
+
+                if (runEnd <= end.Offset)
+                {
+                    endP.Runs.RemoveAt(i);
+                    i--;
+                }
+            }
+
+            startP.Runs.AddRange(endP.Runs);
+
+            int paragraphsToRemove = end.ParagraphIndex - start.ParagraphIndex;
+            for (int i = 0; i < paragraphsToRemove; i++)
+            {
+                Document.Paragraphs.RemoveAt(start.ParagraphIndex + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Массово добавляет абзацы в конец документа через систему команд.
+    /// </summary>
+    public void AppendParagraphs(List<Paragraph> paragraphs)
+    {
+        if (paragraphs == null || paragraphs.Count == 0) return;
+
+        AppendParagraphsCommand command = new AppendParagraphsCommand(this, paragraphs);
+        History.ExecuteCommand(command);
+    }
+
+    /// <summary>
+    /// Применяет выбранный стиль ко всем выделенным абзацам (или к текущему, если выделения нет).
+    /// </summary>
+    public void SetParagraphStyle(ParagraphStyle style)
+    {
+        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+        ChangeParagraphStyleCommand command = new ChangeParagraphStyleCommand(
+            this,
+            style,
+            start.ParagraphIndex,
+            end.ParagraphIndex);
+
+        History.ExecuteCommand(command);
     }
 
 }

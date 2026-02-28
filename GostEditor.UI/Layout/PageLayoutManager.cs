@@ -20,8 +20,6 @@ public class PageLayoutManager
         double maxBottom = document.PageHeight - document.MarginBottom;
         double contentWidth = document.ContentWidth;
 
-        double fontSize = 18.67;
-
         (DocumentPosition selStart, DocumentPosition selEnd) = editor.GetNormalizedSelection();
 
         for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
@@ -30,6 +28,30 @@ public class PageLayoutManager
             string plainText = paragraph.GetPlainText();
             if (string.IsNullOrEmpty(plainText)) plainText = "\u200B";
 
+            // 1. ОПРЕДЕЛЯЕМ БАЗОВЫЕ НАСТРОЙКИ АБЗАЦА ПО ЕГО СТИЛЮ
+            double baseFontSize = 18.67; // 14pt (стандарт ГОСТ)
+            FontWeight baseWeight = FontWeight.Normal;
+            FontFamily baseFontFamily = typeface.FontFamily;
+
+            if (paragraph.Style == ParagraphStyle.Heading1)
+            {
+                baseFontSize = 21.33; // 16pt
+                baseWeight = FontWeight.Bold;
+            }
+            else if (paragraph.Style == ParagraphStyle.Heading2)
+            {
+                baseFontSize = 18.67; // 14pt
+                baseWeight = FontWeight.Normal;
+            }
+            else if (paragraph.Style == ParagraphStyle.Code)
+            {
+                baseFontSize = 16.0; // 12pt для кода
+                baseFontFamily = new FontFamily("Consolas");
+            }
+
+            Typeface baseTypeface = new Typeface(baseFontFamily, FontStyle.Normal, baseWeight);
+
+            // 2. ПРИМЕНЯЕМ ВНУТРЕННИЕ СТИЛИ (ЖИРНЫЙ/КУРСИВ/РАЗМЕР) ТОЛЬКО ТАМ, ГДЕ ОНИ ОТЛИЧАЮТСЯ
             List<ValueSpan<TextRunProperties>> styleOverrides = new List<ValueSpan<TextRunProperties>>();
             int currentPos = 0;
 
@@ -37,13 +59,17 @@ public class PageLayoutManager
             {
                 if (string.IsNullOrEmpty(run.Text)) continue;
 
-                if (run.IsBold || run.IsItalic)
-                {
-                    FontStyle style = run.IsItalic ? FontStyle.Italic : FontStyle.Normal;
-                    FontWeight weight = run.IsBold ? FontWeight.Bold : FontWeight.Normal;
+                // Перевод пунктов (pt) в пиксели Avalonia (1 pt = 1.3333 px)
+                double runFontSizePx = run.FontSize * 1.3333333333333333;
 
-                    Typeface runTypeface = new Typeface(typeface.FontFamily, style, weight);
-                    TextRunProperties props = new GenericTextRunProperties(runTypeface, fontSize, null, Brushes.Black);
+                FontWeight effectiveWeight = run.IsBold || baseWeight == FontWeight.Bold ? FontWeight.Bold : FontWeight.Normal;
+                FontStyle effectiveStyle = run.IsItalic ? FontStyle.Italic : FontStyle.Normal;
+
+                // Если стиль отличается от базового ИЛИ размер шрифта отличается от базового
+                if (effectiveWeight != baseWeight || effectiveStyle != FontStyle.Normal || System.Math.Abs(runFontSizePx - baseFontSize) > 0.1)
+                {
+                    Typeface runTypeface = new Typeface(baseFontFamily, effectiveStyle, effectiveWeight);
+                    TextRunProperties props = new GenericTextRunProperties(runTypeface, runFontSizePx, null, Brushes.Black);
 
                     styleOverrides.Add(new ValueSpan<TextRunProperties>(currentPos, run.Text.Length, props));
                 }
@@ -51,6 +77,7 @@ public class PageLayoutManager
                 currentPos += run.Text.Length;
             }
 
+            // 3. ПРИМЕНЯЕМ ВЫРАВНИВАНИЕ
             Avalonia.Media.TextAlignment avaloniaAlignment = paragraph.Alignment switch
             {
                 GostEditor.Core.TextEngine.DOM.GostAlignment.Center => Avalonia.Media.TextAlignment.Center,
@@ -59,10 +86,11 @@ public class PageLayoutManager
                 _ => Avalonia.Media.TextAlignment.Left
             };
 
+            // 4. ФОРМИРУЕМ LAYOUT АБЗАЦА
             TextLayout layout = new TextLayout(
                 plainText,
-                typeface,
-                fontSize,
+                baseTypeface,
+                baseFontSize,
                 Brushes.Black,
                 avaloniaAlignment,
                 TextWrapping.Wrap,
@@ -72,6 +100,7 @@ public class PageLayoutManager
             double paragraphInternalY = 0;
             bool isFirstLineOfParagraph = true;
 
+            // 5. РАСЧЕТ ВЫДЕЛЕНИЯ
             List<Rect> selectionRects = new List<Rect>();
             if (editor.HasSelection && pIndex >= selStart.ParagraphIndex && pIndex <= selEnd.ParagraphIndex)
             {
@@ -84,6 +113,7 @@ public class PageLayoutManager
                 }
             }
 
+            // 6. ОТРИСОВКА СТРОК
             foreach (TextLine textLine in layout.TextLines)
             {
                 if (currentY + textLine.Height > maxBottom)
@@ -94,7 +124,12 @@ public class PageLayoutManager
                 }
 
                 double currentX = document.MarginLeft;
-                if (isFirstLineOfParagraph) currentX += paragraph.FirstLineIndent;
+
+                // ГОСТ: У заголовков по центру обычно нет красной строки, чтобы они стояли строго по центру страницы
+                if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
+                {
+                    currentX += paragraph.FirstLineIndent;
+                }
 
                 Point location = new Point(currentX, currentY);
                 currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, paragraphInternalY, layout));
@@ -104,7 +139,9 @@ public class PageLayoutManager
                     if (rect.Y >= paragraphInternalY - 0.1 && rect.Y < paragraphInternalY + textLine.Height - 0.1)
                     {
                         double selX = document.MarginLeft + rect.X;
-                        if (isFirstLineOfParagraph) selX += paragraph.FirstLineIndent;
+                        if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
+                            selX += paragraph.FirstLineIndent;
+
                         currentPage.SelectionBounds.Add(new Rect(selX, currentY, rect.Width, rect.Height));
                     }
                 }
@@ -115,7 +152,9 @@ public class PageLayoutManager
                     if (charRect.Y >= paragraphInternalY - 0.1 && charRect.Y < paragraphInternalY + textLine.Height - 0.1)
                     {
                         double caretX = document.MarginLeft + charRect.X;
-                        if (isFirstLineOfParagraph) caretX += paragraph.FirstLineIndent;
+                        if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
+                            caretX += paragraph.FirstLineIndent;
+
                         currentPage.CaretBounds = new Rect(caretX, currentY, 1.5, textLine.Height);
                     }
                 }

@@ -31,4 +31,7 @@ public class Paragraph
         }
         return sb.ToString();
     }
+
+    public ParagraphStyle Style { get; set; } = ParagraphStyle.Normal;
+
 }
