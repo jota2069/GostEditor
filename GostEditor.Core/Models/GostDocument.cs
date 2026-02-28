@@ -15,11 +15,15 @@ public class TitlePageInfo
 {
     public string University { get; set; } = string.Empty;
     public string Department { get; set; } = string.Empty;
+    public string Discipline { get; set; } = string.Empty;
+    public string WorkType { get; set; } = string.Empty;
     public string WorkTitle { get; set; } = string.Empty;
     public string StudentName { get; set; } = string.Empty;
     public string GroupNumber { get; set; } = string.Empty;
     public string TeacherName { get; set; } = string.Empty;
     public int Year { get; set; } = DateTime.Now.Year;
+
+    public string City { get; set; } = string.Empty;
 }
 
 public class DocumentSection

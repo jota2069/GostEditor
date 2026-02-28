@@ -51,6 +51,20 @@
         <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="#EEEEEE"/>
         </Style>
+
+        <Style Selector="TextBox.titleInput">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="TextBox.titleInput:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Background" Value="#F0F8FF"/>
+        </Style>
     </Window.Styles>
 
     <DockPanel>
@@ -68,43 +82,18 @@
                            VerticalAlignment="Center"
                            Margin="0,0,16,0"/>
 
-                <Button Content="Новый"
-                        Classes="toolbar"
-                        Command="{Binding NewDocumentCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
-
-                <Button Content="Открыть"
-                        Classes="toolbar"
-                        Command="{Binding LoadDocumentCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
-
-                <Button Content="Сохранить"
-                        Classes="toolbar"
-                        Command="{Binding SaveDocumentCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Новый" Classes="toolbar" Command="{Binding NewDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Открыть" Classes="toolbar" Command="{Binding LoadDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Сохранить" Classes="toolbar" Command="{Binding SaveDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <Button Content="Экспорт в DOCX"
-                        Classes="accent"
-                        Command="{Binding ExportToDocxCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Экспорт в DOCX" Classes="accent" Command="{Binding ExportToDocxCommand}" IsEnabled="{Binding !IsBusy}"/>
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <Button Content="Ж"
-                        FontWeight="Bold"
-                        Classes="toolbar"
-                        Focusable="False"
-                        Click="OnBoldClick"
-                        ToolTip.Tip="Жирный текст"/>
-
-                <Button Content="К"
-                        FontStyle="Italic"
-                        Classes="toolbar"
-                        Focusable="False"
-                        Click="OnItalicClick"
-                        ToolTip.Tip="Курсив"/>
+                <Button Content="Ж" FontWeight="Bold" Classes="toolbar" Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный текст"/>
+                <Button Content="К" FontStyle="Italic" Classes="toolbar" Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив"/>
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
@@ -115,12 +104,7 @@
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <ComboBox x:Name="FontSizeComboBox"
-                          Width="70"
-                          VerticalAlignment="Center"
-                          SelectionChanged="OnFontSizeSelectionChanged"
-                          SelectedIndex="2"
-                          Classes="toolbar">
+                <ComboBox x:Name="FontSizeComboBox" Width="70" VerticalAlignment="Center" SelectionChanged="OnFontSizeSelectionChanged" SelectedIndex="2" Classes="toolbar">
                     <ComboBoxItem Content="10"/>
                     <ComboBoxItem Content="12"/>
                     <ComboBoxItem Content="14"/>
@@ -132,109 +116,47 @@
 
                 <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
 
-                <Button Content="Парсить код"
-                        Classes="toolbar"
-                        Command="{Binding ParseCodeFolderCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
-
-                <Button Content="Парсить код"
-                        Classes="toolbar"
-                        Command="{Binding ParseCodeFolderCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
-
-                <Button Content="Вставить текст"
-                        Classes="toolbar"
-                        Command="{Binding PasteNormalizedCommand}"
-                        IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Парсить код" Classes="toolbar" Command="{Binding ParseCodeFolderCommand}" IsEnabled="{Binding !IsBusy}"/>
+                <Button Content="Вставить текст" Classes="toolbar" Command="{Binding PasteNormalizedCommand}" IsEnabled="{Binding !IsBusy}"/>
 
             </StackPanel>
         </Border>
 
-        <Border DockPanel.Dock="Bottom"
-                Background="White"
-                BorderBrush="#E0E0E0"
-                BorderThickness="0,1,0,0"
-                Padding="16,5">
+        <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="16,5">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="5" Margin="10,0,0,0">
                     <Button Content="Новый" Click="OnNewDocumentClick"/>
                     <Button Content="Убрать форматирование" Click="OnClearFormattingClick"/>
-
                     <TextBlock Text="Начать с листа:" VerticalAlignment="Center" Margin="10,0,5,0"/>
-                    <NumericUpDown x:Name="StartPagePicker" Minimum="1" Maximum="999" Value="1" FormatString="0"
-                                   ValueChanged="OnStartPageNumberChanged" Width="80"/>
-
+                    <NumericUpDown x:Name="StartPagePicker" Minimum="1" Maximum="999" Value="1" FormatString="0" ValueChanged="OnStartPageNumberChanged" Width="80"/>
                     <TextBlock x:Name="CurrentStartPageLabel" Text="(Сейчас: 1)" VerticalAlignment="Center" Foreground="#888888" Margin="5,0,0,0"/>
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StatusMessage}"
-                               Foreground="#888888"
-                               FontSize="12"
-                               VerticalAlignment="Center"/>
-
-                    <ProgressBar IsVisible="{Binding IsBusy}"
-                                 IsIndeterminate="True"
-                                 Width="120" Height="3"
-                                 VerticalAlignment="Center"/>
-
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#888888" FontSize="12" VerticalAlignment="Center"/>
+                    <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True" Width="120" Height="3" VerticalAlignment="Center"/>
                     <TextBlock Text="Масштаб:" VerticalAlignment="Center" Foreground="#888888" FontSize="12" Margin="10,0,0,0"/>
-                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}"
-                            Width="100" VerticalAlignment="Center"
-                            TickFrequency="0.1" IsSnapToTickEnabled="True"/>
+                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}" Width="100" VerticalAlignment="Center" TickFrequency="0.1" IsSnapToTickEnabled="True"/>
                 </StackPanel>
             </DockPanel>
         </Border>
 
         <Grid ColumnDefinitions="220,1,*">
 
-            <Border Grid.Column="0"
-                    Background="White"
-                    BorderBrush="#E0E0E0"
-                    BorderThickness="0,0,1,0">
+            <Border Grid.Column="0" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
                 <DockPanel>
-                    <Border DockPanel.Dock="Top"
-                            Padding="12,10"
-                            BorderBrush="#F0F0F0"
-                            BorderThickness="0,0,0,1">
-                        <TextBlock Text="СОДЕРЖАНИЕ"
-                                   Foreground="#AAAAAA"
-                                   FontSize="10"
-                                   FontWeight="Bold"/>
+                    <Border DockPanel.Dock="Top" Padding="12,10" BorderBrush="#F0F0F0" BorderThickness="0,0,0,1">
+                        <TextBlock Text="СОДЕРЖАНИЕ" Foreground="#AAAAAA" FontSize="10" FontWeight="Bold"/>
                     </Border>
 
-                    <Button DockPanel.Dock="Bottom"
-                            Content="+ Новый раздел"
-                            Classes="toolbar"
-                            Command="{Binding AddSectionCommand}"
-                            HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Center"
-                            Margin="8" Padding="8,6"/>
+                    <Button DockPanel.Dock="Bottom" Content="+ Новый раздел" Classes="toolbar" Command="{Binding AddSectionCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="8" Padding="8,6"/>
 
-                    <ListBox ItemsSource="{Binding Sections}"
-                             SelectedItem="{Binding SelectedSection}"
-                             Background="Transparent"
-                             BorderThickness="0"
-                             Margin="6,4">
+                    <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" Background="Transparent" BorderThickness="0" Margin="6,4">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="models:DocumentSection">
                                 <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0"
-                                               Text="{Binding Title}"
-                                               Foreground="#333333"
-                                               FontSize="13"
-                                               VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1"
-                                            Content="×"
-                                            Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}"
-                                            CommandParameter="{Binding}"
-                                            x:CompileBindings="False"
-                                            Background="Transparent"
-                                            BorderThickness="0"
-                                            Foreground="#AAAAAA"
-                                            FontSize="16"
-                                            Padding="4,0"
-                                            VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="0" Text="{Binding Title}" Foreground="#333333" FontSize="13" VerticalAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="×" Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}" CommandParameter="{Binding}" x:CompileBindings="False" Background="Transparent" BorderThickness="0" Foreground="#AAAAAA" FontSize="16" Padding="4,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -244,10 +166,7 @@
 
             <Border Grid.Column="1" Background="#E0E0E0"/>
 
-            <TabControl x:Name="MainTabs"
-                        Grid.Column="2"
-                        Background="#F5F5F5"
-                        BorderThickness="0">
+            <TabControl x:Name="MainTabs" Grid.Column="2" Background="#F5F5F5" BorderThickness="0">
 
                 <TabItem Header="Редактор">
                     <Grid Background="#F5F5F5">
@@ -255,38 +174,39 @@
                             <LayoutTransformControl.LayoutTransform>
                                 <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
                             </LayoutTransformControl.LayoutTransform>
-
                             <views:DocumentEngineView x:Name="MainEditor" />
-
                         </LayoutTransformControl>
                     </Grid>
                 </TabItem>
 
-               <TabItem Header="Титульный лист">
+              <TabItem Header="Титульный лист">
                     <Grid ColumnDefinitions="380, *">
 
-                        <ScrollViewer Grid.Column="0" Background="#F5F5F5" Padding="20">
-                            <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" Padding="20" CornerRadius="4">
+                        <ScrollViewer Grid.Column="0" Background="#F5F5F5">
+                            <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" Padding="20" Margin="20" CornerRadius="4" VerticalAlignment="Top">
                                 <StackPanel Spacing="14">
-                                    <TextBlock Text="Данные титульного листа" FontSize="16" FontWeight="Bold" Foreground="#1A1A1A" Margin="0,0,0,8"/>
+                                    <TextBlock Text="Данные титульного листа" FontSize="16" FontWeight="Bold" Foreground="#1A1A1A" Margin="0,0,0,4"/>
 
-                                    <TextBlock Text="Университет" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding University}" Watermark="Название университета" Background="White"/>
+                                    <TextBox Text="{Binding University}" Watermark="Университет (например, ТвГТУ)" Background="White"/>
+                                    <TextBox Text="{Binding Department}" Watermark="Кафедра" Background="White"/>
+                                    <TextBox Text="{Binding Discipline}" Watermark="Дисциплина" Background="White"/>
+                                    <TextBox Text="{Binding WorkType}" Watermark="Тип работы" Background="White"/>
+                                    <TextBox Text="{Binding WorkTitle}" Watermark="Тема работы" Background="White"/>
+                                    <TextBox Text="{Binding GroupNumber}" Watermark="Номер группы" Background="White"/>
 
-                                    <TextBlock Text="Кафедра" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding Department}" Watermark="Название кафедры" Background="White"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBox Grid.Column="0" Text="{Binding StudentName}" AcceptsReturn="True" MinHeight="55" Watermark="ФИО студента(ов)" Background="White" TextWrapping="Wrap"/>
+                                        <Button Grid.Column="1" Content="+" Command="{Binding AddStudentCommand}" Classes="accent" VerticalAlignment="Top" Margin="8,0,0,0" Width="32" Height="32" HorizontalContentAlignment="Center"/>
+                                    </Grid>
 
-                                    <TextBlock Text="Название работы" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding WorkTitle}" Watermark="Тема лабораторной работы" Background="White"/>
+                                    <TextBox Text="{Binding TeacherName}" Watermark="ФИО преподавателя" Background="White"/>
 
-                                    <TextBlock Text="ФИО студента" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding StudentName}" Watermark="Иванов Иван Иванович" Background="White"/>
+                                    <Grid ColumnDefinitions="*, 80" Margin="0,4,0,0">
+                                        <TextBox Grid.Column="0" Text="{Binding City}" Watermark="Город" Background="White" Margin="0,0,5,0"/>
+                                        <NumericUpDown Grid.Column="1" Value="{Binding Year}" Minimum="1900" Maximum="2100" FormatString="0" Background="White"/>
+                                    </Grid>
 
-                                    <TextBlock Text="Номер группы" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding GroupNumber}" Watermark="ИВТ-21" Background="White"/>
-
-                                    <TextBlock Text="ФИО преподавателя" Foreground="#999999" FontSize="11"/>
-                                    <TextBox Text="{Binding TeacherName}" Watermark="Петров Пётр Петрович" Background="White"/>
+                                    <Button Content="Сбросить по умолчанию" Command="{Binding ResetTitlePageCommand}" Classes="toolbar" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,15,0,0" />
                                 </StackPanel>
                             </Border>
                         </ScrollViewer>
@@ -308,39 +228,45 @@
                                                 <RowDefinition Height="Auto"/>
                                             </Grid.RowDefinitions>
 
-                                            <StackPanel Grid.Row="0" HorizontalAlignment="Center" Spacing="0">
-                                                <TextBlock Text="Министерство науки и высшего образования Российской Федерации" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="Федеральное государственное бюджетное образовательное учреждение" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="высшего образования" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="{Binding University, TargetNullValue='«Тверской государственный технический университет»'}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman" FontWeight="Bold"/>
-                                                <TextBlock Text="(ТвГТУ)" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman" FontWeight="Bold"/>
-                                                <TextBlock Text="{Binding Department, TargetNullValue='Кафедра [Название]'}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman" Margin="0,15,0,0"/>
+                                            <StackPanel Grid.Row="0" HorizontalAlignment="Stretch" Spacing="0">
+                                                <TextBlock Text="Министерство науки и высшего образования Российской Федерации" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                <TextBlock Text="Федеральное государственное бюджетное образовательное учреждение" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                <TextBlock Text="высшего образования" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+
+                                                <TextBox Classes="titleInput" Text="{Binding University}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold"/>
+                                                <TextBox Classes="titleInput" Text="{Binding Department}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" Margin="0,15,0,0"/>
                                             </StackPanel>
 
-                                            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="0">
-                                                <TextBlock Text="Отчет к лабораторной работе №2" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="по дисциплине «Системное программное обеспечение»" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman"/>
+                                            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Stretch" Spacing="0">
+                                                <TextBox Classes="titleInput" Text="{Binding WorkType}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
                                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                                    <TextBlock Text="на тему « " FontSize="19" FontFamily="Times New Roman"/>
-                                                    <TextBlock Text="{Binding WorkTitle, TargetNullValue='[Тема работы]'}" FontSize="19" FontFamily="Times New Roman" TextWrapping="Wrap" MaxWidth="500"/>
-                                                    <TextBlock Text=" »" FontSize="19" FontFamily="Times New Roman"/>
+                                                    <TextBlock Text="по дисциплине «" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                    <TextBox Classes="titleInput" Text="{Binding Discipline}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="»" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <TextBlock Text="на тему « " FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                    <TextBox Classes="titleInput" Text="{Binding WorkTitle}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextWrapping="Wrap" MaxWidth="450" VerticalAlignment="Center"/>
+                                                    <TextBlock Text=" »" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
                                                 </StackPanel>
                                             </StackPanel>
 
-                                            <StackPanel Grid.Row="2" HorizontalAlignment="Right" Width="280" Margin="0,0,0,40" Spacing="0">
-                                                <TextBlock Text="Выполнил:" FontSize="19" FontFamily="Times New Roman" FontWeight="Bold"/>
-                                                <TextBlock Text="студент группы" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="{Binding GroupNumber, TargetNullValue='[Группа]'}" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="{Binding StudentName, TargetNullValue='[ФИО студента]'}" FontSize="19" FontFamily="Times New Roman"/>
+                                            <StackPanel Grid.Row="2" HorizontalAlignment="Right" Margin="0,0,0,40" Spacing="0">
+                                                <TextBlock Text="Выполнил:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold" TextAlignment="Left"/>
+                                                <TextBlock Text="студент группы" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left"/>
 
-                                                <TextBlock Text="Принял:" FontSize="19" FontFamily="Times New Roman" FontWeight="Bold" Margin="0,15,0,0"/>
-                                                <TextBlock Text="{Binding TeacherName, TargetNullValue='[ФИО преподавателя]'}" FontSize="19" FontFamily="Times New Roman"/>
+                                                <TextBox Classes="titleInput" Text="{Binding GroupNumber}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
+                                                <TextBox Classes="titleInput" Text="{Binding StudentName}" AcceptsReturn="True" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
+
+                                                <TextBlock Text="Принял:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold" Margin="0,15,0,0" TextAlignment="Left"/>
+                                                <TextBox Classes="titleInput" Text="{Binding TeacherName}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
                                             </StackPanel>
 
-                                            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="5">
-                                                <TextBlock Text="Тверь," FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text="{Binding Source={x:Static System:DateTime.Now}, Path=Year}" FontSize="19" FontFamily="Times New Roman"/>
-                                                <TextBlock Text=" г." FontSize="19" FontFamily="Times New Roman"/>
+                                            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="0">
+                                                <TextBox Classes="titleInput" Text="{Binding City}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center" TextAlignment="Right"/>
+                                                <TextBlock Text=", " FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                <TextBox Classes="titleInput" Text="{Binding Year}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                <TextBlock Text=" г." FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Grid>
 

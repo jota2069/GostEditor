@@ -62,6 +62,10 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private string _windowTitle = "GostEditor — ГОСТ 7.32-2017";
 
+    // ==========================================
+    // СВОЙСТВА ТИТУЛЬНОГО ЛИСТА
+    // ==========================================
+
     public string University
     {
         get => CurrentDocument.TitlePage.University;
@@ -85,6 +89,36 @@ public partial class MainWindowViewModel : ViewModelBase
             if (CurrentDocument.TitlePage.Department != value)
             {
                 CurrentDocument.TitlePage.Department = value;
+                OnPropertyChanged();
+                HasUnsavedChanges = true;
+                UpdateWindowTitle();
+            }
+        }
+    }
+
+    public string Discipline
+    {
+        get => CurrentDocument.TitlePage.Discipline;
+        set
+        {
+            if (CurrentDocument.TitlePage.Discipline != value)
+            {
+                CurrentDocument.TitlePage.Discipline = value;
+                OnPropertyChanged();
+                HasUnsavedChanges = true;
+                UpdateWindowTitle();
+            }
+        }
+    }
+
+    public string WorkType
+    {
+        get => CurrentDocument.TitlePage.WorkType;
+        set
+        {
+            if (CurrentDocument.TitlePage.WorkType != value)
+            {
+                CurrentDocument.TitlePage.WorkType = value;
                 OnPropertyChanged();
                 HasUnsavedChanges = true;
                 UpdateWindowTitle();
@@ -152,6 +186,40 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    public string City
+    {
+        get => CurrentDocument.TitlePage.City;
+        set
+        {
+            if (CurrentDocument.TitlePage.City != value)
+            {
+                CurrentDocument.TitlePage.City = value;
+                OnPropertyChanged();
+                HasUnsavedChanges = true;
+                UpdateWindowTitle();
+            }
+        }
+    }
+
+    public int Year
+    {
+        get => CurrentDocument.TitlePage.Year;
+        set
+        {
+            if (CurrentDocument.TitlePage.Year != value)
+            {
+                CurrentDocument.TitlePage.Year = value;
+                OnPropertyChanged();
+                HasUnsavedChanges = true;
+                UpdateWindowTitle();
+            }
+        }
+    }
+
+    // ==========================================
+    // КОНСТРУКТОР
+    // ==========================================
+
     public MainWindowViewModel(
         IDocumentService documentService,
         IExportService exportService,
@@ -174,6 +242,10 @@ public partial class MainWindowViewModel : ViewModelBase
             dueTime: TimeSpan.FromMinutes(3),
             period: TimeSpan.FromMinutes(3));
     }
+
+    // ==========================================
+    // КОМАНДЫ
+    // ==========================================
 
     [RelayCommand]
     private void NewDocument()
@@ -416,6 +488,17 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = "Текст нормализован и скопирован в буфер.";
     }
 
+    [RelayCommand]
+    private void AddStudent()
+    {
+        // Добавляем новую строчку для второго студента
+        StudentName += "\n[Новый студент]";
+    }
+
+    // ==========================================
+    // СЛУЖЕБНЫЕ МЕТОДЫ
+    // ==========================================
+
     private void AutoSave()
     {
         if (!HasUnsavedChanges || _currentFilePath is null)
@@ -453,9 +536,31 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(University));
         OnPropertyChanged(nameof(Department));
+        OnPropertyChanged(nameof(Discipline)); // Добавлено
+        OnPropertyChanged(nameof(WorkType));
         OnPropertyChanged(nameof(WorkTitle));
         OnPropertyChanged(nameof(StudentName));
         OnPropertyChanged(nameof(GroupNumber));
         OnPropertyChanged(nameof(TeacherName));
+        OnPropertyChanged(nameof(City));       // Добавлено
+        OnPropertyChanged(nameof(Year));       // Добавлено
     }
+
+    [RelayCommand]
+    private void ResetTitlePage()
+    {
+        University = "«Тверской государственный технический университет»";
+        Department = "Кафедра [Название]";
+        Discipline = "[Дисциплина]";
+        WorkType = "[Тип работы]";
+        WorkTitle = "[Тема работы]";
+        GroupNumber = "[Группа]";
+        StudentName = "[ФИО студента]";
+        TeacherName = "[ФИО преподавателя]";
+        City = "Тверь";
+        Year = DateTime.Now.Year;
+
+        StatusMessage = "Настройки титульного листа сброшены.";
+    }
+
 }
