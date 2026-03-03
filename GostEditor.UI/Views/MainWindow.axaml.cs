@@ -11,7 +11,6 @@ namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
-    // Флаг, чтобы не было зацикливания между интерфейсом и логикой
     private bool _isUpdatingUI = false;
 
     public MainWindow()
@@ -20,7 +19,6 @@ public partial class MainWindow : Window
         AddHandler(PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnGlobalPreviewKeyDown, RoutingStrategies.Tunnel);
 
-        // Подключаемся к движку, чтобы ловить изменение шрифта под кареткой
         if (MainEditor != null)
         {
             MainEditor.CaretStyleChanged += MainEditor_CaretStyleChanged;
@@ -35,19 +33,9 @@ public partial class MainWindow : Window
         {
             vm.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
             vm.OnInsertParagraphsRequested += InsertParagraphsToEditor;
-
-            vm.PropertyChanged += (object? sender, System.ComponentModel.PropertyChangedEventArgs args) =>
-            {
-                if (args.PropertyName == nameof(vm.SelectedSection))
-                {
-                }
-            };
         }
     }
 
-    // ==========================================
-    // ЛОВИМ СМЕНУ СТИЛЯ И ЗАЖИГАЕМ КНОПКИ
-    // ==========================================
     private void MainEditor_CaretStyleChanged(object? sender, CaretStyleChangedEventArgs e)
     {
         _isUpdatingUI = true;
@@ -68,7 +56,6 @@ public partial class MainWindow : Window
                 {
                     if (double.TryParse(item.Content.ToString(), out double size))
                     {
-                        // Если разница микроскопическая, считаем размеры равными
                         if (Math.Abs(size - e.FontSize) < 0.1)
                         {
                             FontSizeComboBox.SelectedItem = item;
@@ -87,12 +74,7 @@ public partial class MainWindow : Window
         if (paragraphs.Count > 0 && MainEditor != null)
         {
             MainEditor.AppendParagraphs(paragraphs);
-
-            if (MainTabs != null)
-            {
-                MainTabs.SelectedIndex = 0;
-            }
-
+            if (MainTabs != null) MainTabs.SelectedIndex = 0;
             MainEditor.Focus();
         }
     }
@@ -138,17 +120,25 @@ public partial class MainWindow : Window
         MainEditor?.Focus();
     }
 
+    private void OnUndoToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.Undo();
+        MainEditor?.Focus();
+    }
+
+    private void OnRedoToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.Redo();
+        MainEditor?.Focus();
+    }
+
     private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (e.NewValue.HasValue && CurrentStartPageLabel != null)
         {
             int newStartPage = (int)e.NewValue.Value;
             CurrentStartPageLabel.Text = $"(Сейчас: {newStartPage})";
-
-            if (MainEditor != null)
-            {
-                MainEditor.SetStartPageNumber(newStartPage);
-            }
+            if (MainEditor != null) MainEditor.SetStartPageNumber(newStartPage);
         }
     }
 
@@ -159,10 +149,6 @@ public partial class MainWindow : Window
             await SaveDocumentAsync();
             e.Handled = true;
         }
-    }
-
-    private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
-    {
     }
 
     private async Task SaveDocumentAsync()
@@ -181,53 +167,18 @@ public partial class MainWindow : Window
             {
                 double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
                 double newZoom = Math.Round(vm.ZoomLevel + delta, 1);
-
-                if (newZoom >= 0.5 && newZoom <= 2.0)
-                {
-                    vm.ZoomLevel = newZoom;
-                }
-
+                if (newZoom >= 0.5 && newZoom <= 2.0) vm.ZoomLevel = newZoom;
                 e.Handled = true;
             }
         }
     }
 
-    private void OnStyleSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_isUpdatingUI) return; // Игнорируем, если это просто смена подсветки
-        if (MainEditor == null || sender == null) return;
-
-        ComboBox comboBox = (ComboBox)sender;
-        int index = comboBox.SelectedIndex;
-
-        ParagraphStyle selectedStyle = ParagraphStyle.Normal;
-
-        switch (index)
-        {
-            case 0:
-                selectedStyle = ParagraphStyle.Normal;
-                break;
-            case 1:
-                selectedStyle = ParagraphStyle.Heading1;
-                break;
-            case 2:
-                selectedStyle = ParagraphStyle.Heading2;
-                break;
-            case 3:
-                selectedStyle = ParagraphStyle.Code;
-                break;
-        }
-
-        MainEditor.ApplyParagraphStyle(selectedStyle);
-    }
-
     private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingUI) return; // Игнорируем, если это просто смена подсветки
+        if (_isUpdatingUI) return;
         if (MainEditor == null || sender == null) return;
 
         ComboBox comboBox = (ComboBox)sender;
-
         if (comboBox.SelectedItem == null) return;
 
         ComboBoxItem selectedItem = (ComboBoxItem)comboBox.SelectedItem;
@@ -238,4 +189,6 @@ public partial class MainWindow : Window
             MainEditor.ApplyFontSize(newSize);
         }
     }
+
+    private void OnNewDocumentClick(object? sender, RoutedEventArgs e) { }
 }
