@@ -1,26 +1,30 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
-using GostEditor.Core.Services;
-using GostEditor.UI.ViewModels;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.UI.ViewModels;
 
 namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
-    private string _currentFilePath = string.Empty;
+    // Флаг, чтобы не было зацикливания между интерфейсом и логикой
+    private bool _isUpdatingUI = false;
 
     public MainWindow()
     {
         InitializeComponent();
         AddHandler(PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnGlobalPreviewKeyDown, RoutingStrategies.Tunnel);
+
+        // Подключаемся к движку, чтобы ловить изменение шрифта под кареткой
+        if (MainEditor != null)
+        {
+            MainEditor.CaretStyleChanged += MainEditor_CaretStyleChanged;
+        }
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -29,13 +33,67 @@ public partial class MainWindow : Window
 
         if (DataContext is MainWindowViewModel vm)
         {
+            vm.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
+            vm.OnInsertParagraphsRequested += InsertParagraphsToEditor;
+
             vm.PropertyChanged += (object? sender, System.ComponentModel.PropertyChangedEventArgs args) =>
             {
                 if (args.PropertyName == nameof(vm.SelectedSection))
                 {
-
                 }
             };
+        }
+    }
+
+    // ==========================================
+    // ЛОВИМ СМЕНУ СТИЛЯ И ЗАЖИГАЕМ КНОПКИ
+    // ==========================================
+    private void MainEditor_CaretStyleChanged(object? sender, CaretStyleChangedEventArgs e)
+    {
+        _isUpdatingUI = true;
+
+        if (BtnBold != null) BtnBold.IsChecked = e.IsBold;
+        if (BtnItalic != null) BtnItalic.IsChecked = e.IsItalic;
+
+        if (BtnAlignLeft != null) BtnAlignLeft.IsChecked = e.Alignment == GostAlignment.Left;
+        if (BtnAlignCenter != null) BtnAlignCenter.IsChecked = e.Alignment == GostAlignment.Center;
+        if (BtnAlignRight != null) BtnAlignRight.IsChecked = e.Alignment == GostAlignment.Right;
+        if (BtnAlignJustify != null) BtnAlignJustify.IsChecked = e.Alignment == GostAlignment.Justify;
+
+        if (FontSizeComboBox != null)
+        {
+            foreach (object itemObj in FontSizeComboBox.Items)
+            {
+                if (itemObj is ComboBoxItem item && item.Content != null)
+                {
+                    if (double.TryParse(item.Content.ToString(), out double size))
+                    {
+                        // Если разница микроскопическая, считаем размеры равными
+                        if (Math.Abs(size - e.FontSize) < 0.1)
+                        {
+                            FontSizeComboBox.SelectedItem = item;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        _isUpdatingUI = false;
+    }
+
+    private void InsertParagraphsToEditor(List<Paragraph> paragraphs)
+    {
+        if (paragraphs.Count > 0 && MainEditor != null)
+        {
+            MainEditor.AppendParagraphs(paragraphs);
+
+            if (MainTabs != null)
+            {
+                MainTabs.SelectedIndex = 0;
+            }
+
+            MainEditor.Focus();
         }
     }
 
@@ -80,47 +138,13 @@ public partial class MainWindow : Window
         MainEditor?.Focus();
     }
 
-    // ==========================================
-    // НОВЫЙ МЕТОД: ВСТАВКА ЛИСТИНГОВ КОДА
-    // ==========================================
-    private void OnInsertCodeListingsClick(object? sender, RoutedEventArgs e)
-    {
-        // Проверяем, что ViewModel доступна и в ней есть загруженные листинги
-        if (DataContext is MainWindowViewModel vm && vm.CodeListings != null)
-        {
-            // ЯВНАЯ ТИПИЗАЦИЯ: берем наш сервис
-            CodeParserService parser = new CodeParserService();
-
-            // Генерируем ГОСТ-абзацы из отмеченных файлов
-            List<Paragraph> paragraphs = parser.GenerateAppendixParagraphs(vm.CodeListings);
-
-            if (paragraphs.Count > 0)
-            {
-                // Отправляем в редактор
-                MainEditor?.AppendParagraphs(paragraphs);
-
-                // Переключаем пользователя обратно на вкладку "Редактор" (индекс 0)
-                if (MainTabs != null)
-                {
-                    MainTabs.SelectedIndex = 0;
-                }
-
-                // Возвращаем фокус редактору
-                MainEditor?.Focus();
-            }
-        }
-    }
-
-    private void OnStartPageNumberChanged(object? sender, Avalonia.Controls.NumericUpDownValueChangedEventArgs e)
+    private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (e.NewValue.HasValue && CurrentStartPageLabel != null)
         {
-            // ЯВНАЯ ТИПИЗАЦИЯ: извлекаем число как int
             int newStartPage = (int)e.NewValue.Value;
-
             CurrentStartPageLabel.Text = $"(Сейчас: {newStartPage})";
 
-            // Передаем новое число в наш движок
             if (MainEditor != null)
             {
                 MainEditor.SetStartPageNumber(newStartPage);
@@ -139,12 +163,14 @@ public partial class MainWindow : Window
 
     private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
     {
-        // Убран async, чтобы IDE не ругалась на отсутствие await
     }
 
     private async Task SaveDocumentAsync()
     {
-        await Task.CompletedTask;
+        if (DataContext is MainWindowViewModel vm && vm.SaveDocumentCommand.CanExecute(null))
+        {
+            await vm.SaveDocumentCommand.ExecuteAsync(null);
+        }
     }
 
     private void OnWindowPointerWheelChanged(object? sender, PointerWheelEventArgs e)
@@ -155,57 +181,56 @@ public partial class MainWindow : Window
             {
                 double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
                 double newZoom = Math.Round(vm.ZoomLevel + delta, 1);
-                if (newZoom >= 0.5 && newZoom <= 2.0) vm.ZoomLevel = newZoom;
+
+                if (newZoom >= 0.5 && newZoom <= 2.0)
+                {
+                    vm.ZoomLevel = newZoom;
+                }
+
                 e.Handled = true;
             }
         }
     }
 
-    // ==========================================
-    // ИСПРАВЛЕНО: СМЕНА СТИЛЯ (ЧЕРЕЗ SENDER)
-    // ==========================================
-    private void OnStyleSelectionChanged(object? sender, Avalonia.Controls.SelectionChangedEventArgs e)
+    private void OnStyleSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_isUpdatingUI) return; // Игнорируем, если это просто смена подсветки
         if (MainEditor == null || sender == null) return;
 
-        // ЯВНАЯ ТИПИЗАЦИЯ: извлекаем ComboBox из sender
-        Avalonia.Controls.ComboBox comboBox = (Avalonia.Controls.ComboBox)sender;
+        ComboBox comboBox = (ComboBox)sender;
         int index = comboBox.SelectedIndex;
 
-        GostEditor.Core.TextEngine.DOM.ParagraphStyle selectedStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle.Normal;
+        ParagraphStyle selectedStyle = ParagraphStyle.Normal;
 
         switch (index)
         {
             case 0:
-                selectedStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle.Normal;
+                selectedStyle = ParagraphStyle.Normal;
                 break;
             case 1:
-                selectedStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle.Heading1;
+                selectedStyle = ParagraphStyle.Heading1;
                 break;
             case 2:
-                selectedStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle.Heading2;
+                selectedStyle = ParagraphStyle.Heading2;
                 break;
             case 3:
-                selectedStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle.Code;
+                selectedStyle = ParagraphStyle.Code;
                 break;
         }
 
         MainEditor.ApplyParagraphStyle(selectedStyle);
     }
 
-    // ==========================================
-    // ИСПРАВЛЕНО: СМЕНА ШРИФТА (ЧЕРЕЗ SENDER)
-    // ==========================================
-    private void OnFontSizeSelectionChanged(object? sender, Avalonia.Controls.SelectionChangedEventArgs e)
+    private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        if (_isUpdatingUI) return; // Игнорируем, если это просто смена подсветки
         if (MainEditor == null || sender == null) return;
 
-        // ЯВНАЯ ТИПИЗАЦИЯ: извлекаем ComboBox из sender
-        Avalonia.Controls.ComboBox comboBox = (Avalonia.Controls.ComboBox)sender;
+        ComboBox comboBox = (ComboBox)sender;
 
         if (comboBox.SelectedItem == null) return;
 
-        Avalonia.Controls.ComboBoxItem selectedItem = (Avalonia.Controls.ComboBoxItem)comboBox.SelectedItem;
+        ComboBoxItem selectedItem = (ComboBoxItem)comboBox.SelectedItem;
         string? content = selectedItem.Content?.ToString();
 
         if (double.TryParse(content, out double newSize))

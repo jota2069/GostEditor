@@ -5,7 +5,6 @@ using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
 using System.Collections.Generic;
 using System.Linq;
-using Avalonia.Utilities;
 
 namespace GostEditor.UI.Layout;
 
@@ -25,68 +24,85 @@ public class PageLayoutManager
         for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
         {
             Paragraph paragraph = document.Paragraphs[pIndex];
+
             string plainText = paragraph.GetPlainText();
             if (string.IsNullOrEmpty(plainText)) plainText = "\u200B";
 
-            // 1. ОПРЕДЕЛЯЕМ БАЗОВЫЕ НАСТРОЙКИ АБЗАЦА ПО ЕГО СТИЛЮ
-            double baseFontSize = 18.67; // 14pt (стандарт ГОСТ)
+            double baseFontSize = 18.67;
             FontWeight baseWeight = FontWeight.Normal;
             FontFamily baseFontFamily = typeface.FontFamily;
 
             if (paragraph.Style == ParagraphStyle.Heading1)
             {
-                baseFontSize = 21.33; // 16pt
+                baseFontSize = 21.33;
                 baseWeight = FontWeight.Bold;
             }
             else if (paragraph.Style == ParagraphStyle.Heading2)
             {
-                baseFontSize = 18.67; // 14pt
+                baseFontSize = 18.67;
                 baseWeight = FontWeight.Normal;
             }
             else if (paragraph.Style == ParagraphStyle.Code)
             {
-                baseFontSize = 16.0; // 12pt для кода
+                baseFontSize = 16.0;
                 baseFontFamily = new FontFamily("Consolas");
             }
 
             Typeface baseTypeface = new Typeface(baseFontFamily, FontStyle.Normal, baseWeight);
 
-            // 2. ПРИМЕНЯЕМ ВНУТРЕННИЕ СТИЛИ (ЖИРНЫЙ/КУРСИВ/РАЗМЕР) ТОЛЬКО ТАМ, ГДЕ ОНИ ОТЛИЧАЮТСЯ
-            List<ValueSpan<TextRunProperties>> styleOverrides = new List<ValueSpan<TextRunProperties>>();
-            int currentPos = 0;
+            bool needsIndentHack = paragraph.Alignment != GostAlignment.Center &&
+                                   paragraph.Alignment != GostAlignment.Right &&
+                                   paragraph.FirstLineIndent > 0;
 
+            int indentCharsCount = 0;
+
+            if (needsIndentHack)
+            {
+                string indentString = "\u2003\u2002";
+                indentCharsCount = indentString.Length;
+                plainText = indentString + plainText;
+            }
+
+            List<Avalonia.Utilities.ValueSpan<TextRunProperties>> styleOverrides = new List<Avalonia.Utilities.ValueSpan<TextRunProperties>>();
+
+            if (needsIndentHack)
+            {
+                TextRunProperties indentProps = new GenericTextRunProperties(baseTypeface, baseFontSize * 1.3333333333333333, null, Brushes.Transparent);
+                styleOverrides.Add(new Avalonia.Utilities.ValueSpan<TextRunProperties>(0, indentCharsCount, indentProps));
+            }
+
+            int currentPos = indentCharsCount;
+
+            // ИСПРАВЛЕНИЕ: Явно указываем, что используем твой TextRun, а не Avalonia
             foreach (GostEditor.Core.TextEngine.DOM.TextRun run in paragraph.Runs)
             {
                 if (string.IsNullOrEmpty(run.Text)) continue;
 
-                // Перевод пунктов (pt) в пиксели Avalonia (1 pt = 1.3333 px)
                 double runFontSizePx = run.FontSize * 1.3333333333333333;
 
                 FontWeight effectiveWeight = run.IsBold || baseWeight == FontWeight.Bold ? FontWeight.Bold : FontWeight.Normal;
                 FontStyle effectiveStyle = run.IsItalic ? FontStyle.Italic : FontStyle.Normal;
 
-                // Если стиль отличается от базового ИЛИ размер шрифта отличается от базового
                 if (effectiveWeight != baseWeight || effectiveStyle != FontStyle.Normal || System.Math.Abs(runFontSizePx - baseFontSize) > 0.1)
                 {
                     Typeface runTypeface = new Typeface(baseFontFamily, effectiveStyle, effectiveWeight);
                     TextRunProperties props = new GenericTextRunProperties(runTypeface, runFontSizePx, null, Brushes.Black);
 
-                    styleOverrides.Add(new ValueSpan<TextRunProperties>(currentPos, run.Text.Length, props));
+                    styleOverrides.Add(new Avalonia.Utilities.ValueSpan<TextRunProperties>(currentPos, run.Text.Length, props));
                 }
 
                 currentPos += run.Text.Length;
             }
 
-            // 3. ПРИМЕНЯЕМ ВЫРАВНИВАНИЕ
-            Avalonia.Media.TextAlignment avaloniaAlignment = paragraph.Alignment switch
+            TextAlignment avaloniaAlignment = paragraph.Alignment switch
             {
-                GostEditor.Core.TextEngine.DOM.GostAlignment.Center => Avalonia.Media.TextAlignment.Center,
-                GostEditor.Core.TextEngine.DOM.GostAlignment.Right => Avalonia.Media.TextAlignment.Right,
-                GostEditor.Core.TextEngine.DOM.GostAlignment.Justify => Avalonia.Media.TextAlignment.Justify,
-                _ => Avalonia.Media.TextAlignment.Left
+                GostAlignment.Center => TextAlignment.Center,
+                GostAlignment.Right => TextAlignment.Right,
+                GostAlignment.Justify => TextAlignment.Justify,
+                _ => TextAlignment.Left
             };
 
-            // 4. ФОРМИРУЕМ LAYOUT АБЗАЦА
+            // ИСПРАВЛЕНИЕ: Используем именованные аргументы, как было в твоем оригинальном коде
             TextLayout layout = new TextLayout(
                 plainText,
                 baseTypeface,
@@ -98,22 +114,21 @@ public class PageLayoutManager
                 textStyleOverrides: styleOverrides);
 
             double paragraphInternalY = 0;
-            bool isFirstLineOfParagraph = true;
 
-            // 5. РАСЧЕТ ВЫДЕЛЕНИЯ
             List<Rect> selectionRects = new List<Rect>();
             if (editor.HasSelection && pIndex >= selStart.ParagraphIndex && pIndex <= selEnd.ParagraphIndex)
             {
                 int start = pIndex == selStart.ParagraphIndex ? selStart.Offset : 0;
-                int end = pIndex == selEnd.ParagraphIndex ? selEnd.Offset : plainText.Length;
+                int end = pIndex == selEnd.ParagraphIndex ? selEnd.Offset : paragraph.GetPlainText().Length;
 
                 if (end > start)
                 {
-                    selectionRects = layout.HitTestTextRange(start, end - start).ToList();
+                    int adjustedStart = start + (pIndex == selStart.ParagraphIndex ? indentCharsCount : 0);
+                    int adjustedLength = end - start;
+                    selectionRects = layout.HitTestTextRange(adjustedStart, adjustedLength).ToList();
                 }
             }
 
-            // 6. ОТРИСОВКА СТРОК
             foreach (TextLine textLine in layout.TextLines)
             {
                 if (currentY + textLine.Height > maxBottom)
@@ -124,13 +139,6 @@ public class PageLayoutManager
                 }
 
                 double currentX = document.MarginLeft;
-
-                // ГОСТ: У заголовков по центру обычно нет красной строки, чтобы они стояли строго по центру страницы
-                if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
-                {
-                    currentX += paragraph.FirstLineIndent;
-                }
-
                 Point location = new Point(currentX, currentY);
                 currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, paragraphInternalY, layout));
 
@@ -139,29 +147,24 @@ public class PageLayoutManager
                     if (rect.Y >= paragraphInternalY - 0.1 && rect.Y < paragraphInternalY + textLine.Height - 0.1)
                     {
                         double selX = document.MarginLeft + rect.X;
-                        if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
-                            selX += paragraph.FirstLineIndent;
-
                         currentPage.SelectionBounds.Add(new Rect(selX, currentY, rect.Width, rect.Height));
                     }
                 }
 
                 if (pIndex == editor.CaretPosition.ParagraphIndex)
                 {
-                    Rect charRect = layout.HitTestTextPosition(editor.CaretPosition.Offset);
+                    int adjustedCaretOffset = editor.CaretPosition.Offset + indentCharsCount;
+                    Rect charRect = layout.HitTestTextPosition(adjustedCaretOffset);
+
                     if (charRect.Y >= paragraphInternalY - 0.1 && charRect.Y < paragraphInternalY + textLine.Height - 0.1)
                     {
                         double caretX = document.MarginLeft + charRect.X;
-                        if (isFirstLineOfParagraph && paragraph.Alignment != GostEditor.Core.TextEngine.DOM.GostAlignment.Center)
-                            caretX += paragraph.FirstLineIndent;
-
                         currentPage.CaretBounds = new Rect(caretX, currentY, 1.5, textLine.Height);
                     }
                 }
 
                 paragraphInternalY += textLine.Height;
                 currentY += textLine.Height * paragraph.LineSpacing;
-                isFirstLineOfParagraph = false;
             }
         }
 
@@ -182,7 +185,20 @@ public class PageLayoutManager
                 if (layoutX < 0) layoutX = 0;
 
                 TextHitTestResult hitTest = line.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
-                return new DocumentPosition(line.ParagraphIndex, hitTest.TextPosition);
+
+                int paragraphIndex = line.ParagraphIndex;
+                int clickedOffset = hitTest.TextPosition;
+
+                if (clickedOffset <= 2 && line.InternalY == 0)
+                {
+                    clickedOffset = 0;
+                }
+                else if (line.InternalY == 0)
+                {
+                    clickedOffset = System.Math.Max(0, clickedOffset - 2);
+                }
+
+                return new DocumentPosition(paragraphIndex, clickedOffset);
             }
         }
         return null;

@@ -7,9 +7,24 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.Services;
+using GostDocument = GostEditor.Core.Models.GostDocument;
 
 namespace GostEditor.UI.ViewModels;
+
+public partial class SelectableCodeListing : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected = true;
+
+    public CodeListing Listing { get; }
+
+    public SelectableCodeListing(CodeListing listing)
+    {
+        Listing = listing;
+    }
+}
 
 public partial class MainWindowViewModel : ViewModelBase
 {
@@ -20,25 +35,22 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IValidationService _validationService;
     private readonly DialogService _dialogService;
 
-    // Путь к текущему открытому файлу.
     private string? _currentFilePath;
-
-    // Таймер автосохранения.
     private System.Threading.Timer? _autoSaveTimer;
+
+    public event Action<List<Paragraph>>? OnInsertParagraphsRequested;
 
     [ObservableProperty]
     private GostDocument _currentDocument = new GostDocument();
 
     [ObservableProperty]
-    private ObservableCollection<DocumentSection> _sections =
-        new ObservableCollection<DocumentSection>();
+    private ObservableCollection<DocumentSection> _sections = new ObservableCollection<DocumentSection>();
 
     [ObservableProperty]
     private DocumentSection? _selectedSection;
 
     [ObservableProperty]
-    private ObservableCollection<CodeListing> _codeListings =
-        new ObservableCollection<CodeListing>();
+    private ObservableCollection<SelectableCodeListing> _codeListings = new ObservableCollection<SelectableCodeListing>();
 
     [ObservableProperty]
     private bool _hasUnsavedChanges;
@@ -61,10 +73,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private string _windowTitle = "GostEditor — ГОСТ 7.32-2017";
-
-    // ==========================================
-    // СВОЙСТВА ТИТУЛЬНОГО ЛИСТА
-    // ==========================================
 
     public string University
     {
@@ -216,10 +224,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    // ==========================================
-    // КОНСТРУКТОР
-    // ==========================================
-
     public MainWindowViewModel(
         IDocumentService documentService,
         IExportService exportService,
@@ -235,17 +239,12 @@ public partial class MainWindowViewModel : ViewModelBase
         _validationService = validationService;
         _dialogService = dialogService;
 
-        // Автосохранение каждые 3 минуты.
         _autoSaveTimer = new System.Threading.Timer(
             callback: _ => AutoSave(),
             state: null,
             dueTime: TimeSpan.FromMinutes(3),
             period: TimeSpan.FromMinutes(3));
     }
-
-    // ==========================================
-    // КОМАНДЫ
-    // ==========================================
 
     [RelayCommand]
     private void NewDocument()
@@ -354,7 +353,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CodeListings.Clear();
             foreach (CodeListing listing in CurrentDocument.CodeListings)
             {
-                CodeListings.Add(listing);
+                CodeListings.Add(new SelectableCodeListing(listing));
             }
 
             SelectedSection = Sections.Count > 0 ? Sections[0] : null;
@@ -441,15 +440,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            IReadOnlyList<CodeListing> parsed =
-                await _codeParserService.ParseDirectoryAsync(folderPath);
+            IReadOnlyList<CodeListing> parsed = await _codeParserService.ParseDirectoryAsync(folderPath);
 
             CodeListings.Clear();
             CurrentDocument.CodeListings.Clear();
 
             foreach (CodeListing listing in parsed)
             {
-                CodeListings.Add(listing);
+                CodeListings.Add(new SelectableCodeListing(listing));
                 CurrentDocument.CodeListings.Add(listing);
             }
 
@@ -473,6 +471,67 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ClearCodeListings()
+    {
+        CodeListings.Clear();
+        CurrentDocument.CodeListings.Clear();
+        HasUnsavedChanges = true;
+        StatusMessage = "Список файлов исходного кода очищен.";
+        UpdateWindowTitle();
+    }
+
+    [RelayCommand]
+    private void InsertCodeToEditor()
+    {
+        List<SelectableCodeListing> selectedFiles = CodeListings.Where(x => x.IsSelected).ToList();
+
+        if (selectedFiles.Count == 0)
+        {
+            return;
+        }
+
+        List<Paragraph> paragraphs = new List<Paragraph>();
+
+        Paragraph appTitle = new Paragraph
+        {
+            Alignment = GostAlignment.Right
+        };
+        appTitle.Runs.Add(new TextRun("Приложение А", isBold: true, isItalic: false) { FontSize = 14 });
+        paragraphs.Add(appTitle);
+
+        int counter = 1;
+        foreach (SelectableCodeListing item in selectedFiles)
+        {
+            Paragraph listingTitle = new Paragraph
+            {
+                Alignment = GostAlignment.Right
+            };
+            listingTitle.Runs.Add(new TextRun($"Листинг {counter}. Файл {item.Listing.FileName}", isBold: false, isItalic: false) { FontSize = 14 });
+            paragraphs.Add(listingTitle);
+
+            string rawCode = item.Listing.Content;
+
+            string[] separator = new[] { "\r\n", "\n" };
+            string[] lines = rawCode.Split(separator, StringSplitOptions.None);
+
+            List<string> cleanLines = lines.Where(l => !l.TrimStart().StartsWith("using ")).ToList();
+            string cleanCode = string.Join("\n", cleanLines).TrimStart('\r', '\n');
+
+            Paragraph codePara = new Paragraph
+            {
+                Alignment = GostAlignment.Left,
+                Style = ParagraphStyle.Code
+            };
+            codePara.Runs.Add(new TextRun(cleanCode, isBold: false, isItalic: false) { FontSize = 12 });
+            paragraphs.Add(codePara);
+
+            counter++;
+        }
+
+        OnInsertParagraphsRequested?.Invoke(paragraphs);
+    }
+
+    [RelayCommand]
     private async Task PasteNormalizedAsync()
     {
         string? clipboardText = await _dialogService.GetClipboardTextAsync();
@@ -491,13 +550,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void AddStudent()
     {
-        // Добавляем новую строчку для второго студента
         StudentName += "\n[Новый студент]";
     }
-
-    // ==========================================
-    // СЛУЖЕБНЫЕ МЕТОДЫ
-    // ==========================================
 
     private void AutoSave()
     {
@@ -536,14 +590,14 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(University));
         OnPropertyChanged(nameof(Department));
-        OnPropertyChanged(nameof(Discipline)); // Добавлено
+        OnPropertyChanged(nameof(Discipline));
         OnPropertyChanged(nameof(WorkType));
         OnPropertyChanged(nameof(WorkTitle));
         OnPropertyChanged(nameof(StudentName));
         OnPropertyChanged(nameof(GroupNumber));
         OnPropertyChanged(nameof(TeacherName));
-        OnPropertyChanged(nameof(City));       // Добавлено
-        OnPropertyChanged(nameof(Year));       // Добавлено
+        OnPropertyChanged(nameof(City));
+        OnPropertyChanged(nameof(Year));
     }
 
     [RelayCommand]
@@ -562,5 +616,4 @@ public partial class MainWindowViewModel : ViewModelBase
 
         StatusMessage = "Настройки титульного листа сброшены.";
     }
-
 }

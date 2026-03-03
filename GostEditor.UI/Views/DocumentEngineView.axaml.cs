@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.Interactivity;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.Core.Services;
@@ -14,11 +15,18 @@ using GostEditor.Core.Models;
 using GostEditor.UI.Controls;
 using GostEditor.UI.Layout;
 
-// ПСЕВДОНИМЫ ДЛЯ РАЗРЕШЕНИЯ КОНФЛИКТОВ
 using DOMDocument = GostEditor.Core.TextEngine.DOM.GostDocument;
 using DOMTextRun = GostEditor.Core.TextEngine.DOM.TextRun;
 
 namespace GostEditor.UI.Views;
+
+public class CaretStyleChangedEventArgs : EventArgs
+{
+    public bool IsBold { get; set; }
+    public bool IsItalic { get; set; }
+    public double FontSize { get; set; }
+    public GostAlignment Alignment { get; set; }
+}
 
 public partial class DocumentEngineView : UserControl
 {
@@ -29,9 +37,9 @@ public partial class DocumentEngineView : UserControl
     private double? _desiredX;
 
     private bool _isDragging;
+    private List<RenderedPage> _currentPages = new List<RenderedPage>();
 
-    // Используем современный синтаксис коллекций (C# 12)
-    private List<RenderedPage> _currentPages = [];
+    public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
 
     public DocumentEngineView()
     {
@@ -43,7 +51,6 @@ public partial class DocumentEngineView : UserControl
         InitEngine();
     }
 
-    // ЯВНАЯ ТИПИЗАЦИЯ
     public int StartPageNumber { get; private set; } = 1;
 
     public void SetStartPageNumber(int startPage)
@@ -54,7 +61,6 @@ public partial class DocumentEngineView : UserControl
 
     private void InitEngine()
     {
-        // Используем наши псевдонимы (DOMDocument и DOMTextRun)
         DOMDocument document = new DOMDocument();
         Paragraph p1 = new Paragraph();
 
@@ -209,94 +215,6 @@ public partial class DocumentEngineView : UserControl
         }
     }
 
-    // ==========================================
-    // ОБРАБОТЧИКИ КОНТЕКСТНОГО МЕНЮ (ПКМ)
-    // ==========================================
-
-    private async void OnCopyClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        try
-        {
-            if (_editor == null || !_editor.HasSelection) return;
-
-            TopLevel? topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
-            {
-#pragma warning disable CS0618
-                string textToCopy = _editor.GetSelectedText();
-                await topLevel.Clipboard.SetTextAsync(textToCopy);
-#pragma warning restore CS0618
-            }
-        }
-        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
-        finally { Focus(); }
-    }
-
-    private async void OnCutClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        try
-        {
-            if (_editor == null || !_editor.HasSelection) return;
-
-            TopLevel? topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
-            {
-#pragma warning disable CS0618
-                string textToCut = _editor.GetSelectedText();
-                await topLevel.Clipboard.SetTextAsync(textToCut);
-#pragma warning restore CS0618
-
-                _editor.DeleteSelection();
-                RefreshView();
-            }
-        }
-        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
-        finally { Focus(); }
-    }
-
-    private async void OnPasteClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        try
-        {
-            if (_editor == null) return;
-
-            TopLevel? topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
-            {
-#pragma warning disable CS0618
-                string? pastedText = await topLevel.Clipboard.GetTextAsync();
-                if (!string.IsNullOrEmpty(pastedText))
-                {
-                    _editor.PasteText(pastedText);
-                    RefreshView();
-                }
-#pragma warning restore CS0618
-            }
-        }
-        catch (Exception ex) { Console.WriteLine($"Ошибка буфера обмена: {ex.Message}"); }
-        finally { Focus(); }
-    }
-
-    private void OnSelectAllClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_editor == null) return;
-        _editor.SelectAll();
-        RefreshView();
-        Focus();
-    }
-
-    private void OnUndoClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_editor == null) return;
-        _editor.History.Undo();
-        RefreshView();
-        Focus();
-    }
-
-    // ==========================================
-    // РЕНДЕР И НАВИГАЦИЯ
-    // ==========================================
-
     private void RefreshView()
     {
         if (_editor == null || _layoutManager == null) return;
@@ -326,6 +244,58 @@ public partial class DocumentEngineView : UserControl
         }
 
         Dispatcher.UIThread.Post(ScrollToCaret, DispatcherPriority.Normal);
+
+        NotifyCaretStyle();
+    }
+
+    private void NotifyCaretStyle()
+    {
+        if (_editor == null) return;
+        if (_editor.CaretPosition.ParagraphIndex >= _editor.Document.Paragraphs.Count) return;
+
+        Paragraph p = _editor.Document.Paragraphs[_editor.CaretPosition.ParagraphIndex];
+        GostAlignment alignment = p.Alignment;
+
+        bool isBold = false;
+        bool isItalic = false;
+        double fontSize = 14;
+
+        int currentOffset = 0;
+        DOMTextRun? targetRun = null;
+
+        if (p.Runs.Count > 0)
+        {
+            targetRun = p.Runs[0];
+            foreach (DOMTextRun run in p.Runs)
+            {
+                if (_editor.CaretPosition.Offset > currentOffset && _editor.CaretPosition.Offset <= currentOffset + run.Text.Length)
+                {
+                    targetRun = run;
+                    break;
+                }
+                if (_editor.CaretPosition.Offset == currentOffset && run.Text.Length == 0)
+                {
+                    targetRun = run;
+                    break;
+                }
+                currentOffset += run.Text.Length;
+            }
+        }
+
+        if (targetRun != null)
+        {
+            isBold = targetRun.IsBold;
+            isItalic = targetRun.IsItalic;
+            fontSize = targetRun.FontSize;
+        }
+
+        CaretStyleChanged?.Invoke(this, new CaretStyleChangedEventArgs
+        {
+            IsBold = isBold,
+            IsItalic = isItalic,
+            FontSize = fontSize,
+            Alignment = alignment
+        });
     }
 
     private void OnPagePointerPressed(object? sender, PointerPressedEventArgs e)
@@ -417,11 +387,7 @@ public partial class DocumentEngineView : UserControl
     private void OnPagePointerReleased(object? sender, PointerReleasedEventArgs e)
     {
         _isDragging = false;
-
-        if (sender is GostPageControl)
-        {
-            e.Pointer.Capture(null);
-        }
+        if (sender is GostPageControl) e.Pointer.Capture(null);
     }
 
     private void MoveVertical(bool up)
@@ -446,7 +412,7 @@ public partial class DocumentEngineView : UserControl
         double targetX = _desiredX ?? caretRect.X;
         _desiredX = targetX;
 
-        List<TextLinePlacement> allLines = [];
+        List<TextLinePlacement> allLines = new List<TextLinePlacement>();
 
         foreach (RenderedPage page in _currentPages)
         {
@@ -499,81 +465,132 @@ public partial class DocumentEngineView : UserControl
                 Control pageControl = PagesStackPanel.Children[i];
 
                 double safeY = caretRect.Y - 50;
-                if (safeY < 0)
-                {
-                    safeY = 0;
-                }
+                if (safeY < 0) safeY = 0;
 
-                Rect viewRect = new Rect(
-                    caretRect.X,
-                    safeY,
-                    caretRect.Width,
-                    caretRect.Height + 100
-                );
-
+                Rect viewRect = new Rect(caretRect.X, safeY, caretRect.Width, caretRect.Height + 100);
                 pageControl.BringIntoView(viewRect);
                 break;
             }
         }
     }
 
-    public void AlignLeft()
+    public void AlignLeft() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Left); RefreshView(); Focus(); }
+    public void AlignCenter() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Center); RefreshView(); Focus(); }
+    public void AlignRight() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Right); RefreshView(); Focus(); }
+    public void AlignJustify() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Justify); RefreshView(); Focus(); }
+
+    public void AppendParagraphs(List<Paragraph> paragraphs)
     {
         if (_editor == null) return;
-        _editor.SetAlignment(GostAlignment.Left);
-        RefreshView();
-        Focus();
-    }
-
-    public void AlignCenter()
-    {
-        if (_editor == null) return;
-        _editor.SetAlignment(GostAlignment.Center);
-        RefreshView();
-        Focus();
-    }
-
-    public void AlignRight()
-    {
-        if (_editor == null) return;
-        _editor.SetAlignment(GostAlignment.Right);
-        RefreshView();
-        Focus();
-    }
-
-    public void AlignJustify()
-    {
-        if (_editor == null) return;
-        _editor.SetAlignment(GostAlignment.Justify);
-        RefreshView();
-        Focus();
-    }
-
-    /// <summary>
-    /// Принимает готовые абзацы извне (например, листинги кода) и вставляет их в документ через систему команд.
-    /// </summary>
-    public void AppendParagraphs(System.Collections.Generic.List<GostEditor.Core.TextEngine.DOM.Paragraph> paragraphs)
-    {
-        if (_editor == null) return;
-
         _editor.AppendParagraphs(paragraphs);
         RefreshView();
     }
 
-    /// <summary>
-    /// Применяет стиль к выделенным абзацам и обновляет экран.
-    /// </summary>
-    public void ApplyParagraphStyle(GostEditor.Core.TextEngine.DOM.ParagraphStyle style)
+    public void ApplyParagraphStyle(ParagraphStyle style)
     {
         if (_editor == null) return;
-
-        // Передаем команду ядру
         _editor.SetParagraphStyle(style);
-
         RefreshView();
         Focus();
     }
 
+    public bool HasSelection => _editor != null && _editor.HasSelection;
 
+    public void SelectAll()
+    {
+        if (_editor == null) return;
+        _editor.SelectAll();
+        RefreshView();
+        Focus();
+    }
 
+    public void Undo()
+    {
+        if (_editor == null) return;
+        _editor.History.Undo();
+        RefreshView();
+        Focus();
+    }
+
+    public void Redo()
+    {
+        if (_editor == null) return;
+        _editor.History.Redo();
+        RefreshView();
+        Focus();
+    }
+
+    public string GetSelectedText()
+    {
+        return _editor != null ? _editor.GetSelectedText() : string.Empty;
+    }
+
+    public void DeleteSelection()
+    {
+        if (_editor == null) return;
+        _editor.DeleteSelection();
+        RefreshView();
+        Focus();
+    }
+
+    public void PasteText(string text)
+    {
+        if (_editor == null) return;
+        _editor.PasteText(text);
+        RefreshView();
+        Focus();
+    }
+
+    private async void OnCopyClick(object? sender, RoutedEventArgs e)
+    {
+        if (_editor != null && _editor.HasSelection)
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
+            {
+                await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
+            }
+        }
+        Focus();
+    }
+
+    private async void OnCutClick(object? sender, RoutedEventArgs e)
+    {
+        if (_editor != null && _editor.HasSelection)
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard != null)
+            {
+                await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
+                _editor.DeleteSelection();
+                RefreshView();
+            }
+        }
+        Focus();
+    }
+
+    private async void OnPasteClick(object? sender, RoutedEventArgs e)
+    {
+        TopLevel? topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.Clipboard != null)
+        {
+            string? text = await topLevel.Clipboard.GetTextAsync();
+            if (!string.IsNullOrEmpty(text) && _editor != null)
+            {
+                _editor.PasteText(text);
+                RefreshView();
+            }
+        }
+        Focus();
+    }
+
+    private void OnSelectAllClick(object? sender, RoutedEventArgs e)
+    {
+        SelectAll();
+    }
+
+    private void OnUndoClick(object? sender, RoutedEventArgs e)
+    {
+        Undo();
+    }
 }

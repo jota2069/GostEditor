@@ -66,19 +66,61 @@ public class DocumentEditor
 
     public void InsertNewLine()
     {
+        if (HasSelection)
+        {
+            DeleteSelection();
+        }
+
         ClearSelection();
 
         Paragraph currentParagraph = Document.Paragraphs[CaretPosition.ParagraphIndex];
-        string fullText = currentParagraph.GetPlainText();
 
-        string firstPart = fullText.Substring(0, CaretPosition.Offset);
-        string secondPart = fullText.Substring(CaretPosition.Offset);
+        Paragraph newParagraph = new Paragraph
+        {
+            Alignment = currentParagraph.Alignment,
+            FirstLineIndent = currentParagraph.FirstLineIndent,
+            LineSpacing = currentParagraph.LineSpacing,
+            Style = currentParagraph.Style
+        };
 
-        currentParagraph.Runs.Clear();
-        currentParagraph.Runs.Add(new TextRun { Text = firstPart });
+        SplitAt(CaretPosition.ParagraphIndex, CaretPosition.Offset);
 
-        Paragraph newParagraph = new Paragraph();
-        newParagraph.Runs.Add(new TextRun { Text = secondPart });
+        int currentLength = 0;
+        List<TextRun> leftRuns = new List<TextRun>();
+        List<TextRun> rightRuns = new List<TextRun>();
+        TextRun? lastLeftRun = null;
+
+        foreach (TextRun run in currentParagraph.Runs)
+        {
+            if (currentLength < CaretPosition.Offset)
+            {
+                leftRuns.Add(run);
+                lastLeftRun = run;
+            }
+            else
+            {
+                rightRuns.Add(run);
+            }
+            currentLength += run.Text.Length;
+        }
+
+        currentParagraph.Runs = leftRuns;
+        newParagraph.Runs = rightRuns;
+
+        if (leftRuns.Count == 0 && rightRuns.Count > 0)
+        {
+            TextRun firstRight = rightRuns[0];
+            TextRun emptyRun = new TextRun("", firstRight.IsBold, firstRight.IsItalic);
+            emptyRun.FontSize = firstRight.FontSize;
+            currentParagraph.Runs.Add(emptyRun);
+        }
+
+        if (rightRuns.Count == 0 && lastLeftRun != null)
+        {
+            TextRun emptyRun = new TextRun("", lastLeftRun.IsBold, lastLeftRun.IsItalic);
+            emptyRun.FontSize = lastLeftRun.FontSize;
+            newParagraph.Runs.Add(emptyRun);
+        }
 
         Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, newParagraph);
         CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
@@ -111,7 +153,8 @@ public class DocumentEditor
 
         Paragraph p = Document.Paragraphs[CaretPosition.ParagraphIndex];
         int currentOffset = 0;
-        foreach (var run in p.Runs)
+
+        foreach (TextRun run in p.Runs)
         {
             if (CaretPosition.Offset <= currentOffset + run.Text.Length)
             {
@@ -176,9 +219,63 @@ public class DocumentEditor
         }
     }
 
+    private void ApplyStyleToCaret(Action<TextRun> styleAction)
+    {
+        int pIdx = CaretPosition.ParagraphIndex;
+        int offset = CaretPosition.Offset;
+
+        SplitAt(pIdx, offset);
+
+        Paragraph p = Document.Paragraphs[pIdx];
+
+        int currentOffset = 0;
+        for (int i = 0; i < p.Runs.Count; i++)
+        {
+            if (currentOffset == offset && p.Runs[i].Text.Length == 0)
+            {
+                styleAction(p.Runs[i]);
+                return;
+            }
+            currentOffset += p.Runs[i].Text.Length;
+        }
+
+        currentOffset = 0;
+        int insertIndex = p.Runs.Count;
+        TextRun? baseRun = null;
+
+        for (int i = 0; i < p.Runs.Count; i++)
+        {
+            if (currentOffset == offset)
+            {
+                insertIndex = i;
+                baseRun = i > 0 ? p.Runs[i - 1] : p.Runs[i];
+                break;
+            }
+            currentOffset += p.Runs[i].Text.Length;
+            if (currentOffset == offset)
+            {
+                insertIndex = i + 1;
+                baseRun = p.Runs[i];
+                break;
+            }
+        }
+
+        bool isBold = baseRun?.IsBold ?? false;
+        bool isItalic = baseRun?.IsItalic ?? false;
+        double fontSize = baseRun?.FontSize ?? 14.0;
+
+        TextRun emptyRun = new TextRun("", isBold, isItalic) { FontSize = fontSize };
+        styleAction(emptyRun);
+        p.Runs.Insert(insertIndex, emptyRun);
+    }
+
     public void ToggleBold()
     {
-        if (!HasSelection) return;
+        if (!HasSelection)
+        {
+            ApplyStyleToCaret(run => run.IsBold = !run.IsBold);
+            return;
+        }
 
         (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
@@ -207,53 +304,13 @@ public class DocumentEditor
         }
     }
 
-    public void SetFontSize(double fontSize)
-    {
-        if (!HasSelection) return;
-
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
-        {
-            Paragraph p = Document.Paragraphs[pIdx];
-
-            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
-            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
-
-            SplitAt(pIdx, pEndOffset);
-            SplitAt(pIdx, pStartOffset);
-
-            int currentOffset = 0;
-            foreach (TextRun run in p.Runs)
-            {
-                int runStart = currentOffset;
-                int runEnd = currentOffset + run.Text.Length;
-
-                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
-                {
-                    // Устанавливаем новый размер
-                    run.FontSize = fontSize;
-                }
-                currentOffset += run.Text.Length;
-            }
-        }
-    }
-
-    public void DeleteSelection()
-    {
-        if (!HasSelection) return;
-
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        DeleteRangeInternal(start, end);
-
-        CaretPosition = start;
-        ClearSelection();
-    }
-
     public void ToggleItalic()
     {
-        if (!HasSelection) return;
+        if (!HasSelection)
+        {
+            ApplyStyleToCaret(run => run.IsItalic = !run.IsItalic);
+            return;
+        }
 
         (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
@@ -280,6 +337,53 @@ public class DocumentEditor
                 currentOffset += run.Text.Length;
             }
         }
+    }
+
+    public void SetFontSize(double fontSize)
+    {
+        if (!HasSelection)
+        {
+            ApplyStyleToCaret(run => run.FontSize = fontSize);
+            return;
+        }
+
+        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+        {
+            Paragraph p = Document.Paragraphs[pIdx];
+
+            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
+            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
+
+            SplitAt(pIdx, pEndOffset);
+            SplitAt(pIdx, pStartOffset);
+
+            int currentOffset = 0;
+            foreach (TextRun run in p.Runs)
+            {
+                int runStart = currentOffset;
+                int runEnd = currentOffset + run.Text.Length;
+
+                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
+                {
+                    run.FontSize = fontSize;
+                }
+                currentOffset += run.Text.Length;
+            }
+        }
+    }
+
+    public void DeleteSelection()
+    {
+        if (!HasSelection) return;
+
+        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+        DeleteRangeInternal(start, end);
+
+        CaretPosition = start;
+        ClearSelection();
     }
 
     public string GetSelectedText()
@@ -359,20 +463,44 @@ public class DocumentEditor
 
         int currentOffset = 0;
         TextRun? targetRun = null;
+        int runStartOffset = 0;
 
         foreach (TextRun run in currentParagraph.Runs)
         {
-            if (position.Offset <= currentOffset + run.Text.Length)
+            int runLength = run.Text.Length;
+
+            if (runLength == 0 && position.Offset == currentOffset)
             {
                 targetRun = run;
+                runStartOffset = currentOffset;
                 break;
             }
-            currentOffset += run.Text.Length;
+
+            if (position.Offset > currentOffset && position.Offset < currentOffset + runLength)
+            {
+                targetRun = run;
+                runStartOffset = currentOffset;
+                break;
+            }
+
+            if (position.Offset == currentOffset + runLength)
+            {
+                targetRun = run;
+                runStartOffset = currentOffset;
+            }
+
+            if (position.Offset == currentOffset && targetRun == null)
+            {
+                targetRun = run;
+                runStartOffset = currentOffset;
+            }
+
+            currentOffset += runLength;
         }
 
         if (targetRun != null)
         {
-            int insertIndexInRun = position.Offset - currentOffset;
+            int insertIndexInRun = position.Offset - runStartOffset;
             targetRun.Text = targetRun.Text.Insert(insertIndexInRun, text);
             return new DocumentPosition(position.ParagraphIndex, position.Offset + text.Length);
         }
@@ -446,9 +574,6 @@ public class DocumentEditor
         }
     }
 
-    /// <summary>
-    /// Массово добавляет абзацы в конец документа через систему команд.
-    /// </summary>
     public void AppendParagraphs(List<Paragraph> paragraphs)
     {
         if (paragraphs == null || paragraphs.Count == 0) return;
@@ -457,9 +582,6 @@ public class DocumentEditor
         History.ExecuteCommand(command);
     }
 
-    /// <summary>
-    /// Применяет выбранный стиль ко всем выделенным абзацам (или к текущему, если выделения нет).
-    /// </summary>
     public void SetParagraphStyle(ParagraphStyle style)
     {
         (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
@@ -472,5 +594,4 @@ public class DocumentEditor
 
         History.ExecuteCommand(command);
     }
-
 }

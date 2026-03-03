@@ -4,52 +4,108 @@
         xmlns:models="using:GostEditor.Core.Models"
         xmlns:views="using:GostEditor.UI.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:System="clr-namespace:System;assembly=mscorlib"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
         x:Class="GostEditor.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding WindowTitle}"
-        MinWidth="1000" MinHeight="650"
-        Background="#F5F5F5">
+        MinWidth="1100" MinHeight="700"
+        Background="#F3F4F6"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="AccentBrush">#4F46E5</SolidColorBrush>
+        <SolidColorBrush x:Key="AccentHoverBrush">#4338CA</SolidColorBrush>
+        <SolidColorBrush x:Key="SurfaceBrush">#FFFFFF</SolidColorBrush>
+        <SolidColorBrush x:Key="BackgroundBrush">#F3F4F6</SolidColorBrush>
+        <SolidColorBrush x:Key="BorderBrush">#E5E7EB</SolidColorBrush>
+        <SolidColorBrush x:Key="TextMainBrush">#111827</SolidColorBrush>
+        <SolidColorBrush x:Key="TextMutedBrush">#6B7280</SolidColorBrush>
+    </Window.Resources>
 
     <Window.Styles>
-        <Style Selector="Button.toolbar">
+        <Style Selector="Button.toolbarBtn">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderBrush" Value="#CCCCCC"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
+            <Setter Property="Padding" Value="12,8"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Foreground" Value="#333333"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
         </Style>
-        <Style Selector="Button.toolbar:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EBEBEB"/>
+        <Style Selector="Button.toolbarBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E5E7EB"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
 
-        <Style Selector="Button.accent">
-            <Setter Property="Background" Value="#2B579A"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="14,6"/>
+        <Style Selector="ToggleButton.toolbarBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMainBrush}"/>
+            <Setter Property="Padding" Value="12,8"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
         </Style>
-        <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#1E3F7A"/>
+        <Style Selector="ToggleButton.toolbarBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E5E7EB"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="ToggleButton.toolbarBtn:checked /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E0E7FF"/> <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+        </Style>
+
+        <Style Selector="Button.accentBtn">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.1"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.accentBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Button.accentBtn:pressed /template/ ContentPresenter">
+            <Setter Property="RenderTransform" Value="scale(0.97)"/>
         </Style>
 
         <Style Selector="ListBoxItem">
-            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Padding" Value="12,10"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.15"/>
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
-            <Setter Property="Background" Value="#DDEAFF"/>
+            <Setter Property="Background" Value="#EEF2FF"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
         </Style>
         <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
-            <Setter Property="Background" Value="#EEEEEE"/>
+            <Setter Property="Background" Value="#F3F4F6"/>
+            <Setter Property="Cursor" Value="Hand"/>
         </Style>
 
         <Style Selector="TextBox.titleInput">
@@ -59,167 +115,221 @@
             <Setter Property="Margin" Value="0"/>
             <Setter Property="MinHeight" Value="0"/>
             <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.2"/>
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="TextBox.titleInput:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="#FAFAFA"/>
+            <Setter Property="BorderThickness" Value="0"/>
         </Style>
         <Style Selector="TextBox.titleInput:focus /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="#EEF2FF"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Background" Value="#F0F8FF"/>
         </Style>
     </Window.Styles>
 
     <DockPanel>
-        <Border DockPanel.Dock="Top"
-                Background="White"
-                BorderBrush="#E0E0E0"
-                BorderThickness="0,0,0,1"
-                Padding="12,8">
-            <StackPanel Orientation="Horizontal" Spacing="6">
+        <Border DockPanel.Dock="Top" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" BoxShadow="0 2 10 0 #08000000" ZIndex="10" Padding="16,12">
+            <Grid ColumnDefinitions="Auto, *, Auto">
 
-                <TextBlock Text="GostEditor"
-                           FontSize="15"
-                           FontWeight="Bold"
-                           Foreground="#2B579A"
-                           VerticalAlignment="Center"
-                           Margin="0,0,16,0"/>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <TextBlock Text="GostEditor" FontSize="18" FontWeight="Black" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,0,10,0"/>
 
-                <Button Content="Новый" Classes="toolbar" Command="{Binding NewDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
-                <Button Content="Открыть" Classes="toolbar" Command="{Binding LoadDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
-                <Button Content="Сохранить" Classes="toolbar" Command="{Binding SaveDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
-
-                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
-
-                <Button Content="Экспорт в DOCX" Classes="accent" Command="{Binding ExportToDocxCommand}" IsEnabled="{Binding !IsBusy}"/>
-
-                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
-
-                <Button Content="Ж" FontWeight="Bold" Classes="toolbar" Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный текст"/>
-                <Button Content="К" FontStyle="Italic" Classes="toolbar" Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив"/>
-
-                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
-
-                <Button Content="Лево" Classes="toolbar" Focusable="False" Click="OnAlignLeftClick"/>
-                <Button Content="Центр" Classes="toolbar" Focusable="False" Click="OnAlignCenterClick"/>
-                <Button Content="Право" Classes="toolbar" Focusable="False" Click="OnAlignRightClick"/>
-                <Button Content="Ширина" Classes="toolbar" Focusable="False" Click="OnAlignJustifyClick"/>
-
-                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
-
-                <ComboBox x:Name="FontSizeComboBox" Width="70" VerticalAlignment="Center" SelectionChanged="OnFontSizeSelectionChanged" SelectedIndex="2" Classes="toolbar">
-                    <ComboBoxItem Content="10"/>
-                    <ComboBoxItem Content="12"/>
-                    <ComboBoxItem Content="14"/>
-                    <ComboBoxItem Content="16"/>
-                    <ComboBoxItem Content="18"/>
-                    <ComboBoxItem Content="20"/>
-                    <ComboBoxItem Content="24"/>
-                </ComboBox>
-
-                <Border Width="1" Background="#E0E0E0" Margin="4,0"/>
-
-                <Button Content="Парсить код" Classes="toolbar" Command="{Binding ParseCodeFolderCommand}" IsEnabled="{Binding !IsBusy}"/>
-                <Button Content="Вставить текст" Classes="toolbar" Command="{Binding PasteNormalizedCommand}" IsEnabled="{Binding !IsBusy}"/>
-
-            </StackPanel>
-        </Border>
-
-        <Border DockPanel.Dock="Bottom" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,1,0,0" Padding="16,5">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="5" Margin="10,0,0,0">
-                    <Button Content="Новый" Click="OnNewDocumentClick"/>
-                    <Button Content="Убрать форматирование" Click="OnClearFormattingClick"/>
-                    <TextBlock Text="Начать с листа:" VerticalAlignment="Center" Margin="10,0,5,0"/>
-                    <NumericUpDown x:Name="StartPagePicker" Minimum="1" Maximum="999" Value="1" FormatString="0" ValueChanged="OnStartPageNumberChanged" Width="80"/>
-                    <TextBlock x:Name="CurrentStartPageLabel" Text="(Сейчас: 1)" VerticalAlignment="Center" Foreground="#888888" Margin="5,0,0,0"/>
+                    <Border Background="#F3F4F6" CornerRadius="8" Padding="4">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <Button Content="Новый" Classes="toolbarBtn" Command="{Binding NewDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
+                            <Button Content="Открыть" Classes="toolbarBtn" Command="{Binding LoadDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
+                            <Button Content="Сохранить" Classes="toolbarBtn" Command="{Binding SaveDocumentCommand}" IsEnabled="{Binding !IsBusy}"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="#888888" FontSize="12" VerticalAlignment="Center"/>
-                    <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True" Width="120" Height="3" VerticalAlignment="Center"/>
-                    <TextBlock Text="Масштаб:" VerticalAlignment="Center" Foreground="#888888" FontSize="12" Margin="10,0,0,0"/>
-                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}" Width="100" VerticalAlignment="Center" TickFrequency="0.1" IsSnapToTickEnabled="True"/>
+                <Border Grid.Column="1" Background="#F3F4F6" CornerRadius="8" Padding="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ToggleButton x:Name="BtnBold" Content="Ж" FontWeight="Bold" Classes="toolbarBtn" Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный"/>
+                        <ToggleButton x:Name="BtnItalic" Content="К" FontStyle="Italic" Classes="toolbarBtn" Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив"/>
+
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,4"/>
+
+                        <ToggleButton x:Name="BtnAlignLeft" Content="Лево" Classes="toolbarBtn" Focusable="False" Click="OnAlignLeftClick"/>
+                        <ToggleButton x:Name="BtnAlignCenter" Content="Центр" Classes="toolbarBtn" Focusable="False" Click="OnAlignCenterClick"/>
+                        <ToggleButton x:Name="BtnAlignRight" Content="Право" Classes="toolbarBtn" Focusable="False" Click="OnAlignRightClick"/>
+                        <ToggleButton x:Name="BtnAlignJustify" Content="Ширина" Classes="toolbarBtn" Focusable="False" Click="OnAlignJustifyClick"/>
+
+                        <Border Width="1" Background="{StaticResource BorderBrush}" Margin="4,4"/>
+
+                        <ComboBox x:Name="FontSizeComboBox" Width="70" VerticalAlignment="Center" SelectionChanged="OnFontSizeSelectionChanged" SelectedIndex="2" Background="Transparent" BorderThickness="0" Margin="4,0">
+                            <ComboBoxItem Content="10"/>
+                            <ComboBoxItem Content="12"/>
+                            <ComboBoxItem Content="14"/>
+                            <ComboBoxItem Content="16"/>
+                            <ComboBoxItem Content="18"/>
+                            <ComboBoxItem Content="20"/>
+                            <ComboBoxItem Content="24"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Button Content="Вставить текст" Classes="toolbarBtn" Command="{Binding PasteNormalizedCommand}" IsEnabled="{Binding !IsBusy}"/>
+                    <Button Content="Экспорт в DOCX" Classes="accentBtn" Command="{Binding ExportToDocxCommand}" IsEnabled="{Binding !IsBusy}" Margin="8,0,0,0"/>
                 </StackPanel>
-            </DockPanel>
+            </Grid>
         </Border>
 
-        <Grid ColumnDefinitions="220,1,*">
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+            <Grid ColumnDefinitions="Auto, *, Auto">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Button Content="Убрать форматирование" Classes="toolbarBtn" Padding="8,4" FontSize="12" Click="OnClearFormattingClick"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="Начать с листа:" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="12"/>
+                        <NumericUpDown x:Name="StartPagePicker" Minimum="1" Maximum="999" Value="1" FormatString="0" ValueChanged="OnStartPageNumberChanged" Width="70" Height="24" FontSize="12" Padding="4,2"/>
+                        <TextBlock x:Name="CurrentStartPageLabel" Text="(Сейчас: 1)" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="12"/>
+                    </StackPanel>
+                </StackPanel>
 
-            <Border Grid.Column="0" Background="White" BorderBrush="#E0E0E0" BorderThickness="0,0,1,0">
-                <DockPanel>
-                    <Border DockPanel.Dock="Top" Padding="12,10" BorderBrush="#F0F0F0" BorderThickness="0,0,0,1">
-                        <TextBlock Text="СОДЕРЖАНИЕ" Foreground="#AAAAAA" FontSize="10" FontWeight="Bold"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextMutedBrush}" FontSize="12" VerticalAlignment="Center"/>
+                    <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True" Width="100" Height="4" VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="Масштаб:" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="12"/>
+                        <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}" Width="100" VerticalAlignment="Center" TickFrequency="0.1" IsSnapToTickEnabled="True" Foreground="{StaticResource AccentBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid ColumnDefinitions="260, *">
+
+            <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto, *, Auto">
+                    <Border Grid.Row="0" Padding="20,16" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="СТРУКТУРА ДОКУМЕНТА" Foreground="{StaticResource TextMutedBrush}" FontSize="11" FontWeight="Bold" LetterSpacing="1"/>
                     </Border>
 
-                    <Button DockPanel.Dock="Bottom" Content="+ Новый раздел" Classes="toolbar" Command="{Binding AddSectionCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="8" Padding="8,6"/>
+                    <ScrollViewer Grid.Row="1" Margin="8,8">
+                        <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" Background="Transparent" BorderThickness="0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="models:DocumentSection">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{Binding Title}" Foreground="{StaticResource TextMainBrush}" FontSize="13" VerticalAlignment="Center" FontWeight="Medium"/>
+                                        <Button Grid.Column="1"
+                                                Content="✕"
+                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DeleteSectionCommand}"
+                                                CommandParameter="{Binding}"
+                                                Classes="toolbarBtn" Padding="4,2" FontSize="10" Foreground="#9CA3AF" VerticalAlignment="Center" ToolTip.Tip="Удалить раздел"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </ScrollViewer>
 
-                    <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}" Background="Transparent" BorderThickness="0" Margin="6,4">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="models:DocumentSection">
-                                <Grid ColumnDefinitions="*,Auto">
-                                    <TextBlock Grid.Column="0" Text="{Binding Title}" Foreground="#333333" FontSize="13" VerticalAlignment="Center"/>
-                                    <Button Grid.Column="1" Content="×" Command="{Binding $parent[Window].DataContext.DeleteSectionCommand}" CommandParameter="{Binding}" x:CompileBindings="False" Background="Transparent" BorderThickness="0" Foreground="#AAAAAA" FontSize="16" Padding="4,0" VerticalAlignment="Center"/>
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                </DockPanel>
+                    <Border Grid.Row="2" Padding="16" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                        <Button Content="+ Добавить раздел" Classes="toolbarBtn" Command="{Binding AddSectionCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#F9FAFB"/>
+                    </Border>
+                </Grid>
             </Border>
 
-            <Border Grid.Column="1" Background="#E0E0E0"/>
-
-            <TabControl x:Name="MainTabs" Grid.Column="2" Background="#F5F5F5" BorderThickness="0">
+            <TabControl x:Name="MainTabs" Grid.Column="1" Background="{StaticResource BackgroundBrush}" BorderThickness="0" Padding="0">
+                <TabControl.Styles>
+                    <Style Selector="TabItem">
+                        <Setter Property="FontSize" Value="14"/>
+                        <Setter Property="FontWeight" Value="Medium"/>
+                        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+                        <Setter Property="Margin" Value="0,0,0,0"/>
+                        <Setter Property="Padding" Value="20,12"/>
+                    </Style>
+                    <Style Selector="TabItem:selected">
+                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                    </Style>
+                    <Style Selector="TabItem:selected /template/ Border#PART_SelectedPipe">
+                        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                        <Setter Property="Height" Value="3"/>
+                    </Style>
+                </TabControl.Styles>
 
                 <TabItem Header="Редактор">
-                    <Grid Background="#F5F5F5">
-                        <LayoutTransformControl>
-                            <LayoutTransformControl.LayoutTransform>
-                                <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
-                            </LayoutTransformControl.LayoutTransform>
-                            <views:DocumentEngineView x:Name="MainEditor" />
-                        </LayoutTransformControl>
+                    <Grid Background="{StaticResource BackgroundBrush}">
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <LayoutTransformControl HorizontalAlignment="Center" Margin="40">
+                                <LayoutTransformControl.LayoutTransform>
+                                    <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
+                                </LayoutTransformControl.LayoutTransform>
+
+                                <Border Background="White" BoxShadow="0 10 30 0 #1A000000" CornerRadius="2">
+                                    <views:DocumentEngineView x:Name="MainEditor" />
+                                </Border>
+                            </LayoutTransformControl>
+                        </ScrollViewer>
                     </Grid>
                 </TabItem>
 
-              <TabItem Header="Титульный лист">
-                    <Grid ColumnDefinitions="380, *">
+                <TabItem Header="Титульный лист">
+                    <Grid ColumnDefinitions="400, *">
 
-                        <ScrollViewer Grid.Column="0" Background="#F5F5F5">
-                            <Border Background="White" BorderBrush="#CCCCCC" BorderThickness="1" Padding="20" Margin="20" CornerRadius="4" VerticalAlignment="Top">
-                                <StackPanel Spacing="14">
-                                    <TextBlock Text="Данные титульного листа" FontSize="16" FontWeight="Bold" Foreground="#1A1A1A" Margin="0,0,0,4"/>
+                        <ScrollViewer Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                            <Border Padding="24">
+                                <StackPanel Spacing="20">
+                                    <TextBlock Text="Настройки титульного листа" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
 
-                                    <TextBox Text="{Binding University}" Watermark="Университет (например, ТвГТУ)" Background="White"/>
-                                    <TextBox Text="{Binding Department}" Watermark="Кафедра" Background="White"/>
-                                    <TextBox Text="{Binding Discipline}" Watermark="Дисциплина" Background="White"/>
-                                    <TextBox Text="{Binding WorkType}" Watermark="Тип работы" Background="White"/>
-                                    <TextBox Text="{Binding WorkTitle}" Watermark="Тема работы" Background="White"/>
-                                    <TextBox Text="{Binding GroupNumber}" Watermark="Номер группы" Background="White"/>
+                                    <StackPanel Spacing="12">
+                                        <TextBlock Text="Учебное заведение" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}"/>
+                                        <TextBox Text="{Binding University}" Watermark="Например, ТвГТУ" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
 
-                                    <Grid ColumnDefinitions="*, Auto">
-                                        <TextBox Grid.Column="0" Text="{Binding StudentName}" AcceptsReturn="True" MinHeight="55" Watermark="ФИО студента(ов)" Background="White" TextWrapping="Wrap"/>
-                                        <Button Grid.Column="1" Content="+" Command="{Binding AddStudentCommand}" Classes="accent" VerticalAlignment="Top" Margin="8,0,0,0" Width="32" Height="32" HorizontalContentAlignment="Center"/>
-                                    </Grid>
+                                        <TextBlock Text="Кафедра" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+                                        <TextBox Text="{Binding Department}" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
 
-                                    <TextBox Text="{Binding TeacherName}" Watermark="ФИО преподавателя" Background="White"/>
+                                        <TextBlock Text="Дисциплина" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
+                                        <TextBox Text="{Binding Discipline}" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
 
-                                    <Grid ColumnDefinitions="*, 80" Margin="0,4,0,0">
-                                        <TextBox Grid.Column="0" Text="{Binding City}" Watermark="Город" Background="White" Margin="0,0,5,0"/>
-                                        <NumericUpDown Grid.Column="1" Value="{Binding Year}" Minimum="1900" Maximum="2100" FormatString="0" Background="White"/>
-                                    </Grid>
+                                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8"/>
 
-                                    <Button Content="Сбросить по умолчанию" Command="{Binding ResetTitlePageCommand}" Classes="toolbar" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,15,0,0" />
+                                        <TextBlock Text="Информация о работе" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}"/>
+                                        <TextBox Text="{Binding WorkType}" Watermark="Тип работы" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
+                                        <TextBox Text="{Binding WorkTitle}" Watermark="Тема работы" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}" MinHeight="60" AcceptsReturn="True" TextWrapping="Wrap"/>
+
+                                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8"/>
+
+                                        <TextBlock Text="Люди" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}"/>
+                                        <TextBox Text="{Binding GroupNumber}" Watermark="Номер группы" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
+
+                                        <Grid ColumnDefinitions="*, Auto">
+                                            <TextBox Grid.Column="0" Text="{Binding StudentName}" AcceptsReturn="True" MinHeight="60" Watermark="ФИО студента(ов)" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}" TextWrapping="Wrap"/>
+                                            <Button Grid.Column="1" Content="+" Command="{Binding AddStudentCommand}" Classes="accentBtn" VerticalAlignment="Top" Margin="8,0,0,0" Width="36" Height="36" HorizontalContentAlignment="Center" Padding="0"/>
+                                        </Grid>
+
+                                        <TextBox Text="{Binding TeacherName}" Watermark="ФИО преподавателя" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
+
+                                        <Grid ColumnDefinitions="*, 100" Margin="0,8,0,0">
+                                            <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                                                <TextBlock Text="Город" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}"/>
+                                                <TextBox Text="{Binding City}" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="4">
+                                                <TextBlock Text="Год" FontSize="12" FontWeight="Medium" Foreground="{StaticResource TextMutedBrush}"/>
+                                                <NumericUpDown Value="{Binding Year}" Minimum="1900" Maximum="2100" FormatString="0" Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <Button Content="Сбросить по умолчанию" Command="{Binding ResetTitlePageCommand}" Classes="toolbarBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#FEE2E2" Foreground="#DC2626" Margin="0,10,0,0" />
                                 </StackPanel>
                             </Border>
                         </ScrollViewer>
 
-                        <ScrollViewer Grid.Column="1" Background="#E0E0E0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer Grid.Column="1" Background="{StaticResource BackgroundBrush}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                             <Border Padding="40" HorizontalAlignment="Center" VerticalAlignment="Top">
                                 <LayoutTransformControl>
                                     <LayoutTransformControl.LayoutTransform>
-                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                        <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
                                     </LayoutTransformControl.LayoutTransform>
 
-                                    <Border Width="794" Height="1123" Background="White" BoxShadow="0 4 15 0 #33000000">
-
+                                    <Border Width="794" Height="1123" Background="White" BoxShadow="0 10 30 0 #1A000000" CornerRadius="2">
                                         <Grid Margin="113,76,57,76">
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto"/>
@@ -274,6 +384,55 @@
                                 </LayoutTransformControl>
                             </Border>
                         </ScrollViewer>
+                    </Grid>
+                </TabItem>
+
+                <TabItem Header="Исходный код">
+                    <Grid ColumnDefinitions="350, *" Background="{StaticResource BackgroundBrush}">
+
+                        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0" Padding="24">
+                            <StackPanel Spacing="16">
+                                <TextBlock Text="Приложение (Код)" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
+
+                                <TextBlock Text="Загрузите папку с вашим проектом. GostEditor автоматически прочитает файлы и добавит их в конец документа как листинги кода, оформленные по всем правилам ГОСТ."
+                                           FontSize="13" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="20"/>
+
+                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4"/>
+
+                                <Button Content="Выбрать папку проекта" Classes="accentBtn" Command="{Binding ParseCodeFolderCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,8,0,0"/>
+
+                                <Button Content="Очистить список файлов" Command="{Binding ClearCodeListingsCommand}" Classes="toolbarBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#FEE2E2" Foreground="#DC2626"/>
+
+                                <Border Background="#EEF2FF" CornerRadius="8" Padding="12" Margin="0,16,0,0">
+                                    <StackPanel Spacing="8">
+                                        <TextBlock Text="Подсказка:" FontWeight="SemiBold" Foreground="{StaticResource AccentBrush}" FontSize="12"/>
+                                        <TextBlock Text="При экспорте в DOCX эти файлы будут автоматически добавлены в раздел «Приложение А» шрифтом Consolas (12pt)."
+                                                   FontSize="12" Foreground="{StaticResource TextMainBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Padding="32">
+                            <Grid RowDefinitions="Auto, *, Auto">
+                                <TextBlock Grid.Row="0" Text="Загруженные файлы для листинга:" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,16" Foreground="{StaticResource TextMainBrush}"/>
+
+                                <ScrollViewer Grid.Row="1">
+                                    <ListBox ItemsSource="{Binding CodeListings}" Background="Transparent" BorderThickness="0">
+                                        <ListBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:SelectableCodeListing">
+                                                <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="12" Margin="0,0,0,8" BoxShadow="0 2 8 0 #0A000000">
+                                                    <CheckBox IsChecked="{Binding IsSelected}" Content="{Binding Listing.FileName}" FontWeight="Medium" FontSize="14" Foreground="{StaticResource TextMainBrush}"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ListBox.ItemTemplate>
+                                    </ListBox>
+                                </ScrollViewer>
+
+                                <Button Grid.Row="2" Content="Добавить выбранные в редактор" Classes="accentBtn" Command="{Binding InsertCodeToEditorCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,16,0,0" Padding="16,12" FontSize="14"/>
+                            </Grid>
+                        </Border>
+
                     </Grid>
                 </TabItem>
 
