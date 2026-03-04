@@ -21,6 +21,9 @@ public class PageLayoutManager
 
         (DocumentPosition selStart, DocumentPosition selEnd) = editor.GetNormalizedSelection();
 
+        // СЧЕТЧИК КАРТИНОК
+        int figureCounter = 1;
+
         for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
         {
             Paragraph paragraph = document.Paragraphs[pIndex];
@@ -50,30 +53,48 @@ public class PageLayoutManager
 
             Typeface baseTypeface = new Typeface(baseFontFamily, FontStyle.Normal, baseWeight);
 
-            bool needsIndentHack = paragraph.Alignment != GostAlignment.Center &&
-                                   paragraph.Alignment != GostAlignment.Right &&
-                                   paragraph.FirstLineIndent > 0;
+            // ==========================================
+            // ГЕНЕРАЦИЯ ПРЕФИКСОВ (КРАСНАЯ СТРОКА ИЛИ РИСУНОК)
+            // ==========================================
+            int prefixCharsCount = 0;
+            string prefixString = "";
 
-            int indentCharsCount = 0;
+            // ИСПРАВЛЕНИЕ: Используем IBrush вместо Brush
+            IBrush prefixBrush = Brushes.Black;
 
-            if (needsIndentHack)
+            if (paragraph.ImageData != null)
             {
-                string indentString = "\u2003\u2002";
-                indentCharsCount = indentString.Length;
-                plainText = indentString + plainText;
+                // Если это картинка, генерируем подпись на лету
+                prefixString = $"Рисунок {figureCounter} - ";
+                figureCounter++;
+                prefixCharsCount = prefixString.Length;
+            }
+            else if (paragraph.Alignment != GostAlignment.Center &&
+                     paragraph.Alignment != GostAlignment.Right &&
+                     paragraph.FirstLineIndent > 0)
+            {
+                // Если это обычный текст, делаем невидимый отступ
+                prefixString = "\u2003\u2002";
+                prefixCharsCount = prefixString.Length;
+                prefixBrush = Brushes.Transparent; // Теперь IBrush спокойно принимает это
+            }
+
+            if (prefixCharsCount > 0)
+            {
+                plainText = prefixString + plainText;
             }
 
             List<Avalonia.Utilities.ValueSpan<TextRunProperties>> styleOverrides = new List<Avalonia.Utilities.ValueSpan<TextRunProperties>>();
 
-            if (needsIndentHack)
+            // Применяем стиль к префиксу (прозрачность или обычный цвет)
+            if (prefixCharsCount > 0)
             {
-                TextRunProperties indentProps = new GenericTextRunProperties(baseTypeface, baseFontSize * 1.3333333333333333, null, Brushes.Transparent);
-                styleOverrides.Add(new Avalonia.Utilities.ValueSpan<TextRunProperties>(0, indentCharsCount, indentProps));
+                TextRunProperties prefixProps = new GenericTextRunProperties(baseTypeface, baseFontSize * 1.3333333333333333, null, prefixBrush);
+                styleOverrides.Add(new Avalonia.Utilities.ValueSpan<TextRunProperties>(0, prefixCharsCount, prefixProps));
             }
 
-            int currentPos = indentCharsCount;
+            int currentPos = prefixCharsCount;
 
-            // ИСПРАВЛЕНИЕ: Явно указываем, что используем твой TextRun, а не Avalonia
             foreach (GostEditor.Core.TextEngine.DOM.TextRun run in paragraph.Runs)
             {
                 if (string.IsNullOrEmpty(run.Text)) continue;
@@ -102,7 +123,6 @@ public class PageLayoutManager
                 _ => TextAlignment.Left
             };
 
-            // ИСПРАВЛЕНИЕ: Используем именованные аргументы, как было в твоем оригинальном коде
             TextLayout layout = new TextLayout(
                 plainText,
                 baseTypeface,
@@ -113,7 +133,33 @@ public class PageLayoutManager
                 maxWidth: contentWidth,
                 textStyleOverrides: styleOverrides);
 
-            double paragraphInternalY = 0;
+            // --- РАСЧЕТ КАРТИНКИ ---
+            if (paragraph.ImageData != null)
+            {
+                double imgWidth = paragraph.ImageWidth;
+                double imgHeight = paragraph.ImageHeight;
+
+                if (imgWidth > contentWidth)
+                {
+                    double scale = contentWidth / imgWidth;
+                    imgWidth = contentWidth;
+                    imgHeight *= scale;
+                }
+
+                if (currentY + imgHeight > maxBottom)
+                {
+                    pages.Add(currentPage);
+                    currentPage = new RenderedPage { PageNumber = pages.Count + 1 };
+                    currentY = document.MarginTop;
+                }
+
+                double imgX = document.MarginLeft + (contentWidth - imgWidth) / 2;
+
+                currentPage.Images.Add(new ImagePlacement(paragraph.ImageData, new Rect(imgX, currentY, imgWidth, imgHeight)));
+
+                currentY += imgHeight + 10;
+            }
+            // -----------------------
 
             List<Rect> selectionRects = new List<Rect>();
             if (editor.HasSelection && pIndex >= selStart.ParagraphIndex && pIndex <= selEnd.ParagraphIndex)
@@ -123,11 +169,13 @@ public class PageLayoutManager
 
                 if (end > start)
                 {
-                    int adjustedStart = start + (pIndex == selStart.ParagraphIndex ? indentCharsCount : 0);
+                    int adjustedStart = start + (pIndex == selStart.ParagraphIndex ? prefixCharsCount : 0);
                     int adjustedLength = end - start;
                     selectionRects = layout.HitTestTextRange(adjustedStart, adjustedLength).ToList();
                 }
             }
+
+            double textLayoutInternalY = 0;
 
             foreach (TextLine textLine in layout.TextLines)
             {
@@ -140,11 +188,13 @@ public class PageLayoutManager
 
                 double currentX = document.MarginLeft;
                 Point location = new Point(currentX, currentY);
-                currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, paragraphInternalY, layout));
+
+                // ПЕРЕДАЕМ ДЛИНУ ПРЕФИКСА
+                currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, textLayoutInternalY, layout, prefixCharsCount));
 
                 foreach (Rect rect in selectionRects)
                 {
-                    if (rect.Y >= paragraphInternalY - 0.1 && rect.Y < paragraphInternalY + textLine.Height - 0.1)
+                    if (rect.Y >= textLayoutInternalY - 0.1 && rect.Y < textLayoutInternalY + textLine.Height - 0.1)
                     {
                         double selX = document.MarginLeft + rect.X;
                         currentPage.SelectionBounds.Add(new Rect(selX, currentY, rect.Width, rect.Height));
@@ -153,22 +203,22 @@ public class PageLayoutManager
 
                 if (pIndex == editor.CaretPosition.ParagraphIndex)
                 {
-                    int adjustedCaretOffset = editor.CaretPosition.Offset + indentCharsCount;
+                    int adjustedCaretOffset = editor.CaretPosition.Offset + prefixCharsCount;
                     Rect charRect = layout.HitTestTextPosition(adjustedCaretOffset);
 
-                    if (charRect.Y >= paragraphInternalY - 0.1 && charRect.Y < paragraphInternalY + textLine.Height - 0.1)
+                    if (charRect.Y >= textLayoutInternalY - 0.1 && charRect.Y < textLayoutInternalY + textLine.Height - 0.1)
                     {
                         double caretX = document.MarginLeft + charRect.X;
                         currentPage.CaretBounds = new Rect(caretX, currentY, 1.5, textLine.Height);
                     }
                 }
 
-                paragraphInternalY += textLine.Height;
+                textLayoutInternalY += textLine.Height;
                 currentY += textLine.Height * paragraph.LineSpacing;
             }
         }
 
-        if (currentPage.Lines.Count > 0 || pages.Count == 0) pages.Add(currentPage);
+        if (currentPage.Lines.Count > 0 || pages.Count == 0 || currentPage.Images.Count > 0) pages.Add(currentPage);
         return pages;
     }
 
@@ -189,14 +239,8 @@ public class PageLayoutManager
                 int paragraphIndex = line.ParagraphIndex;
                 int clickedOffset = hitTest.TextPosition;
 
-                if (clickedOffset <= 2 && line.InternalY == 0)
-                {
-                    clickedOffset = 0;
-                }
-                else if (line.InternalY == 0)
-                {
-                    clickedOffset = System.Math.Max(0, clickedOffset - 2);
-                }
+                // УМНЫЙ КЛИК: Вычитаем длину префикса, чтобы не сломать движок, если кликнут по слову "Рисунок"
+                clickedOffset = System.Math.Max(0, clickedOffset - line.PrefixLength);
 
                 return new DocumentPosition(paragraphIndex, clickedOffset);
             }

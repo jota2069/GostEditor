@@ -2,7 +2,6 @@ using GostEditor.Core.TextEngine.DOM;
 using GostEditor.Core.TextEngine.Commands;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace GostEditor.Core.TextEngine;
 
@@ -11,14 +10,44 @@ public class DocumentEditor
     public GostDocument Document { get; }
     public DocumentPosition CaretPosition { get; set; }
     public DocumentPosition? SelectionAnchor { get; set; }
+
+    // Менеджер истории остается на месте
     public CommandManager History { get; } = new CommandManager();
 
     public bool HasSelection => SelectionAnchor.HasValue && SelectionAnchor.Value.CompareTo(CaretPosition) != 0;
+
+    // Флаг для группировки сложных действий в один шаг истории
+    private bool _isExecutingCommand = false;
 
     public DocumentEditor(GostDocument document)
     {
         Document = document;
         CaretPosition = new DocumentPosition(0, 0);
+    }
+
+    // ==========================================
+    // СЕРДЦЕ НОВОЙ СИСТЕМЫ ИСТОРИИ (UNDO/REDO)
+    // ==========================================
+    public void ExecuteWithSnapshot(Action action)
+    {
+        // Если мы УЖЕ внутри команды (например, Paste вызывает InsertText),
+        // просто выполняем код, чтобы не плодить 100 снимков.
+        if (_isExecutingCommand)
+        {
+            action();
+            return;
+        }
+
+        _isExecutingCommand = true;
+        try
+        {
+            SnapshotCommand command = new SnapshotCommand(this, action);
+            History.ExecuteCommand(command);
+        }
+        finally
+        {
+            _isExecutingCommand = false;
+        }
     }
 
     public void SelectAll()
@@ -49,125 +78,135 @@ public class DocumentEditor
         SelectionAnchor = null;
     }
 
+    // Обернуто в Snapshot
     public void InsertText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        if (HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            DeleteSelection();
-        }
+            if (HasSelection)
+            {
+                DeleteSelection();
+            }
 
-        ClearSelection();
-
-        InsertTextCommand command = new InsertTextCommand(this, text, CaretPosition);
-        History.ExecuteCommand(command);
+            ClearSelection();
+            CaretPosition = InsertTextInternal(CaretPosition, text);
+        });
     }
 
+    // Обернуто в Snapshot
     public void InsertNewLine()
     {
-        if (HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            DeleteSelection();
-        }
-
-        ClearSelection();
-
-        Paragraph currentParagraph = Document.Paragraphs[CaretPosition.ParagraphIndex];
-
-        Paragraph newParagraph = new Paragraph
-        {
-            Alignment = currentParagraph.Alignment,
-            FirstLineIndent = currentParagraph.FirstLineIndent,
-            LineSpacing = currentParagraph.LineSpacing,
-            Style = currentParagraph.Style
-        };
-
-        SplitAt(CaretPosition.ParagraphIndex, CaretPosition.Offset);
-
-        int currentLength = 0;
-        List<TextRun> leftRuns = new List<TextRun>();
-        List<TextRun> rightRuns = new List<TextRun>();
-        TextRun? lastLeftRun = null;
-
-        foreach (TextRun run in currentParagraph.Runs)
-        {
-            if (currentLength < CaretPosition.Offset)
+            if (HasSelection)
             {
-                leftRuns.Add(run);
-                lastLeftRun = run;
+                DeleteSelection();
             }
-            else
+
+            ClearSelection();
+
+            Paragraph currentParagraph = Document.Paragraphs[CaretPosition.ParagraphIndex];
+
+            Paragraph newParagraph = new Paragraph
             {
-                rightRuns.Add(run);
+                Alignment = currentParagraph.Alignment,
+                FirstLineIndent = currentParagraph.FirstLineIndent,
+                LineSpacing = currentParagraph.LineSpacing,
+                Style = currentParagraph.Style
+            };
+
+            SplitAt(CaretPosition.ParagraphIndex, CaretPosition.Offset);
+
+            int currentLength = 0;
+            List<TextRun> leftRuns = new List<TextRun>();
+            List<TextRun> rightRuns = new List<TextRun>();
+            TextRun? lastLeftRun = null;
+
+            foreach (TextRun run in currentParagraph.Runs)
+            {
+                if (currentLength < CaretPosition.Offset)
+                {
+                    leftRuns.Add(run);
+                    lastLeftRun = run;
+                }
+                else
+                {
+                    rightRuns.Add(run);
+                }
+                currentLength += run.Text.Length;
             }
-            currentLength += run.Text.Length;
-        }
 
-        currentParagraph.Runs = leftRuns;
-        newParagraph.Runs = rightRuns;
+            currentParagraph.Runs = leftRuns;
+            newParagraph.Runs = rightRuns;
 
-        if (leftRuns.Count == 0 && rightRuns.Count > 0)
-        {
-            TextRun firstRight = rightRuns[0];
-            TextRun emptyRun = new TextRun("", firstRight.IsBold, firstRight.IsItalic);
-            emptyRun.FontSize = firstRight.FontSize;
-            currentParagraph.Runs.Add(emptyRun);
-        }
+            if (leftRuns.Count == 0 && rightRuns.Count > 0)
+            {
+                TextRun firstRight = rightRuns[0];
+                TextRun emptyRun = new TextRun("", firstRight.IsBold, firstRight.IsItalic);
+                emptyRun.FontSize = firstRight.FontSize;
+                currentParagraph.Runs.Add(emptyRun);
+            }
 
-        if (rightRuns.Count == 0 && lastLeftRun != null)
-        {
-            TextRun emptyRun = new TextRun("", lastLeftRun.IsBold, lastLeftRun.IsItalic);
-            emptyRun.FontSize = lastLeftRun.FontSize;
-            newParagraph.Runs.Add(emptyRun);
-        }
+            if (rightRuns.Count == 0 && lastLeftRun != null)
+            {
+                TextRun emptyRun = new TextRun("", lastLeftRun.IsBold, lastLeftRun.IsItalic);
+                emptyRun.FontSize = lastLeftRun.FontSize;
+                newParagraph.Runs.Add(emptyRun);
+            }
 
-        Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, newParagraph);
-        CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
+            Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, newParagraph);
+            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
+        });
     }
 
+    // Обернуто в Snapshot
     public void Backspace()
     {
-        if (HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            DeleteSelection();
-            return;
-        }
-
-        if (CaretPosition.Offset == 0)
-        {
-            if (CaretPosition.ParagraphIndex > 0)
+            if (HasSelection)
             {
-                int prevIndex = CaretPosition.ParagraphIndex - 1;
-                Paragraph prevP = Document.Paragraphs[prevIndex];
-                Paragraph currP = Document.Paragraphs[CaretPosition.ParagraphIndex];
-
-                int newOffset = prevP.GetPlainText().Length;
-                prevP.Runs.AddRange(currP.Runs);
-                Document.Paragraphs.RemoveAt(CaretPosition.ParagraphIndex);
-
-                CaretPosition = new DocumentPosition(prevIndex, newOffset);
+                DeleteSelection();
+                return;
             }
-            return;
-        }
 
-        Paragraph p = Document.Paragraphs[CaretPosition.ParagraphIndex];
-        int currentOffset = 0;
-
-        foreach (TextRun run in p.Runs)
-        {
-            if (CaretPosition.Offset <= currentOffset + run.Text.Length)
+            if (CaretPosition.Offset == 0)
             {
-                int deleteIdx = CaretPosition.Offset - currentOffset - 1;
-                if (deleteIdx >= 0)
+                if (CaretPosition.ParagraphIndex > 0)
                 {
-                    run.Text = run.Text.Remove(deleteIdx, 1);
-                    CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset - 1);
+                    int prevIndex = CaretPosition.ParagraphIndex - 1;
+                    Paragraph prevP = Document.Paragraphs[prevIndex];
+                    Paragraph currP = Document.Paragraphs[CaretPosition.ParagraphIndex];
+
+                    int newOffset = prevP.GetPlainText().Length;
+                    prevP.Runs.AddRange(currP.Runs);
+                    Document.Paragraphs.RemoveAt(CaretPosition.ParagraphIndex);
+
+                    CaretPosition = new DocumentPosition(prevIndex, newOffset);
                 }
-                break;
+                return;
             }
-            currentOffset += run.Text.Length;
-        }
+
+            Paragraph p = Document.Paragraphs[CaretPosition.ParagraphIndex];
+            int currentOffset = 0;
+
+            foreach (TextRun run in p.Runs)
+            {
+                if (CaretPosition.Offset <= currentOffset + run.Text.Length)
+                {
+                    int deleteIdx = CaretPosition.Offset - currentOffset - 1;
+                    if (deleteIdx >= 0)
+                    {
+                        run.Text = run.Text.Remove(deleteIdx, 1);
+                        CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset - 1);
+                    }
+                    break;
+                }
+                currentOffset += run.Text.Length;
+            }
+        });
     }
 
     public void MoveLeft()
@@ -269,121 +308,137 @@ public class DocumentEditor
         p.Runs.Insert(insertIndex, emptyRun);
     }
 
+    // Обернуто в Snapshot
     public void ToggleBold()
     {
-        if (!HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            ApplyStyleToCaret(run => run.IsBold = !run.IsBold);
-            return;
-        }
-
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
-        {
-            Paragraph p = Document.Paragraphs[pIdx];
-
-            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
-            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
-
-            SplitAt(pIdx, pEndOffset);
-            SplitAt(pIdx, pStartOffset);
-
-            int currentOffset = 0;
-            foreach (TextRun run in p.Runs)
+            if (!HasSelection)
             {
-                int runStart = currentOffset;
-                int runEnd = currentOffset + run.Text.Length;
-
-                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
-                {
-                    run.IsBold = !run.IsBold;
-                }
-                currentOffset += run.Text.Length;
+                ApplyStyleToCaret(run => run.IsBold = !run.IsBold);
+                return;
             }
-        }
+
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Paragraph p = Document.Paragraphs[pIdx];
+
+                int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
+                int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
+
+                SplitAt(pIdx, pEndOffset);
+                SplitAt(pIdx, pStartOffset);
+
+                int currentOffset = 0;
+                foreach (TextRun run in p.Runs)
+                {
+                    int runStart = currentOffset;
+                    int runEnd = currentOffset + run.Text.Length;
+
+                    if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
+                    {
+                        run.IsBold = !run.IsBold;
+                    }
+                    currentOffset += run.Text.Length;
+                }
+            }
+        });
     }
 
+    // Обернуто в Snapshot
     public void ToggleItalic()
     {
-        if (!HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            ApplyStyleToCaret(run => run.IsItalic = !run.IsItalic);
-            return;
-        }
-
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
-        {
-            Paragraph p = Document.Paragraphs[pIdx];
-
-            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
-            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
-
-            SplitAt(pIdx, pEndOffset);
-            SplitAt(pIdx, pStartOffset);
-
-            int currentOffset = 0;
-            foreach (TextRun run in p.Runs)
+            if (!HasSelection)
             {
-                int runStart = currentOffset;
-                int runEnd = currentOffset + run.Text.Length;
-
-                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
-                {
-                    run.IsItalic = !run.IsItalic;
-                }
-                currentOffset += run.Text.Length;
+                ApplyStyleToCaret(run => run.IsItalic = !run.IsItalic);
+                return;
             }
-        }
+
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Paragraph p = Document.Paragraphs[pIdx];
+
+                int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
+                int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
+
+                SplitAt(pIdx, pEndOffset);
+                SplitAt(pIdx, pStartOffset);
+
+                int currentOffset = 0;
+                foreach (TextRun run in p.Runs)
+                {
+                    int runStart = currentOffset;
+                    int runEnd = currentOffset + run.Text.Length;
+
+                    if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
+                    {
+                        run.IsItalic = !run.IsItalic;
+                    }
+                    currentOffset += run.Text.Length;
+                }
+            }
+        });
     }
 
+    // Обернуто в Snapshot
     public void SetFontSize(double fontSize)
     {
-        if (!HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            ApplyStyleToCaret(run => run.FontSize = fontSize);
-            return;
-        }
-
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
-        {
-            Paragraph p = Document.Paragraphs[pIdx];
-
-            int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
-            int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
-
-            SplitAt(pIdx, pEndOffset);
-            SplitAt(pIdx, pStartOffset);
-
-            int currentOffset = 0;
-            foreach (TextRun run in p.Runs)
+            if (!HasSelection)
             {
-                int runStart = currentOffset;
-                int runEnd = currentOffset + run.Text.Length;
-
-                if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
-                {
-                    run.FontSize = fontSize;
-                }
-                currentOffset += run.Text.Length;
+                ApplyStyleToCaret(run => run.FontSize = fontSize);
+                return;
             }
-        }
+
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Paragraph p = Document.Paragraphs[pIdx];
+
+                int pStartOffset = (pIdx == start.ParagraphIndex) ? start.Offset : 0;
+                int pEndOffset = (pIdx == end.ParagraphIndex) ? end.Offset : p.GetPlainText().Length;
+
+                SplitAt(pIdx, pEndOffset);
+                SplitAt(pIdx, pStartOffset);
+
+                int currentOffset = 0;
+                foreach (TextRun run in p.Runs)
+                {
+                    int runStart = currentOffset;
+                    int runEnd = currentOffset + run.Text.Length;
+
+                    if (runStart >= pStartOffset && runEnd <= pEndOffset && run.Text != "")
+                    {
+                        run.FontSize = fontSize;
+                    }
+                    currentOffset += run.Text.Length;
+                }
+            }
+        });
     }
 
+    // Обернуто в Snapshot
     public void DeleteSelection()
     {
         if (!HasSelection) return;
 
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+        ExecuteWithSnapshot(() =>
+        {
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
-        DeleteRangeInternal(start, end);
+            DeleteRangeInternal(start, end);
 
-        CaretPosition = start;
-        ClearSelection();
+            CaretPosition = start;
+            ClearSelection();
+        });
     }
 
     public string GetSelectedText()
@@ -412,43 +467,51 @@ public class DocumentEditor
         return resultBuilder.ToString();
     }
 
+    // Обернуто в Snapshot
     public void PasteText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        if (HasSelection)
+        ExecuteWithSnapshot(() =>
         {
-            DeleteSelection();
-        }
-
-        string normalizedText = text.Replace("\r", "");
-        string[] lines = normalizedText.Split('\n');
-
-        for (int i = 0; i < lines.Length; i++)
-        {
-            string line = lines[i];
-
-            if (!string.IsNullOrEmpty(line))
+            if (HasSelection)
             {
-                InsertText(line);
+                DeleteSelection();
             }
 
-            if (i < lines.Length - 1)
+            string normalizedText = text.Replace("\r", "");
+            string[] lines = normalizedText.Split('\n');
+
+            for (int i = 0; i < lines.Length; i++)
             {
-                InsertNewLine();
+                string line = lines[i];
+
+                if (!string.IsNullOrEmpty(line))
+                {
+                    InsertText(line);
+                }
+
+                if (i < lines.Length - 1)
+                {
+                    InsertNewLine();
+                }
             }
-        }
+        });
     }
 
+    // Обернуто в Snapshot
     public void SetAlignment(GostAlignment alignment)
     {
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
-
-        for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+        ExecuteWithSnapshot(() =>
         {
-            Paragraph p = Document.Paragraphs[pIdx];
-            p.Alignment = alignment;
-        }
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Paragraph p = Document.Paragraphs[pIdx];
+                p.Alignment = alignment;
+            }
+        });
     }
 
     internal DocumentPosition InsertTextInternal(DocumentPosition position, string text)
@@ -574,24 +637,55 @@ public class DocumentEditor
         }
     }
 
+    // Обернуто в Snapshot
     public void AppendParagraphs(List<Paragraph> paragraphs)
     {
         if (paragraphs == null || paragraphs.Count == 0) return;
 
-        AppendParagraphsCommand command = new AppendParagraphsCommand(this, paragraphs);
-        History.ExecuteCommand(command);
+        ExecuteWithSnapshot(() =>
+        {
+            foreach (Paragraph p in paragraphs)
+            {
+                Document.Paragraphs.Add(p);
+            }
+        });
     }
 
+    // Обернуто в Snapshot
     public void SetParagraphStyle(ParagraphStyle style)
     {
-        (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
+        ExecuteWithSnapshot(() =>
+        {
+            (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
 
-        ChangeParagraphStyleCommand command = new ChangeParagraphStyleCommand(
-            this,
-            style,
-            start.ParagraphIndex,
-            end.ParagraphIndex);
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Document.Paragraphs[pIdx].Style = style;
+            }
+        });
+    }
 
-        History.ExecuteCommand(command);
+    // Обернуто в Snapshot
+    public void InsertImage(byte[] imageBytes, double width, double height)
+    {
+        ExecuteWithSnapshot(() =>
+        {
+            Paragraph imgPara = new Paragraph
+            {
+                Alignment = GostAlignment.Center, // По ГОСТу рисунки по центру
+                ImageData = imageBytes,
+                ImageWidth = width,
+                ImageHeight = height
+            };
+
+            // Просто создаем пустое место (шрифт 14), чтобы пользователь мог написать название после тире
+            imgPara.Runs.Add(new TextRun("", false, false) { FontSize = 14 });
+
+            Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, imgPara);
+
+            // Ставим каретку в самое начало (offset 0), потому что префикс генерируется движком
+            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
+            ClearSelection();
+        });
     }
 }

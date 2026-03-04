@@ -4,6 +4,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using GostEditor.UI.Layout;
 using System;
+using System.Collections.Generic;
+using System.IO;
 
 namespace GostEditor.UI.Controls;
 
@@ -16,8 +18,10 @@ public class GostPageControl : Control
     private readonly DispatcherTimer _caretTimer;
     private bool _isCaretVisible = true;
 
-    // Храним сдвиг нумерации, который приходит из MainWindow
     private int _startPageNumber = 1;
+
+    // Кэш картинок для быстрой отрисовки
+    private readonly Dictionary<byte[], Avalonia.Media.Imaging.Bitmap> _imageCache = new Dictionary<byte[], Avalonia.Media.Imaging.Bitmap>();
 
     public event EventHandler<Point>? PageClicked;
 
@@ -32,16 +36,14 @@ public class GostPageControl : Control
         _caretTimer.Start();
     }
 
-    // МЕТОД ОБНОВЛЕН: принимает int startPageNumber
     public void SetPageData(RenderedPage page, double width, double height, int startPageNumber)
     {
         _pageToRender = page;
         _pageWidth = width;
         _pageHeight = height;
-        _startPageNumber = startPageNumber; // Сохраняем новое начало нумерации
+        _startPageNumber = startPageNumber;
         _isCaretVisible = true;
 
-        // Принудительно заставляем холст перерисоваться с новыми цифрами
         InvalidateVisual();
     }
 
@@ -68,6 +70,29 @@ public class GostPageControl : Control
             context.FillRectangle(selectionBrush, selRect);
         }
 
+        // ==========================================
+        // ОТРИСОВКА КАРТИНОК
+        // ==========================================
+        if (_pageToRender.Images != null)
+        {
+            foreach (ImagePlacement img in _pageToRender.Images)
+            {
+                if (!_imageCache.TryGetValue(img.ImageData, out Avalonia.Media.Imaging.Bitmap? bmp))
+                {
+                    using (MemoryStream ms = new MemoryStream((byte[])img.ImageData))
+                    {
+                        bmp = new Avalonia.Media.Imaging.Bitmap(ms);
+                        _imageCache[img.ImageData] = bmp;
+                    }
+                }
+
+                if (bmp != null)
+                {
+                    context.DrawImage(bmp, img.Bounds);
+                }
+            }
+        }
+
         foreach (TextLinePlacement placement in _pageToRender.Lines)
         {
             placement.Line.Draw(context, placement.Location);
@@ -78,11 +103,6 @@ public class GostPageControl : Control
             context.FillRectangle(Brushes.Black, _pageToRender.CaretBounds.Value);
         }
 
-        // ==========================================
-        // ОТРИСОВКА НОМЕРА СТРАНИЦЫ (ЯВНАЯ ТИПИЗАЦИЯ)
-        // ==========================================
-
-        // Формула: (Порядковый номер листа) + (Сдвиг из UI) - 1
         int actualPageNumber = _pageToRender.PageNumber + _startPageNumber - 1;
         string pageNumberString = actualPageNumber.ToString();
 
@@ -97,7 +117,6 @@ public class GostPageControl : Control
             Brushes.Black
         );
 
-        // Центрируем цифру и отступаем 60 пикселей от нижнего края белого листа
         double xPosition = (bounds.Width / 2.0) - (pageNumberText.Width / 2.0);
         double yPosition = bounds.Height - 60.0;
 

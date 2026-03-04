@@ -181,7 +181,6 @@
 
     <DockPanel>
 
-        <!-- ТУЛБАР — один горизонтальный ряд, высота по содержимому -->
         <Border DockPanel.Dock="Top"
                 Background="{StaticResource ToolbarBg}"
                 BorderBrush="{StaticResource ToolbarBorder}"
@@ -191,7 +190,6 @@
 
             <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
 
-                <!-- СОХРАНИТЬ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" Command="{Binding SaveDocumentCommand}"
                             IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Сохранить (Ctrl+S)">
@@ -207,7 +205,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- НОВЫЙ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" Command="{Binding NewDocumentCommand}"
                             IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Новый документ">
@@ -225,7 +222,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- ОТКРЫТЬ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn"
                             Command="{Binding LoadDocumentCommand}"
@@ -278,7 +274,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- ПОИСК -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" ToolTip.Tip="Поиск (Ctrl+F)">
                         <Canvas Width="24" Height="24">
@@ -292,7 +287,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- CTRL+Z -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn"
                             Click="OnUndoToolbarClick"
@@ -311,7 +305,6 @@
                 </StackPanel>
 
 
-                <!-- CTRL+Y -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn"
                             Click="OnRedoToolbarClick"
@@ -331,7 +324,6 @@
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
-                <!-- ТЕКСТ T -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить текстовый блок">
                         <TextBlock Text="T" FontSize="28" FontWeight="Black"
@@ -342,9 +334,8 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- РИСУНОК -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить рисунок">
+                    <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить рисунок" Click="OnInsertImageClick">
                         <Canvas Width="28" Height="24">
                             <Polygon Points="0,24 9,10 18,20 22,13 28,24" Fill="White" Opacity="0.85"/>
                             <Ellipse Canvas.Left="19" Canvas.Top="2" Width="8" Height="8" Fill="White"/>
@@ -354,7 +345,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- ТАБЛИЦА -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" ToolTip.Tip="Вставить таблицу">
                         <Canvas Width="24" Height="22">
@@ -372,7 +362,6 @@
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
-                <!-- ЖИРНЫЙ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <ToggleButton x:Name="BtnBold" Classes="iconBtn"
                                   Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный (Ctrl+B)">
@@ -384,7 +373,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- КУРСИВ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <ToggleButton x:Name="BtnItalic" Classes="iconBtn"
                                   Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив (Ctrl+I)">
@@ -396,7 +384,6 @@
                                Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-                <!-- РАЗМЕР ШРИФТА -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Border BorderBrush="{StaticResource ToolbarBorder}" BorderThickness="1"
                             CornerRadius="6" Background="White" Width="64" Height="52">
@@ -422,7 +409,6 @@
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
-                <!-- ВЫРАВНИВАНИЕ -->
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <TextBlock Text="Выравнивание" FontSize="9" FontWeight="SemiBold"
                                HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
@@ -489,7 +475,6 @@
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
-                <!-- ВСТАВИТЬ + ЭКСПОРТ -->
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Button Content="Вставить текст" Classes="toolbarBtn"
                             Command="{Binding PasteNormalizedCommand}"
@@ -504,7 +489,6 @@
             </StackPanel>
         </Border>
 
-        <!-- СТАТУС-БАР -->
         <Border DockPanel.Dock="Bottom"
                 Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
@@ -554,7 +538,6 @@
             </Grid>
         </Border>
 
-        <!-- ОСНОВНОЙ КОНТЕНТ -->
         <Grid ColumnDefinitions="240, *">
 
             <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"

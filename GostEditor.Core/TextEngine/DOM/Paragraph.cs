@@ -32,6 +32,12 @@ public class Paragraph
         return sb.ToString();
     }
 
+    public byte[]? ImageData { get; set; }
+    public double ImageWidth { get; set; }
+    public double ImageHeight { get; set; }
+
     public ParagraphStyle Style { get; set; } = ParagraphStyle.Normal;
 
 }
+
+

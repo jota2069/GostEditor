@@ -52,7 +52,8 @@ public partial class MainWindow : Window
         {
             foreach (object itemObj in FontSizeComboBox.Items)
             {
-                if (itemObj is ComboBoxItem item && item.Content != null)
+                // Изящная проверка на null через pattern matching
+                if (itemObj is ComboBoxItem { Content: not null } item)
                 {
                     if (double.TryParse(item.Content.ToString(), out double size))
                     {
@@ -144,10 +145,17 @@ public partial class MainWindow : Window
 
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
+        try
         {
-            await SaveDocumentAsync();
-            e.Handled = true;
+            if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
+            {
+                await SaveDocumentAsync();
+                e.Handled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка сохранения по хоткею: {ex.Message}");
         }
     }
 
@@ -181,14 +189,31 @@ public partial class MainWindow : Window
         ComboBox comboBox = (ComboBox)sender;
         if (comboBox.SelectedItem == null) return;
 
-        ComboBoxItem selectedItem = (ComboBoxItem)comboBox.SelectedItem;
-        string? content = selectedItem.Content?.ToString();
-
-        if (double.TryParse(content, out double newSize))
+        if (comboBox.SelectedItem is ComboBoxItem { Content: not null } selectedItem)
         {
-            MainEditor.ApplyFontSize(newSize);
+            string? content = selectedItem.Content.ToString();
+
+            if (double.TryParse(content, out double newSize))
+            {
+                MainEditor.ApplyFontSize(newSize);
+            }
         }
     }
 
     private void OnNewDocumentClick(object? sender, RoutedEventArgs e) { }
+
+    private async void OnInsertImageClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (MainEditor != null)
+            {
+                await MainEditor.InsertImageFromFileAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при вставке рисунка: {ex.Message}");
+        }
+    }
 }

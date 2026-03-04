@@ -1,17 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Avalonia.Interactivity;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
-using GostEditor.Core.Services;
-using GostEditor.Core.Models;
 using GostEditor.UI.Controls;
 using GostEditor.UI.Layout;
 
@@ -37,7 +38,7 @@ public partial class DocumentEngineView : UserControl
     private double? _desiredX;
 
     private bool _isDragging;
-    private List<RenderedPage> _currentPages = new List<RenderedPage>();
+    private List<RenderedPage> _currentPages = [];
 
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
 
@@ -51,7 +52,7 @@ public partial class DocumentEngineView : UserControl
         InitEngine();
     }
 
-    public int StartPageNumber { get; private set; } = 1;
+    private int StartPageNumber { get; set; } = 1;
 
     public void SetStartPageNumber(int startPage)
     {
@@ -126,24 +127,21 @@ public partial class DocumentEngineView : UserControl
 
                 if (e.Key == Key.A)
                 {
-                    _editor.SelectAll();
-                    RefreshView();
+                    SelectAll();
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Key == Key.Z)
                 {
-                    _editor.History.Undo();
-                    RefreshView();
+                    Undo();
                     e.Handled = true;
                     return;
                 }
 
                 if (e.Key == Key.Y)
                 {
-                    _editor.History.Redo();
-                    RefreshView();
+                    Redo();
                     e.Handled = true;
                     return;
                 }
@@ -166,19 +164,14 @@ public partial class DocumentEngineView : UserControl
                     e.Handled = true;
                     return;
                 }
+#pragma warning restore CS0618
 
                 if (e.Key == Key.V && topLevel?.Clipboard != null)
                 {
-                    string? pastedText = await topLevel.Clipboard.GetTextAsync();
-                    if (!string.IsNullOrEmpty(pastedText))
-                    {
-                        _editor.PasteText(pastedText);
-                        RefreshView();
-                    }
+                    await PasteFromClipboardAsync();
                     e.Handled = true;
                     return;
                 }
-#pragma warning restore CS0618
             }
 
             bool isHandled = true;
@@ -399,10 +392,10 @@ public partial class DocumentEngineView : UserControl
 
         for (int i = 0; i < _currentPages.Count; i++)
         {
-            if (_currentPages[i].CaretBounds.HasValue)
+            if (_currentPages[i].CaretBounds is { } rect)
             {
                 pageIndex = i;
-                caretRect = _currentPages[i].CaretBounds.Value;
+                caretRect = rect;
                 break;
             }
         }
@@ -412,7 +405,7 @@ public partial class DocumentEngineView : UserControl
         double targetX = _desiredX ?? caretRect.X;
         _desiredX = targetX;
 
-        List<TextLinePlacement> allLines = new List<TextLinePlacement>();
+        List<TextLinePlacement> allLines = [];
 
         foreach (RenderedPage page in _currentPages)
         {
@@ -459,9 +452,8 @@ public partial class DocumentEngineView : UserControl
 
         for (int i = 0; i < _currentPages.Count; i++)
         {
-            if (_currentPages[i].CaretBounds.HasValue)
+            if (_currentPages[i].CaretBounds is { } caretRect)
             {
-                Rect caretRect = _currentPages[i].CaretBounds.Value;
                 Control pageControl = PagesStackPanel.Children[i];
 
                 double safeY = caretRect.Y - 50;
@@ -543,45 +535,51 @@ public partial class DocumentEngineView : UserControl
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e)
     {
-        if (_editor != null && _editor.HasSelection)
+        try
         {
-            TopLevel? topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
+            if (_editor != null && _editor.HasSelection)
             {
-                await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
+                TopLevel? topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel?.Clipboard != null)
+                {
+#pragma warning disable CS0618
+                    await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
+#pragma warning restore CS0618
+                }
             }
+            Focus();
         }
-        Focus();
+        catch (Exception ex) { Console.WriteLine(ex); }
     }
 
     private async void OnCutClick(object? sender, RoutedEventArgs e)
     {
-        if (_editor != null && _editor.HasSelection)
+        try
         {
-            TopLevel? topLevel = TopLevel.GetTopLevel(this);
-            if (topLevel?.Clipboard != null)
+            if (_editor != null && _editor.HasSelection)
             {
-                await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
-                _editor.DeleteSelection();
-                RefreshView();
+                TopLevel? topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel?.Clipboard != null)
+                {
+#pragma warning disable CS0618
+                    await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
+#pragma warning restore CS0618
+                    _editor.DeleteSelection();
+                    RefreshView();
+                }
             }
+            Focus();
         }
-        Focus();
+        catch (Exception ex) { Console.WriteLine(ex); }
     }
 
     private async void OnPasteClick(object? sender, RoutedEventArgs e)
     {
-        TopLevel? topLevel = TopLevel.GetTopLevel(this);
-        if (topLevel?.Clipboard != null)
+        try
         {
-            string? text = await topLevel.Clipboard.GetTextAsync();
-            if (!string.IsNullOrEmpty(text) && _editor != null)
-            {
-                _editor.PasteText(text);
-                RefreshView();
-            }
+            await PasteFromClipboardAsync();
         }
-        Focus();
+        catch (Exception ex) { Console.WriteLine(ex); }
     }
 
     private void OnSelectAllClick(object? sender, RoutedEventArgs e)
@@ -592,5 +590,109 @@ public partial class DocumentEngineView : UserControl
     private void OnUndoClick(object? sender, RoutedEventArgs e)
     {
         Undo();
+    }
+
+    public async Task InsertImageFromFileAsync()
+    {
+        try
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Выберите изображение",
+                AllowMultiple = false,
+                FileTypeFilter = [FilePickerFileTypes.ImageAll]
+            });
+
+            if (files.Count > 0)
+            {
+                await using var stream = await files[0].OpenReadAsync();
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                byte[] bytes = ms.ToArray();
+
+                using var bmp = new Bitmap(new MemoryStream(bytes));
+                _editor?.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
+                RefreshView();
+                Focus();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка выбора файла: {ex.Message}");
+        }
+    }
+
+    private async Task PasteFromClipboardAsync()
+    {
+        if (_editor == null) return;
+        var topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.Clipboard == null) return;
+
+        try
+        {
+#pragma warning disable CS0618
+            var formats = await topLevel.Clipboard.GetFormatsAsync();
+
+            // 1. Ищем картинку напрямую из буфера (скриншот ножницами)
+            foreach (var format in formats)
+            {
+                if (format.Contains("png", StringComparison.OrdinalIgnoreCase) ||
+                    format.Contains("jpg", StringComparison.OrdinalIgnoreCase))
+                {
+                    var imgData = await topLevel.Clipboard.GetDataAsync(format);
+                    if (imgData is byte[] bytes)
+                    {
+                        using var bmp = new Bitmap(new MemoryStream(bytes));
+                        _editor.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
+                        RefreshView();
+                        Focus();
+                        return;
+                    }
+                }
+            }
+
+            // 2. Ищем скопированный ФАЙЛ картинки (из проводника)
+            var data = await topLevel.Clipboard.GetDataAsync(DataFormats.Files);
+            if (data is IEnumerable<IStorageItem> items)
+            {
+                foreach (var item in items)
+                {
+                    if (item is IStorageFile storageFile &&
+                       (storageFile.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                        storageFile.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                        storageFile.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        await using var stream = await storageFile.OpenReadAsync();
+                        using var ms = new MemoryStream();
+                        await stream.CopyToAsync(ms);
+                        byte[] bytes = ms.ToArray();
+
+                        using var bmp = new Bitmap(new MemoryStream(bytes));
+                        _editor.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
+                        RefreshView();
+                        Focus();
+                        return;
+                    }
+                }
+            }
+
+            // 3. Вставляем как обычный текст
+            string? pastedText = await topLevel.Clipboard.GetTextAsync();
+            if (!string.IsNullOrEmpty(pastedText))
+            {
+                _editor.PasteText(pastedText);
+                RefreshView();
+                Focus();
+            }
+#pragma warning restore CS0618
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка вставки: {ex.Message}");
+        }
+        Focus();
     }
 }
