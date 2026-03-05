@@ -1,3 +1,5 @@
+#pragma warning disable CS0618
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -21,12 +23,17 @@ using DOMTextRun = GostEditor.Core.TextEngine.DOM.TextRun;
 
 namespace GostEditor.UI.Views;
 
+public enum ResizeDirection
+{
+    None, TopLeft, TopCenter, TopRight, RightCenter, BottomRight, BottomCenter, BottomLeft, LeftCenter
+}
+
 public class CaretStyleChangedEventArgs : EventArgs
 {
-    public bool IsBold { get; set; }
-    public bool IsItalic { get; set; }
-    public double FontSize { get; set; }
-    public GostAlignment Alignment { get; set; }
+    public bool IsBold { get; init; }
+    public bool IsItalic { get; init; }
+    public double FontSize { get; init; }
+    public GostAlignment Alignment { get; init; }
 }
 
 public partial class DocumentEngineView : UserControl
@@ -40,6 +47,17 @@ public partial class DocumentEngineView : UserControl
     private bool _isDragging;
     private List<RenderedPage> _currentPages = [];
 
+    private ResizeDirection _currentResizeDirection = ResizeDirection.None;
+    private Point _resizeStartPoint;
+    private double _initialImageWidth;
+    private double _initialImageHeight;
+    private double _initialImageX;
+    private double _initialImageY;
+    private Paragraph? _resizingParagraph;
+    private GostPageControl? _resizingPageControl;
+    private double _finalResizeWidth;
+    private double _finalResizeHeight;
+
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
 
     public DocumentEngineView()
@@ -48,6 +66,10 @@ public partial class DocumentEngineView : UserControl
         Focusable = true;
         TextInput += OnTextInput;
         KeyDown += OnKeyDown;
+
+        // ЖЕЛЕЗОБЕТОННАЯ БРОНЯ: Убиваем системное меню Avalonia на корню,
+        // чтобы оно не вылезало поверх нашего!
+        AddHandler(ContextRequestedEvent, (s, e) => e.Handled = true, RoutingStrategies.Tunnel);
 
         InitEngine();
     }
@@ -78,33 +100,58 @@ public partial class DocumentEngineView : UserControl
         RefreshView();
     }
 
-    public void ApplyBold()
+    private ResizeDirection GetResizeHandleHit(RenderedPage page, Point localPoint, int selectedImageIndex)
     {
-        if (_editor == null) return;
-        _editor.ToggleBold();
-        RefreshView();
-        Focus();
+        foreach (ImagePlacement img in page.Images)
+        {
+            if (img.ParagraphIndex == selectedImageIndex)
+            {
+                double markerSize = 8.0;
+                double halfSize = markerSize / 2.0;
+                double padding = 15.0;
+
+                Point[] centers =
+                [
+                    new Point(img.Bounds.Left, img.Bounds.Top),
+                    new Point(img.Bounds.Center.X, img.Bounds.Top),
+                    new Point(img.Bounds.Right, img.Bounds.Top),
+                    new Point(img.Bounds.Right, img.Bounds.Center.Y),
+                    new Point(img.Bounds.Right, img.Bounds.Bottom),
+                    new Point(img.Bounds.Center.X, img.Bounds.Bottom),
+                    new Point(img.Bounds.Left, img.Bounds.Bottom),
+                    new Point(img.Bounds.Left, img.Bounds.Center.Y)
+                ];
+
+                ResizeDirection[] dirs =
+                [
+                    ResizeDirection.TopLeft, ResizeDirection.TopCenter, ResizeDirection.TopRight,
+                    ResizeDirection.RightCenter, ResizeDirection.BottomRight, ResizeDirection.BottomCenter,
+                    ResizeDirection.BottomLeft, ResizeDirection.LeftCenter
+                ];
+
+                for (int i = 0; i < centers.Length; i++)
+                {
+                    Rect hitArea = new Rect(centers[i].X - halfSize - padding, centers[i].Y - halfSize - padding,
+                                            markerSize + padding * 2, markerSize + padding * 2);
+                    if (hitArea.Contains(localPoint))
+                    {
+                        return dirs[i];
+                    }
+                }
+            }
+        }
+        return ResizeDirection.None;
     }
 
-    public void ApplyFontSize(double fontSize)
-    {
-        if (_editor == null) return;
-        _editor.SetFontSize(fontSize);
-        RefreshView();
-        Focus();
-    }
-
-    public void ApplyItalic()
-    {
-        if (_editor == null) return;
-        _editor.ToggleItalic();
-        RefreshView();
-        Focus();
-    }
+    public void ApplyBold() { if (_editor == null) return; _editor.ToggleBold(); RefreshView(); Focus(); }
+    public void ApplyFontSize(double fontSize) { if (_editor == null) return; _editor.SetFontSize(fontSize); RefreshView(); Focus(); }
+    public void ApplyItalic() { if (_editor == null) return; _editor.ToggleItalic(); RefreshView(); Focus(); }
 
     private void OnTextInput(object? sender, TextInputEventArgs e)
     {
         if (_editor == null || string.IsNullOrEmpty(e.Text)) return;
+
+        _editor.SelectedImageParagraphIndex = null;
         _editor.InsertText(e.Text);
         RefreshView();
         e.Handled = true;
@@ -116,6 +163,27 @@ public partial class DocumentEngineView : UserControl
 
         try
         {
+            if ((e.Key == Key.Back || e.Key == Key.Delete) && _editor.SelectedImageParagraphIndex.HasValue)
+            {
+                _editor.ExecuteWithSnapshot(() =>
+                {
+                    int pIndex = _editor.SelectedImageParagraphIndex.Value;
+                    _editor.Document.Paragraphs.RemoveAt(pIndex);
+                    _editor.ClearSelection();
+
+                    if (pIndex < _editor.Document.Paragraphs.Count)
+                        _editor.CaretPosition = new DocumentPosition(pIndex, 0);
+                    else if (pIndex - 1 >= 0)
+                        _editor.CaretPosition = new DocumentPosition(pIndex - 1, _editor.Document.Paragraphs[pIndex - 1].GetPlainText().Length);
+                    else
+                        _editor.CaretPosition = new DocumentPosition(0, 0);
+                });
+
+                RefreshView();
+                e.Handled = true;
+                return;
+            }
+
             bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
             bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
 
@@ -125,28 +193,10 @@ public partial class DocumentEngineView : UserControl
             {
                 TopLevel? topLevel = TopLevel.GetTopLevel(this);
 
-                if (e.Key == Key.A)
-                {
-                    SelectAll();
-                    e.Handled = true;
-                    return;
-                }
+                if (e.Key == Key.A) { SelectAll(); e.Handled = true; return; }
+                if (e.Key == Key.Z) { Undo(); e.Handled = true; return; }
+                if (e.Key == Key.Y) { Redo(); e.Handled = true; return; }
 
-                if (e.Key == Key.Z)
-                {
-                    Undo();
-                    e.Handled = true;
-                    return;
-                }
-
-                if (e.Key == Key.Y)
-                {
-                    Redo();
-                    e.Handled = true;
-                    return;
-                }
-
-#pragma warning disable CS0618
                 if (e.Key == Key.C && _editor.HasSelection && topLevel?.Clipboard != null)
                 {
                     string textToCopy = _editor.GetSelectedText();
@@ -164,7 +214,6 @@ public partial class DocumentEngineView : UserControl
                     e.Handled = true;
                     return;
                 }
-#pragma warning restore CS0618
 
                 if (e.Key == Key.V && topLevel?.Clipboard != null)
                 {
@@ -188,6 +237,11 @@ public partial class DocumentEngineView : UserControl
 
             if (isHandled)
             {
+                if (e.Key != Key.Back && e.Key != Key.Delete)
+                {
+                    _editor.SelectedImageParagraphIndex = null;
+                }
+
                 if (isShift)
                 {
                     _editor.SelectionAnchor = oldAnchor;
@@ -232,12 +286,11 @@ public partial class DocumentEngineView : UserControl
         {
             if (PagesStackPanel.Children[i] is GostPageControl pageControl)
             {
-                pageControl.SetPageData(_currentPages[i], _editor.Document.PageWidth, _editor.Document.PageHeight, StartPageNumber);
+                pageControl.SetPageData(_currentPages[i], _editor.Document.PageWidth, _editor.Document.PageHeight, StartPageNumber, _editor.SelectedImageParagraphIndex);
             }
         }
 
         Dispatcher.UIThread.Post(ScrollToCaret, DispatcherPriority.Normal);
-
         NotifyCaretStyle();
     }
 
@@ -297,34 +350,217 @@ public partial class DocumentEngineView : UserControl
 
         if (sender is GostPageControl pageControl)
         {
-            if (!e.GetCurrentPoint(pageControl).Properties.IsLeftButtonPressed) return;
+            PointerPointProperties pointerProps = e.GetCurrentPoint(pageControl).Properties;
+
+            // ОБРАБОТКА ПРАВОГО КЛИКА
+            if (pointerProps.IsRightButtonPressed)
+            {
+                int pageIndex = PagesStackPanel.Children.IndexOf(pageControl);
+                if (pageIndex >= 0 && pageIndex < _currentPages.Count)
+                {
+                    RenderedPage pageData = _currentPages[pageIndex];
+                    Point clickPoint = e.GetPosition(pageControl);
+                    DocumentHitResult? hit = _layoutManager.GetPositionFromPoint(pageData, clickPoint);
+
+                    if (hit is { IsImageHit: true, ImageParagraphIndex: not null })
+                    {
+                        _editor.SelectionAnchor = null;
+                        _editor.SelectedImageParagraphIndex = hit.ImageParagraphIndex;
+                        RefreshView();
+                    }
+                }
+
+                ShowContextMenu(pageControl);
+                e.Handled = true; // Добиваем системное всплытие
+                return;
+            }
+
+            if (!pointerProps.IsLeftButtonPressed) return;
 
             Focus();
             _isDragging = true;
             _desiredX = null;
 
-            e.Pointer.Capture(pageControl);
-
-            int pageIndex = PagesStackPanel.Children.IndexOf(pageControl);
-            if (pageIndex >= 0 && pageIndex < _currentPages.Count)
+            int pageIndexForLeftClick = PagesStackPanel.Children.IndexOf(pageControl);
+            if (pageIndexForLeftClick >= 0 && pageIndexForLeftClick < _currentPages.Count)
             {
-                RenderedPage pageData = _currentPages[pageIndex];
+                RenderedPage pageData = _currentPages[pageIndexForLeftClick];
                 Point clickPoint = e.GetPosition(pageControl);
-                DocumentPosition? pos = _layoutManager.GetPositionFromPoint(pageData, clickPoint);
 
-                if (pos.HasValue)
+                if (_editor.SelectedImageParagraphIndex.HasValue)
                 {
-                    _editor.SelectionAnchor = pos.Value;
-                    _editor.CaretPosition = pos.Value;
+                    ResizeDirection hitDir = GetResizeHandleHit(pageData, clickPoint, _editor.SelectedImageParagraphIndex.Value);
+                    if (hitDir != ResizeDirection.None)
+                    {
+                        _currentResizeDirection = hitDir;
+                        _resizeStartPoint = e.GetPosition(PagesStackPanel);
+                        _resizingParagraph = _editor.Document.Paragraphs[_editor.SelectedImageParagraphIndex.Value];
+                        _resizingPageControl = pageControl;
+
+                        ImagePlacement? imgPl = pageData.Images.Find(img => img.ParagraphIndex == _editor.SelectedImageParagraphIndex.Value);
+                        if (imgPl != null)
+                        {
+                            _initialImageWidth = imgPl.Bounds.Width;
+                            _initialImageHeight = imgPl.Bounds.Height;
+                            _initialImageX = imgPl.Bounds.X;
+                            _initialImageY = imgPl.Bounds.Y;
+                        }
+                        else
+                        {
+                            _initialImageWidth = _resizingParagraph.ImageWidth;
+                            _initialImageHeight = _resizingParagraph.ImageHeight;
+                            _initialImageX = 0;
+                            _initialImageY = 0;
+                        }
+
+                        _finalResizeWidth = _initialImageWidth;
+                        _finalResizeHeight = _initialImageHeight;
+
+                        e.Pointer.Capture(pageControl);
+                        return;
+                    }
+                }
+
+                DocumentHitResult? hit = _layoutManager.GetPositionFromPoint(pageData, clickPoint);
+
+                if (hit != null)
+                {
+                    if (hit is { IsImageHit: true, ImageParagraphIndex: not null })
+                    {
+                        _editor.SelectionAnchor = null;
+                        _editor.SelectedImageParagraphIndex = hit.ImageParagraphIndex;
+                    }
+                    else if (hit.TextPosition.HasValue)
+                    {
+                        _editor.SelectedImageParagraphIndex = null;
+                        _editor.SelectionAnchor = hit.TextPosition.Value;
+                        _editor.CaretPosition = hit.TextPosition.Value;
+                    }
                     RefreshView();
                 }
             }
+
+            e.Pointer.Capture(pageControl);
         }
     }
 
     private void OnPagePointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_layoutManager == null || _editor == null || !_isDragging) return;
+        if (_layoutManager == null || _editor == null) return;
+
+        if (!_isDragging && _currentResizeDirection == ResizeDirection.None && _editor.SelectedImageParagraphIndex.HasValue)
+        {
+            Point globalP = e.GetPosition(PagesStackPanel);
+            bool cursorSet = false;
+
+            for (int i = 0; i < PagesStackPanel.Children.Count; i++)
+            {
+                Control child = PagesStackPanel.Children[i];
+                if (globalP.Y >= child.Bounds.Top && globalP.Y <= child.Bounds.Bottom && i < _currentPages.Count)
+                {
+                    Point localP = new Point(globalP.X, globalP.Y - child.Bounds.Top);
+                    if (GetResizeHandleHit(_currentPages[i], localP, _editor.SelectedImageParagraphIndex.Value) != ResizeDirection.None)
+                    {
+                        Cursor = new Cursor(StandardCursorType.Hand);
+                        cursorSet = true;
+                        break;
+                    }
+                }
+            }
+            if (!cursorSet) Cursor = new Cursor(StandardCursorType.Ibeam);
+        }
+
+        if (_currentResizeDirection != ResizeDirection.None && _resizingPageControl != null)
+        {
+            Point currentGlobal = e.GetPosition(PagesStackPanel);
+            double handleDeltaX = currentGlobal.X - _resizeStartPoint.X;
+            double handleDeltaY = currentGlobal.Y - _resizeStartPoint.Y;
+
+            double ratio = _initialImageWidth / _initialImageHeight;
+            double newW = _initialImageWidth;
+            double newH = _initialImageHeight;
+            double newX = _initialImageX;
+            double newY = _initialImageY;
+
+            double rightEdge = _initialImageX + _initialImageWidth;
+            double bottomEdge = _initialImageY + _initialImageHeight;
+
+            switch (_currentResizeDirection)
+            {
+                case ResizeDirection.RightCenter:
+                    newW = _initialImageWidth + handleDeltaX;
+                    break;
+                case ResizeDirection.LeftCenter:
+                    newW = _initialImageWidth - handleDeltaX;
+                    break;
+                case ResizeDirection.BottomCenter:
+                    newH = _initialImageHeight + handleDeltaY;
+                    break;
+                case ResizeDirection.TopCenter:
+                    newH = _initialImageHeight - handleDeltaY;
+                    break;
+                case ResizeDirection.BottomRight:
+                    newW = _initialImageWidth + handleDeltaX;
+                    newH = newW / ratio;
+                    break;
+                case ResizeDirection.BottomLeft:
+                    newW = _initialImageWidth - handleDeltaX;
+                    newH = newW / ratio;
+                    break;
+                case ResizeDirection.TopRight:
+                    newW = _initialImageWidth + handleDeltaX;
+                    newH = newW / ratio;
+                    break;
+                case ResizeDirection.TopLeft:
+                    newW = _initialImageWidth - handleDeltaX;
+                    newH = newW / ratio;
+                    break;
+            }
+
+            double minSize = 20.0;
+            double contentWidth = _editor.Document.PageWidth - _editor.Document.MarginLeft - _editor.Document.MarginRight;
+
+            if (newW < minSize)
+            {
+                newW = minSize;
+                if (_currentResizeDirection != ResizeDirection.BottomCenter && _currentResizeDirection != ResizeDirection.TopCenter)
+                    newH = newW / ratio;
+            }
+            if (newW > contentWidth)
+            {
+                newW = contentWidth;
+                if (_currentResizeDirection != ResizeDirection.BottomCenter && _currentResizeDirection != ResizeDirection.TopCenter)
+                    newH = newW / ratio;
+            }
+            if (newH < minSize)
+            {
+                newH = minSize;
+            }
+
+            if (_currentResizeDirection == ResizeDirection.LeftCenter ||
+                _currentResizeDirection == ResizeDirection.BottomLeft ||
+                _currentResizeDirection == ResizeDirection.TopLeft)
+            {
+                newX = rightEdge - newW;
+            }
+
+            if (_currentResizeDirection == ResizeDirection.TopCenter ||
+                _currentResizeDirection == ResizeDirection.TopRight ||
+                _currentResizeDirection == ResizeDirection.TopLeft)
+            {
+                newY = bottomEdge - newH;
+            }
+
+            _finalResizeWidth = newW;
+            _finalResizeHeight = newH;
+
+            _resizingPageControl.TempResizeBounds = new Rect(newX, newY, newW, newH);
+            _resizingPageControl.InvalidateVisual();
+
+            return;
+        }
+
+        if (!_isDragging) return;
 
         if (sender is GostPageControl capturedPage)
         {
@@ -366,12 +602,16 @@ public partial class DocumentEngineView : UserControl
             if (targetPageIndex >= 0 && targetPageIndex < _currentPages.Count)
             {
                 RenderedPage targetPageData = _currentPages[targetPageIndex];
-                DocumentPosition? pos = _layoutManager.GetPositionFromPoint(targetPageData, localPoint);
 
-                if (pos.HasValue && pos.Value.CompareTo(_editor.CaretPosition) != 0)
+                DocumentHitResult? hit = _layoutManager.GetPositionFromPoint(targetPageData, localPoint);
+
+                if (hit != null && !hit.IsImageHit && hit.TextPosition.HasValue)
                 {
-                    _editor.CaretPosition = pos.Value;
-                    RefreshView();
+                    if (hit.TextPosition.Value.CompareTo(_editor.CaretPosition) != 0)
+                    {
+                        _editor.CaretPosition = hit.TextPosition.Value;
+                        RefreshView();
+                    }
                 }
             }
         }
@@ -379,6 +619,36 @@ public partial class DocumentEngineView : UserControl
 
     private void OnPagePointerReleased(object? sender, PointerReleasedEventArgs e)
     {
+        // И еще одна глушилка: запрещаем Avalonia делать свои дела после отпускания ПКМ
+        if (e.InitialPressMouseButton == MouseButton.Right)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        if (_currentResizeDirection != ResizeDirection.None && _resizingParagraph != null && _editor != null)
+        {
+            _editor.ExecuteWithSnapshot(() =>
+            {
+                _resizingParagraph.ImageWidth = _finalResizeWidth;
+                _resizingParagraph.ImageHeight = _finalResizeHeight;
+            });
+
+            if (_resizingPageControl != null)
+            {
+                _resizingPageControl.TempResizeBounds = null;
+                _resizingPageControl = null;
+            }
+
+            _currentResizeDirection = ResizeDirection.None;
+            _resizingParagraph = null;
+
+            if (sender is GostPageControl) e.Pointer.Capture(null);
+
+            RefreshView();
+            return;
+        }
+
         _isDragging = false;
         if (sender is GostPageControl) e.Pointer.Capture(null);
     }
@@ -470,68 +740,17 @@ public partial class DocumentEngineView : UserControl
     public void AlignCenter() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Center); RefreshView(); Focus(); }
     public void AlignRight() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Right); RefreshView(); Focus(); }
     public void AlignJustify() { if (_editor == null) return; _editor.SetAlignment(GostAlignment.Justify); RefreshView(); Focus(); }
-
-    public void AppendParagraphs(List<Paragraph> paragraphs)
-    {
-        if (_editor == null) return;
-        _editor.AppendParagraphs(paragraphs);
-        RefreshView();
-    }
-
-    public void ApplyParagraphStyle(ParagraphStyle style)
-    {
-        if (_editor == null) return;
-        _editor.SetParagraphStyle(style);
-        RefreshView();
-        Focus();
-    }
+    public void AppendParagraphs(List<Paragraph> paragraphs) { if (_editor == null) return; _editor.AppendParagraphs(paragraphs); RefreshView(); }
+    public void ApplyParagraphStyle(ParagraphStyle style) { if (_editor == null) return; _editor.SetParagraphStyle(style); RefreshView(); Focus(); }
 
     public bool HasSelection => _editor != null && _editor.HasSelection;
+    private void SelectAll() { if (_editor == null) return; _editor.SelectAll(); RefreshView(); Focus(); }
 
-    public void SelectAll()
-    {
-        if (_editor == null) return;
-        _editor.SelectAll();
-        RefreshView();
-        Focus();
-    }
-
-    public void Undo()
-    {
-        if (_editor == null) return;
-        _editor.History.Undo();
-        RefreshView();
-        Focus();
-    }
-
-    public void Redo()
-    {
-        if (_editor == null) return;
-        _editor.History.Redo();
-        RefreshView();
-        Focus();
-    }
-
-    public string GetSelectedText()
-    {
-        return _editor != null ? _editor.GetSelectedText() : string.Empty;
-    }
-
-    public void DeleteSelection()
-    {
-        if (_editor == null) return;
-        _editor.DeleteSelection();
-        RefreshView();
-        Focus();
-    }
-
-    public void PasteText(string text)
-    {
-        if (_editor == null) return;
-        _editor.PasteText(text);
-        RefreshView();
-        Focus();
-    }
+    public void Undo() { if (_editor == null) return; _editor.History.Undo(); RefreshView(); Focus(); }
+    public void Redo() { if (_editor == null) return; _editor.History.Redo(); RefreshView(); Focus(); }
+    public string GetSelectedText() { return _editor != null ? _editor.GetSelectedText() : string.Empty; }
+    public void DeleteSelection() { if (_editor == null) return; _editor.DeleteSelection(); RefreshView(); Focus(); }
+    public void PasteText(string text) { if (_editor == null) return; _editor.PasteText(text); RefreshView(); Focus(); }
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e)
     {
@@ -539,17 +758,17 @@ public partial class DocumentEngineView : UserControl
         {
             if (_editor != null && _editor.HasSelection)
             {
-                TopLevel? topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel?.Clipboard != null)
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
                 {
-#pragma warning disable CS0618
-                    await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
-#pragma warning restore CS0618
+                    await clipboard.SetTextAsync(_editor.GetSelectedText());
                 }
             }
             Focus();
         }
-        catch (Exception ex) { Console.WriteLine(ex); }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
     }
 
     private async void OnCutClick(object? sender, RoutedEventArgs e)
@@ -558,19 +777,19 @@ public partial class DocumentEngineView : UserControl
         {
             if (_editor != null && _editor.HasSelection)
             {
-                TopLevel? topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel?.Clipboard != null)
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
                 {
-#pragma warning disable CS0618
-                    await topLevel.Clipboard.SetTextAsync(_editor.GetSelectedText());
-#pragma warning restore CS0618
+                    await clipboard.SetTextAsync(_editor.GetSelectedText());
                     _editor.DeleteSelection();
                     RefreshView();
                 }
             }
             Focus();
         }
-        catch (Exception ex) { Console.WriteLine(ex); }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
     }
 
     private async void OnPasteClick(object? sender, RoutedEventArgs e)
@@ -579,41 +798,37 @@ public partial class DocumentEngineView : UserControl
         {
             await PasteFromClipboardAsync();
         }
-        catch (Exception ex) { Console.WriteLine(ex); }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
     }
 
-    private void OnSelectAllClick(object? sender, RoutedEventArgs e)
-    {
-        SelectAll();
-    }
-
-    private void OnUndoClick(object? sender, RoutedEventArgs e)
-    {
-        Undo();
-    }
+    private void OnSelectAllClick(object? sender, RoutedEventArgs e) { SelectAll(); }
+    private void OnUndoClick(object? sender, RoutedEventArgs e) { Undo(); }
 
     public async Task InsertImageFromFileAsync()
     {
         try
         {
-            var topLevel = TopLevel.GetTopLevel(this);
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
             if (topLevel == null) return;
 
-            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "Выберите изображение",
                 AllowMultiple = false,
-                FileTypeFilter = [FilePickerFileTypes.ImageAll]
+                FileTypeFilter = [ FilePickerFileTypes.ImageAll ]
             });
 
             if (files.Count > 0)
             {
-                await using var stream = await files[0].OpenReadAsync();
-                using var ms = new MemoryStream();
+                await using Stream stream = await files[0].OpenReadAsync();
+                using MemoryStream ms = new MemoryStream();
                 await stream.CopyToAsync(ms);
                 byte[] bytes = ms.ToArray();
 
-                using var bmp = new Bitmap(new MemoryStream(bytes));
+                using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
                 _editor?.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
                 RefreshView();
                 Focus();
@@ -628,24 +843,20 @@ public partial class DocumentEngineView : UserControl
     private async Task PasteFromClipboardAsync()
     {
         if (_editor == null) return;
-        var topLevel = TopLevel.GetTopLevel(this);
+        TopLevel? topLevel = TopLevel.GetTopLevel(this);
         if (topLevel?.Clipboard == null) return;
 
         try
         {
-#pragma warning disable CS0618
-            var formats = await topLevel.Clipboard.GetFormatsAsync();
-
-            // 1. Ищем картинку напрямую из буфера (скриншот ножницами)
-            foreach (var format in formats)
+            string[] formats = await topLevel.Clipboard.GetFormatsAsync();
+            foreach (string format in formats)
             {
-                if (format.Contains("png", StringComparison.OrdinalIgnoreCase) ||
-                    format.Contains("jpg", StringComparison.OrdinalIgnoreCase))
+                if (format.Contains("png", StringComparison.OrdinalIgnoreCase) || format.Contains("jpg", StringComparison.OrdinalIgnoreCase))
                 {
-                    var imgData = await topLevel.Clipboard.GetDataAsync(format);
+                    object? imgData = await topLevel.Clipboard.GetDataAsync(format);
                     if (imgData is byte[] bytes)
                     {
-                        using var bmp = new Bitmap(new MemoryStream(bytes));
+                        using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
                         _editor.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
                         RefreshView();
                         Focus();
@@ -654,23 +865,19 @@ public partial class DocumentEngineView : UserControl
                 }
             }
 
-            // 2. Ищем скопированный ФАЙЛ картинки (из проводника)
-            var data = await topLevel.Clipboard.GetDataAsync(DataFormats.Files);
+            object? data = await topLevel.Clipboard.GetDataAsync(DataFormats.Files);
             if (data is IEnumerable<IStorageItem> items)
             {
-                foreach (var item in items)
+                foreach (IStorageItem item in items)
                 {
-                    if (item is IStorageFile storageFile &&
-                       (storageFile.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                        storageFile.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                        storageFile.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+                    if (item is IStorageFile storageFile && (storageFile.Name.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || storageFile.Name.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || storageFile.Name.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
                     {
-                        await using var stream = await storageFile.OpenReadAsync();
-                        using var ms = new MemoryStream();
+                        await using Stream stream = await storageFile.OpenReadAsync();
+                        using MemoryStream ms = new MemoryStream();
                         await stream.CopyToAsync(ms);
                         byte[] bytes = ms.ToArray();
 
-                        using var bmp = new Bitmap(new MemoryStream(bytes));
+                        using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
                         _editor.InsertImage(bytes, bmp.Size.Width, bmp.Size.Height);
                         RefreshView();
                         Focus();
@@ -679,7 +886,6 @@ public partial class DocumentEngineView : UserControl
                 }
             }
 
-            // 3. Вставляем как обычный текст
             string? pastedText = await topLevel.Clipboard.GetTextAsync();
             if (!string.IsNullOrEmpty(pastedText))
             {
@@ -687,12 +893,159 @@ public partial class DocumentEngineView : UserControl
                 RefreshView();
                 Focus();
             }
-#pragma warning restore CS0618
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Ошибка вставки: {ex.Message}");
         }
         Focus();
+    }
+
+    // Доступ к текущему документу для сохранения
+    public DOMDocument? CurrentDocument => _editor?.Document;
+
+    // Загрузка нового документа из файла
+    public void LoadDocument(DOMDocument newDocument)
+    {
+        _editor = new DocumentEditor(newDocument);
+        RefreshView();
+    }
+
+    private void ShowContextMenu(Control target)
+    {
+        if (_editor == null) return;
+
+        ContextMenu menu = new ContextMenu();
+        List<MenuItem> items = [];
+
+        if (_editor.SelectedImageParagraphIndex.HasValue)
+        {
+            int pIndex = _editor.SelectedImageParagraphIndex.Value;
+
+            MenuItem copyItem = new MenuItem { Header = "Копировать" };
+            copyItem.Click += (_, _) =>
+            {
+                // Задел под копирование (буфер обмена)
+            };
+
+            MenuItem replaceItem = new MenuItem { Header = "Заменить" };
+            replaceItem.Click += async (_, _) =>
+            {
+                await ReplaceImageAsync(pIndex);
+            };
+
+            MenuItem cutItem = new MenuItem { Header = "Вырезать" };
+            cutItem.Click += (_, _) =>
+            {
+                _editor.ExecuteWithSnapshot(() => _editor.Document.Paragraphs.RemoveAt(pIndex));
+                _editor.SelectedImageParagraphIndex = null;
+                RefreshView();
+            };
+
+            MenuItem editItem = new MenuItem { Header = "Редактировать" };
+            editItem.Click += async (_, _) =>
+            {
+                // 1. Получаем родительское окно (чтобы модалка открылась поверх него)
+                Window? mainWindow = TopLevel.GetTopLevel(this) as Window;
+                if (mainWindow == null) return;
+
+                // 2. Берем байты выделенной картинки
+                Paragraph p = _editor.Document.Paragraphs[pIndex];
+                byte[]? originalBytes = p.ImageData;
+                if (originalBytes == null) return;
+
+                // 3. Создаем редактор и ждем результата!
+                ImageEditorWindow editorWindow = new ImageEditorWindow();
+                byte[]? newImageBytes = await editorWindow.ShowDialogAsync(mainWindow, originalBytes);
+
+                // 4. Если юзер нажал "Применить" и вернул новые байты - обновляем документ
+                if (newImageBytes != null)
+                {
+                    using MemoryStream ms = new MemoryStream(newImageBytes);
+                    using Bitmap bmp = new Bitmap(ms);
+                    double newWidth = bmp.Size.Width;
+                    double newHeight = bmp.Size.Height;
+
+                    _editor.ExecuteWithSnapshot(() =>
+                    {
+                        p.ImageData = newImageBytes;
+                        p.ImageWidth = newWidth;
+                        p.ImageHeight = newHeight;
+                    });
+
+                    RefreshView();
+                }
+            };
+
+            MenuItem deleteItem = new MenuItem { Header = "Удалить" };
+            deleteItem.Click += (_, _) =>
+            {
+                _editor.ExecuteWithSnapshot(() => _editor.Document.Paragraphs.RemoveAt(pIndex));
+                _editor.SelectedImageParagraphIndex = null;
+                RefreshView();
+            };
+
+            items.Add(copyItem);
+            items.Add(replaceItem);
+            items.Add(cutItem);
+            items.Add(editItem);
+            items.Add(deleteItem);
+        }
+        else
+        {
+            MenuItem copyTextItem = new MenuItem { Header = "Копировать текст" };
+            copyTextItem.Click += OnCopyClick;
+
+            MenuItem pasteTextItem = new MenuItem { Header = "Вставить текст" };
+            pasteTextItem.Click += OnPasteClick;
+
+            items.Add(copyTextItem);
+            items.Add(pasteTextItem);
+        }
+
+        menu.ItemsSource = items;
+        menu.Open(target);
+    }
+
+    private async Task ReplaceImageAsync(int paragraphIndex)
+    {
+        try
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel == null || _editor == null) return;
+
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Выберите новое изображение",
+                AllowMultiple = false,
+                FileTypeFilter = [ FilePickerFileTypes.ImageAll ]
+            });
+
+            if (files.Count > 0)
+            {
+                await using Stream stream = await files[0].OpenReadAsync();
+                using MemoryStream ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                byte[] bytes = ms.ToArray();
+
+                using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
+                double newWidth = bmp.Size.Width;
+                double newHeight = bmp.Size.Height;
+
+                _editor.ExecuteWithSnapshot(() =>
+                {
+                    Paragraph p = _editor.Document.Paragraphs[paragraphIndex];
+                    p.ImageData = bytes;
+                    p.ImageWidth = newWidth;
+                    p.ImageHeight = newHeight;
+                });
+
+                RefreshView();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка замены файла: {ex.Message}");
+        }
     }
 }

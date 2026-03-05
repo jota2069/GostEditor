@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
+using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.ViewModels;
 
@@ -52,7 +55,6 @@ public partial class MainWindow : Window
         {
             foreach (object itemObj in FontSizeComboBox.Items)
             {
-                // Изящная проверка на null через pattern matching
                 if (itemObj is ComboBoxItem { Content: not null } item)
                 {
                     if (double.TryParse(item.Content.ToString(), out double size))
@@ -80,58 +82,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnBoldClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.ApplyBold();
-        MainEditor?.Focus();
-    }
+    // --- КНОПКИ ФОРМАТИРОВАНИЯ ---
 
-    private void OnItalicClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.ApplyItalic();
-        MainEditor?.Focus();
-    }
-
-    private void OnAlignLeftClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.AlignLeft();
-        MainEditor?.Focus();
-    }
-
-    private void OnAlignCenterClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.AlignCenter();
-        MainEditor?.Focus();
-    }
-
-    private void OnAlignRightClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.AlignRight();
-        MainEditor?.Focus();
-    }
-
-    private void OnAlignJustifyClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.AlignJustify();
-        MainEditor?.Focus();
-    }
-
-    private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.Focus();
-    }
-
-    private void OnUndoToolbarClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.Undo();
-        MainEditor?.Focus();
-    }
-
-    private void OnRedoToolbarClick(object? sender, RoutedEventArgs e)
-    {
-        MainEditor?.Redo();
-        MainEditor?.Focus();
-    }
+    private void OnBoldClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyBold(); MainEditor?.Focus(); }
+    private void OnItalicClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyItalic(); MainEditor?.Focus(); }
+    private void OnAlignLeftClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignLeft(); MainEditor?.Focus(); }
+    private void OnAlignCenterClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignCenter(); MainEditor?.Focus(); }
+    private void OnAlignRightClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignRight(); MainEditor?.Focus(); }
+    private void OnAlignJustifyClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignJustify(); MainEditor?.Focus(); }
+    private void OnClearFormattingClick(object? sender, RoutedEventArgs e) { MainEditor?.Focus(); }
+    private void OnUndoToolbarClick(object? sender, RoutedEventArgs e) { MainEditor?.Undo(); MainEditor?.Focus(); }
+    private void OnRedoToolbarClick(object? sender, RoutedEventArgs e) { MainEditor?.Redo(); MainEditor?.Focus(); }
 
     private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
@@ -143,27 +104,16 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
+    private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        try
-        {
-            if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
-            {
-                await SaveDocumentAsync();
-                e.Handled = true;
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Ошибка сохранения по хоткею: {ex.Message}");
-        }
-    }
+        if (_isUpdatingUI || MainEditor == null || sender == null) return;
 
-    private async Task SaveDocumentAsync()
-    {
-        if (DataContext is MainWindowViewModel vm && vm.SaveDocumentCommand.CanExecute(null))
+        if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem { Content: not null } selectedItem)
         {
-            await vm.SaveDocumentCommand.ExecuteAsync(null);
+            if (double.TryParse(selectedItem.Content.ToString(), out double newSize))
+            {
+                MainEditor.ApplyFontSize(newSize);
+            }
         }
     }
 
@@ -181,26 +131,88 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    // --- ЛОГИКА СОХРАНЕНИЯ И ОТКРЫТИЯ (.GOST) ---
+
+    private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
-        if (_isUpdatingUI) return;
-        if (MainEditor == null || sender == null) return;
-
-        ComboBox comboBox = (ComboBox)sender;
-        if (comboBox.SelectedItem == null) return;
-
-        if (comboBox.SelectedItem is ComboBoxItem { Content: not null } selectedItem)
+        try
         {
-            string? content = selectedItem.Content.ToString();
-
-            if (double.TryParse(content, out double newSize))
+            // Горячая клавиша Ctrl+S
+            if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
             {
-                MainEditor.ApplyFontSize(newSize);
+                await SaveDocumentToFileAsync();
+                e.Handled = true;
             }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка сохранения по хоткею: {ex.Message}");
         }
     }
 
-    private void OnNewDocumentClick(object? sender, RoutedEventArgs e) { }
+    public async void OnSaveClick(object? sender, RoutedEventArgs e)
+    {
+        await SaveDocumentToFileAsync();
+    }
+
+    public async void OnOpenClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (MainEditor == null) return;
+
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Открыть документ",
+                AllowMultiple = false,
+                FileTypeFilter = [ new FilePickerFileType("GOST Document") { Patterns = ["*.gost"] } ]
+            });
+
+            if (files.Count > 0)
+            {
+                await using Stream stream = await files[0].OpenReadAsync();
+                GostDocument loadedDoc = await GostArchiveManager.LoadAsync(stream);
+                MainEditor.LoadDocument(loadedDoc);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка при открытии файла: {ex.Message}");
+        }
+    }
+
+    private async Task SaveDocumentToFileAsync()
+    {
+        try
+        {
+            if (MainEditor == null || MainEditor.CurrentDocument == null) return;
+
+            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Сохранить документ",
+                DefaultExtension = ".gost",
+                FileTypeChoices = [ new FilePickerFileType("GOST Document") { Patterns = ["*.gost"] } ]
+            });
+
+            if (file != null)
+            {
+                await using Stream stream = await file.OpenWriteAsync();
+                await GostArchiveManager.SaveAsync(MainEditor.CurrentDocument, stream);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ошибка сохранения: {ex.Message}");
+        }
+    }
+
+    private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
+    {
+        if (MainEditor != null)
+        {
+            MainEditor.LoadDocument(new GostDocument());
+        }
+    }
 
     private async void OnInsertImageClick(object? sender, RoutedEventArgs e)
     {

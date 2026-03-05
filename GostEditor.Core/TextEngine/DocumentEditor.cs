@@ -10,6 +10,7 @@ public class DocumentEditor
     public GostDocument Document { get; }
     public DocumentPosition CaretPosition { get; set; }
     public DocumentPosition? SelectionAnchor { get; set; }
+    public int? SelectedImageParagraphIndex { get; set; }
 
     // Менеджер истории остается на месте
     public CommandManager History { get; } = new CommandManager();
@@ -76,6 +77,7 @@ public class DocumentEditor
     public void ClearSelection()
     {
         SelectionAnchor = null;
+        SelectedImageParagraphIndex = null;
     }
 
     // Обернуто в Snapshot

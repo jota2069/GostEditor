@@ -1,19 +1,44 @@
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Media.TextFormatting;
+using GostEditor.Core.TextEngine.DOM; // Добавили для DocumentPosition
 
 namespace GostEditor.UI.Layout;
+
+// НОВЫЙ КЛАСС: Описывает, куда именно кликнул пользователь (в текст или в картинку)
+public class DocumentHitResult
+{
+    public bool IsImageHit { get; }
+    public DocumentPosition? TextPosition { get; }
+    public int? ImageParagraphIndex { get; }
+
+    // Конструктор для клика по тексту
+    public DocumentHitResult(DocumentPosition textPosition)
+    {
+        IsImageHit = false;
+        TextPosition = textPosition;
+    }
+
+    // Конструктор для клика по картинке
+    public DocumentHitResult(int imageParagraphIndex)
+    {
+        IsImageHit = true;
+        ImageParagraphIndex = imageParagraphIndex;
+    }
+}
 
 // Класс для хранения данных о расположении картинки на листе
 public class ImagePlacement
 {
     public byte[] ImageData { get; set; }
     public Rect Bounds { get; set; }
+    public int ParagraphIndex { get; set; } // ИСПРАВЛЕНИЕ: Добавили индекс абзаца
 
-    public ImagePlacement(byte[] data, Rect bounds)
+    public ImagePlacement(byte[] data, Rect bounds, int paragraphIndex)
     {
         ImageData = data;
         Bounds = bounds;
+        ParagraphIndex = paragraphIndex;
     }
 }
 
@@ -45,6 +70,6 @@ public class RenderedPage
     public List<Rect> SelectionBounds { get; set; } = new List<Rect>();
     public Rect? CaretBounds { get; set; }
 
-    // НОВОЕ СВОЙСТВО: Список картинок на этой странице
+    // Список картинок на этой странице
     public List<ImagePlacement> Images { get; set; } = new List<ImagePlacement>();
 }

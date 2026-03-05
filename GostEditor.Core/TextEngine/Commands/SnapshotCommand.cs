@@ -83,7 +83,12 @@ public class SnapshotCommand : IEditorCommand
                 Alignment = p.Alignment,
                 FirstLineIndent = p.FirstLineIndent,
                 LineSpacing = p.LineSpacing,
-                Style = p.Style
+                Style = p.Style,
+
+                // ИСПРАВЛЕНО: Теперь история помнит про картинки и их размеры!
+                ImageData = p.ImageData,
+                ImageWidth = p.ImageWidth,
+                ImageHeight = p.ImageHeight
             };
 
             foreach (TextRun run in p.Runs)

@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="GostEditor.UI.Views.ImageEditorWindow"
+        Title="Редактор изображения"
+        Width="900" Height="700"
+        WindowStartupLocation="CenterOwner"
+        Background="#2D2D30">
+
+    <Grid RowDefinitions="Auto, *, Auto">
+
+        <Border Grid.Row="0" Background="#1E1E1E" Padding="15">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button x:Name="RotateBtn" Content="Повернуть" Foreground="White" Background="#3E3E42" Padding="10,5"/>
+                <Button x:Name="CropBtn" Content="Обрезать" Foreground="White" Background="#3E3E42" Padding="10,5"/>
+                <Button x:Name="DrawBtn" Content="Карандаш" Foreground="White" Background="#3E3E42" Padding="10,5"/>
+
+                <ComboBox x:Name="BrushColorCombo" IsVisible="False" SelectedIndex="0" Background="#3E3E42" Foreground="White" Margin="20,0,0,0" SelectionChanged="OnColorChanged">
+                    <ComboBoxItem Content="Красный" Foreground="#FF5555"/>
+                    <ComboBoxItem Content="Синий" Foreground="#5555FF"/>
+                    <ComboBoxItem Content="Зеленый" Foreground="#55FF55"/>
+                    <ComboBoxItem Content="Черный" Foreground="Black"/>
+                    <ComboBoxItem Content="Белый" Foreground="White"/>
+                </ComboBox>
+
+                <Slider x:Name="BrushThicknessSlider" IsVisible="False" Minimum="1" Maximum="30" Value="4" Width="100" VerticalAlignment="Center" Margin="10,0"/>
+
+                <Button x:Name="UndoDrawBtn" IsVisible="False" Content="Отменить линию" Foreground="White" Background="#3E3E42" Padding="10,5"/>
+            </StackPanel>
+        </Border>
+
+        <Border Grid.Row="1" Margin="20" Background="#1E1E1E" CornerRadius="8" ClipToBounds="True">
+            <Viewbox x:Name="MainViewbox" Stretch="Uniform">
+                <Grid x:Name="ImageGrid">
+
+                    <Image x:Name="PreviewImage" Stretch="None" />
+
+                    <Canvas x:Name="DrawingCanvas" Background="Transparent"
+                            PointerPressed="OnCanvasPointerPressed"
+                            PointerMoved="OnCanvasPointerMoved"
+                            PointerReleased="OnCanvasPointerReleased"/>
+
+                    <Canvas x:Name="CropCanvas" IsVisible="False" Background="Transparent"
+                            PointerPressed="OnCropPointerPressed"
+                            PointerMoved="OnCropPointerMoved"
+                            PointerReleased="OnCropPointerReleased">
+
+                        <Rectangle x:Name="CropTopRect" Fill="#90000000" />
+                        <Rectangle x:Name="CropBottomRect" Fill="#90000000" />
+                        <Rectangle x:Name="CropLeftRect" Fill="#90000000" />
+                        <Rectangle x:Name="CropRightRect" Fill="#90000000" />
+
+                        <Border x:Name="CropBorder" BorderBrush="#007ACC" BorderThickness="3" Background="Transparent" />
+                    </Canvas>
+
+                </Grid>
+            </Viewbox>
+        </Border>
+
+        <Border Grid.Row="2" Background="#1E1E1E" Padding="15">
+            <Grid ColumnDefinitions="*, Auto, Auto">
+                <Button Grid.Column="1" x:Name="CancelBtn" Content="Отмена" Foreground="White" Background="#3E3E42" Margin="0,0,10,0" Padding="20,5"/>
+                <Button Grid.Column="2" x:Name="ApplyBtn" Content="Применить" Foreground="White" Background="#007ACC" Padding="20,5"/>
+            </Grid>
+        </Border>
+
+    </Grid>
+</Window>

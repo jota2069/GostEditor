@@ -191,7 +191,7 @@
             <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn" Command="{Binding SaveDocumentCommand}"
+                    <Button Classes="iconBtn" Click="OnSaveClick"
                             IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Сохранить (Ctrl+S)">
                         <Canvas Width="24" Height="24">
                             <Rectangle Canvas.Left="2" Canvas.Top="2" Width="20" Height="20"
@@ -206,7 +206,7 @@
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn" Command="{Binding NewDocumentCommand}"
+                    <Button Classes="iconBtn" Click="OnNewDocumentClick"
                             IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Новый документ">
                         <Canvas Width="24" Height="24">
                             <Rectangle Canvas.Left="3" Canvas.Top="2" Width="13" Height="18"
@@ -223,12 +223,9 @@
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn"
-                            Command="{Binding LoadDocumentCommand}"
+                    <Button Classes="iconBtn" Click="OnOpenClick"
                             IsEnabled="{Binding !IsBusy}"
                             ToolTip.Tip="Открыть файл">
-
-
                         <Grid>
                             <Grid>
                                 <TextBlock Text="🗁"

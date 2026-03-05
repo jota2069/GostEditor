@@ -3,6 +3,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -21,7 +22,6 @@ public class PageLayoutManager
 
         (DocumentPosition selStart, DocumentPosition selEnd) = editor.GetNormalizedSelection();
 
-        // СЧЕТЧИК КАРТИНОК
         int figureCounter = 1;
 
         for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
@@ -29,7 +29,10 @@ public class PageLayoutManager
             Paragraph paragraph = document.Paragraphs[pIndex];
 
             string plainText = paragraph.GetPlainText();
-            if (string.IsNullOrEmpty(plainText)) plainText = "\u200B";
+            if (string.IsNullOrEmpty(plainText))
+            {
+                plainText = "\u200B";
+            }
 
             double baseFontSize = 18.67;
             FontWeight baseWeight = FontWeight.Normal;
@@ -53,18 +56,12 @@ public class PageLayoutManager
 
             Typeface baseTypeface = new Typeface(baseFontFamily, FontStyle.Normal, baseWeight);
 
-            // ==========================================
-            // ГЕНЕРАЦИЯ ПРЕФИКСОВ (КРАСНАЯ СТРОКА ИЛИ РИСУНОК)
-            // ==========================================
             int prefixCharsCount = 0;
-            string prefixString = "";
-
-            // ИСПРАВЛЕНИЕ: Используем IBrush вместо Brush
+            string prefixString = string.Empty;
             IBrush prefixBrush = Brushes.Black;
 
             if (paragraph.ImageData != null)
             {
-                // Если это картинка, генерируем подпись на лету
                 prefixString = $"Рисунок {figureCounter} - ";
                 figureCounter++;
                 prefixCharsCount = prefixString.Length;
@@ -73,10 +70,9 @@ public class PageLayoutManager
                      paragraph.Alignment != GostAlignment.Right &&
                      paragraph.FirstLineIndent > 0)
             {
-                // Если это обычный текст, делаем невидимый отступ
                 prefixString = "\u2003\u2002";
                 prefixCharsCount = prefixString.Length;
-                prefixBrush = Brushes.Transparent; // Теперь IBrush спокойно принимает это
+                prefixBrush = Brushes.Transparent;
             }
 
             if (prefixCharsCount > 0)
@@ -86,10 +82,9 @@ public class PageLayoutManager
 
             List<Avalonia.Utilities.ValueSpan<TextRunProperties>> styleOverrides = new List<Avalonia.Utilities.ValueSpan<TextRunProperties>>();
 
-            // Применяем стиль к префиксу (прозрачность или обычный цвет)
             if (prefixCharsCount > 0)
             {
-                TextRunProperties prefixProps = new GenericTextRunProperties(baseTypeface, baseFontSize * 1.3333333333333333, null, prefixBrush);
+                TextRunProperties prefixProps = new GenericTextRunProperties(baseTypeface, baseFontSize, null, prefixBrush);
                 styleOverrides.Add(new Avalonia.Utilities.ValueSpan<TextRunProperties>(0, prefixCharsCount, prefixProps));
             }
 
@@ -97,14 +92,17 @@ public class PageLayoutManager
 
             foreach (GostEditor.Core.TextEngine.DOM.TextRun run in paragraph.Runs)
             {
-                if (string.IsNullOrEmpty(run.Text)) continue;
+                if (string.IsNullOrEmpty(run.Text))
+                {
+                    continue;
+                }
 
                 double runFontSizePx = run.FontSize * 1.3333333333333333;
 
                 FontWeight effectiveWeight = run.IsBold || baseWeight == FontWeight.Bold ? FontWeight.Bold : FontWeight.Normal;
                 FontStyle effectiveStyle = run.IsItalic ? FontStyle.Italic : FontStyle.Normal;
 
-                if (effectiveWeight != baseWeight || effectiveStyle != FontStyle.Normal || System.Math.Abs(runFontSizePx - baseFontSize) > 0.1)
+                if (effectiveWeight != baseWeight || effectiveStyle != FontStyle.Normal || Math.Abs(runFontSizePx - baseFontSize) > 0.1)
                 {
                     Typeface runTypeface = new Typeface(baseFontFamily, effectiveStyle, effectiveWeight);
                     TextRunProperties props = new GenericTextRunProperties(runTypeface, runFontSizePx, null, Brushes.Black);
@@ -133,7 +131,6 @@ public class PageLayoutManager
                 maxWidth: contentWidth,
                 textStyleOverrides: styleOverrides);
 
-            // --- РАСЧЕТ КАРТИНКИ ---
             if (paragraph.ImageData != null)
             {
                 double imgWidth = paragraph.ImageWidth;
@@ -155,11 +152,10 @@ public class PageLayoutManager
 
                 double imgX = document.MarginLeft + (contentWidth - imgWidth) / 2;
 
-                currentPage.Images.Add(new ImagePlacement(paragraph.ImageData, new Rect(imgX, currentY, imgWidth, imgHeight)));
+                currentPage.Images.Add(new ImagePlacement(paragraph.ImageData, new Rect(imgX, currentY, imgWidth, imgHeight), pIndex));
 
                 currentY += imgHeight + 10;
             }
-            // -----------------------
 
             List<Rect> selectionRects = new List<Rect>();
             if (editor.HasSelection && pIndex >= selStart.ParagraphIndex && pIndex <= selEnd.ParagraphIndex)
@@ -189,7 +185,6 @@ public class PageLayoutManager
                 double currentX = document.MarginLeft;
                 Point location = new Point(currentX, currentY);
 
-                // ПЕРЕДАЕМ ДЛИНУ ПРЕФИКСА
                 currentPage.Lines.Add(new TextLinePlacement(textLine, location, pIndex, textLayoutInternalY, layout, prefixCharsCount));
 
                 foreach (Rect rect in selectionRects)
@@ -218,12 +213,24 @@ public class PageLayoutManager
             }
         }
 
-        if (currentPage.Lines.Count > 0 || pages.Count == 0 || currentPage.Images.Count > 0) pages.Add(currentPage);
+        if (currentPage.Lines.Count > 0 || pages.Count == 0 || currentPage.Images.Count > 0)
+        {
+            pages.Add(currentPage);
+        }
+
         return pages;
     }
 
-    public DocumentPosition? GetPositionFromPoint(RenderedPage page, Point clickPoint)
+    public DocumentHitResult? GetPositionFromPoint(RenderedPage page, Point clickPoint)
     {
+        foreach (ImagePlacement image in page.Images)
+        {
+            if (image.Bounds.Contains(clickPoint))
+            {
+                return new DocumentHitResult(image.ParagraphIndex);
+            }
+        }
+
         foreach (TextLinePlacement line in page.Lines)
         {
             if (clickPoint.Y >= line.Location.Y && clickPoint.Y <= line.Location.Y + line.Line.Height)
@@ -231,20 +238,27 @@ public class PageLayoutManager
                 double layoutX = clickPoint.X - line.Location.X;
                 double layoutY = line.InternalY + (clickPoint.Y - line.Location.Y);
 
-                if (layoutX > line.Line.Width) layoutX = line.Line.Width;
-                if (layoutX < 0) layoutX = 0;
+                if (layoutX > line.Line.Width)
+                {
+                    layoutX = line.Line.Width;
+                }
+
+                if (layoutX < 0)
+                {
+                    layoutX = 0;
+                }
 
                 TextHitTestResult hitTest = line.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
 
                 int paragraphIndex = line.ParagraphIndex;
                 int clickedOffset = hitTest.TextPosition;
 
-                // УМНЫЙ КЛИК: Вычитаем длину префикса, чтобы не сломать движок, если кликнут по слову "Рисунок"
-                clickedOffset = System.Math.Max(0, clickedOffset - line.PrefixLength);
+                clickedOffset = Math.Max(0, clickedOffset - line.PrefixLength);
 
-                return new DocumentPosition(paragraphIndex, clickedOffset);
+                return new DocumentHitResult(new DocumentPosition(paragraphIndex, clickedOffset));
             }
         }
+
         return null;
     }
 }

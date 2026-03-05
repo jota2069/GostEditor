@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using GostEditor.UI.Layout;
 using System;
@@ -19,9 +21,12 @@ public class GostPageControl : Control
     private bool _isCaretVisible = true;
 
     private int _startPageNumber = 1;
+    private int? _selectedImageParagraphIndex;
 
-    // Кэш картинок для быстрой отрисовки
-    private readonly Dictionary<byte[], Avalonia.Media.Imaging.Bitmap> _imageCache = new Dictionary<byte[], Avalonia.Media.Imaging.Bitmap>();
+    // НОВОЕ: Временные координаты рамки во время перетаскивания
+    public Rect? TempResizeBounds { get; set; }
+
+    private readonly Dictionary<byte[], Bitmap> _imageCache = new Dictionary<byte[], Bitmap>();
 
     public event EventHandler<Point>? PageClicked;
 
@@ -36,12 +41,16 @@ public class GostPageControl : Control
         _caretTimer.Start();
     }
 
-    public void SetPageData(RenderedPage page, double width, double height, int startPageNumber)
+    public void SetPageData(RenderedPage page, double width, double height, int startPageNumber, int? selectedImageIndex = null)
     {
         _pageToRender = page;
         _pageWidth = width;
         _pageHeight = height;
         _startPageNumber = startPageNumber;
+        _selectedImageParagraphIndex = selectedImageIndex;
+
+        // Сбрасываем призрачную рамку при пересчете документа
+        TempResizeBounds = null;
         _isCaretVisible = true;
 
         InvalidateVisual();
@@ -70,25 +79,60 @@ public class GostPageControl : Control
             context.FillRectangle(selectionBrush, selRect);
         }
 
-        // ==========================================
-        // ОТРИСОВКА КАРТИНОК
-        // ==========================================
         if (_pageToRender.Images != null)
         {
             foreach (ImagePlacement img in _pageToRender.Images)
             {
-                if (!_imageCache.TryGetValue(img.ImageData, out Avalonia.Media.Imaging.Bitmap? bmp))
+                if (!_imageCache.TryGetValue(img.ImageData, out Bitmap? bmp))
                 {
-                    using (MemoryStream ms = new MemoryStream((byte[])img.ImageData))
-                    {
-                        bmp = new Avalonia.Media.Imaging.Bitmap(ms);
-                        _imageCache[img.ImageData] = bmp;
-                    }
+                    using MemoryStream ms = new MemoryStream((byte[])img.ImageData);
+                    bmp = new Bitmap(ms);
+                    _imageCache[img.ImageData] = bmp;
                 }
 
                 if (bmp != null)
                 {
-                    context.DrawImage(bmp, img.Bounds);
+                    // ЛОГИКА ПРИЗРАЧНОЙ РАМКИ:
+                    // Если картинка выделена и мы её тянем, рисуем её по временным координатам
+                    bool isResizingThisImage = _selectedImageParagraphIndex.HasValue &&
+                                               img.ParagraphIndex == _selectedImageParagraphIndex.Value &&
+                                               TempResizeBounds.HasValue;
+
+                    Rect drawBounds = isResizingThisImage ? TempResizeBounds!.Value : img.Bounds;
+
+                    // Отрисовка самой картинки (видеокарта сама мгновенно её растянет)
+                    context.DrawImage(bmp, drawBounds);
+
+                    // Отрисовка синей рамки выделения поверх картинки
+                    if (_selectedImageParagraphIndex.HasValue && img.ParagraphIndex == _selectedImageParagraphIndex.Value)
+                    {
+                        Pen borderPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1.5);
+                        context.DrawRectangle(null, borderPen, drawBounds);
+
+                        double markerSize = 8.0;
+                        double halfSize = markerSize / 2.0;
+                        ISolidColorBrush markerFill = Brushes.White;
+                        Pen markerPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1);
+
+                        Point[] markerCenters = new Point[]
+                        {
+                            new Point(drawBounds.Left, drawBounds.Top),
+                            new Point(drawBounds.Center.X, drawBounds.Top),
+                            new Point(drawBounds.Right, drawBounds.Top),
+                            new Point(drawBounds.Right, drawBounds.Center.Y),
+                            new Point(drawBounds.Right, drawBounds.Bottom),
+                            new Point(drawBounds.Center.X, drawBounds.Bottom),
+                            new Point(drawBounds.Left, drawBounds.Bottom),
+                            new Point(drawBounds.Left, drawBounds.Center.Y)
+                        };
+
+                        foreach (Point center in markerCenters)
+                        {
+                            Rect markerRect = new Rect(center.X - halfSize, center.Y - halfSize, markerSize, markerSize);
+                            context.FillRectangle(markerFill, markerRect);
+                            context.DrawRectangle(markerPen, markerRect);
+                        }
+                    }
                 }
             }
         }
@@ -98,7 +142,7 @@ public class GostPageControl : Control
             placement.Line.Draw(context, placement.Location);
         }
 
-        if (_pageToRender.CaretBounds.HasValue && _isCaretVisible)
+        if (_pageToRender.CaretBounds.HasValue && _isCaretVisible && !_selectedImageParagraphIndex.HasValue)
         {
             context.FillRectangle(Brushes.Black, _pageToRender.CaretBounds.Value);
         }
@@ -125,7 +169,7 @@ public class GostPageControl : Control
         context.DrawText(pageNumberText, textPosition);
     }
 
-    protected override void OnPointerPressed(Avalonia.Input.PointerPressedEventArgs e)
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         PageClicked?.Invoke(this, e.GetPosition(this));
