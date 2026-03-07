@@ -1,5 +1,10 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 
@@ -68,14 +73,22 @@ public class DocumentService : IDocumentService
             })
             .ToList();
 
+        // Полностью перевели сериализацию на новую структуру с непрерывными абзацами
         GostDocument documentForSerialization = new GostDocument
         {
             TitlePage = document.TitlePage,
-            Sections = document.Sections,
+            Paragraphs = document.Paragraphs,
             CodeListings = document.CodeListings,
             Images = imagesMetadata,
+            Counters = document.Counters,
             CreatedAt = document.CreatedAt,
-            ModifiedAt = document.ModifiedAt
+            ModifiedAt = document.ModifiedAt,
+            PageWidth = document.PageWidth,
+            PageHeight = document.PageHeight,
+            MarginLeft = document.MarginLeft,
+            MarginRight = document.MarginRight,
+            MarginTop = document.MarginTop,
+            MarginBottom = document.MarginBottom
         };
 
         using ZipArchive zip = ZipFile.Open(filePath, ZipArchiveMode.Create);

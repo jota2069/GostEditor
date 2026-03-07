@@ -36,192 +36,57 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly DialogService _dialogService;
 
     private string? _currentFilePath;
-    private System.Threading.Timer? _autoSaveTimer;
 
     public event Action<List<Paragraph>>? OnInsertParagraphsRequested;
+
+    // Новые события для связи с редактором
+    public event Action<int>? OnScrollToParagraphRequested;
+    public event Action<int, string>? OnInsertHeadingRequested;
 
     [ObservableProperty]
     private GostDocument _currentDocument = new GostDocument();
 
+    // НОВОЕ: Наш список "Умного оглавления"
     [ObservableProperty]
-    private ObservableCollection<DocumentSection> _sections = new ObservableCollection<DocumentSection>();
+    private ObservableCollection<NavigationItem> _navigationItems = new ObservableCollection<NavigationItem>();
 
     [ObservableProperty]
-    private DocumentSection? _selectedSection;
+    private NavigationItem? _selectedNavigationItem;
 
     [ObservableProperty]
     private ObservableCollection<SelectableCodeListing> _codeListings = new ObservableCollection<SelectableCodeListing>();
 
-    [ObservableProperty]
-    private bool _hasUnsavedChanges;
+    [ObservableProperty] private string _university = "«Тверской государственный технический университет»";
+    [ObservableProperty] private string _department = "Кафедра [Название]";
+    [ObservableProperty] private string _discipline = "[Дисциплина]";
+    [ObservableProperty] private string _workType = "[Тип работы]";
+    [ObservableProperty] private string _workTitle = "[Тема работы]";
+    [ObservableProperty] private string _groupNumber = "[Группа]";
+    [ObservableProperty] private string _studentName = "[ФИО студента]";
+    [ObservableProperty] private string _teacherName = "[ФИО преподавателя]";
+    [ObservableProperty] private string _city = "Тверь";
+    [ObservableProperty] private int _year = DateTime.Now.Year;
 
     [ObservableProperty]
-    private string _statusMessage = "Готово.";
+    private string _windowTitle = "Новый документ — GostEditor";
 
     [ObservableProperty]
-    private bool _isBusy;
+    private string _statusMessage = "Готово";
 
     [ObservableProperty]
     private double _zoomLevel = 1.0;
 
-    public string ZoomPercentage => $"{(int)(ZoomLevel * 100)}%";
+    [ObservableProperty]
+    private bool _hasUnsavedChanges = false;
+
+    [ObservableProperty]
+    private bool _isBusy = false;
+
+    public string ZoomPercentage => $"{Math.Round(ZoomLevel * 100)}%";
 
     partial void OnZoomLevelChanged(double value)
     {
         OnPropertyChanged(nameof(ZoomPercentage));
-    }
-
-    [ObservableProperty]
-    private string _windowTitle = "GostEditor — ГОСТ 7.32-2017";
-
-    public string University
-    {
-        get => CurrentDocument.TitlePage.University;
-        set
-        {
-            if (CurrentDocument.TitlePage.University != value)
-            {
-                CurrentDocument.TitlePage.University = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string Department
-    {
-        get => CurrentDocument.TitlePage.Department;
-        set
-        {
-            if (CurrentDocument.TitlePage.Department != value)
-            {
-                CurrentDocument.TitlePage.Department = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string Discipline
-    {
-        get => CurrentDocument.TitlePage.Discipline;
-        set
-        {
-            if (CurrentDocument.TitlePage.Discipline != value)
-            {
-                CurrentDocument.TitlePage.Discipline = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string WorkType
-    {
-        get => CurrentDocument.TitlePage.WorkType;
-        set
-        {
-            if (CurrentDocument.TitlePage.WorkType != value)
-            {
-                CurrentDocument.TitlePage.WorkType = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string WorkTitle
-    {
-        get => CurrentDocument.TitlePage.WorkTitle;
-        set
-        {
-            if (CurrentDocument.TitlePage.WorkTitle != value)
-            {
-                CurrentDocument.TitlePage.WorkTitle = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string StudentName
-    {
-        get => CurrentDocument.TitlePage.StudentName;
-        set
-        {
-            if (CurrentDocument.TitlePage.StudentName != value)
-            {
-                CurrentDocument.TitlePage.StudentName = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string GroupNumber
-    {
-        get => CurrentDocument.TitlePage.GroupNumber;
-        set
-        {
-            if (CurrentDocument.TitlePage.GroupNumber != value)
-            {
-                CurrentDocument.TitlePage.GroupNumber = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string TeacherName
-    {
-        get => CurrentDocument.TitlePage.TeacherName;
-        set
-        {
-            if (CurrentDocument.TitlePage.TeacherName != value)
-            {
-                CurrentDocument.TitlePage.TeacherName = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public string City
-    {
-        get => CurrentDocument.TitlePage.City;
-        set
-        {
-            if (CurrentDocument.TitlePage.City != value)
-            {
-                CurrentDocument.TitlePage.City = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
-    }
-
-    public int Year
-    {
-        get => CurrentDocument.TitlePage.Year;
-        set
-        {
-            if (CurrentDocument.TitlePage.Year != value)
-            {
-                CurrentDocument.TitlePage.Year = value;
-                OnPropertyChanged();
-                HasUnsavedChanges = true;
-                UpdateWindowTitle();
-            }
-        }
     }
 
     public MainWindowViewModel(
@@ -239,342 +104,59 @@ public partial class MainWindowViewModel : ViewModelBase
         _validationService = validationService;
         _dialogService = dialogService;
 
-        _autoSaveTimer = new System.Threading.Timer(
-            callback: _ => AutoSave(),
-            state: null,
-            dueTime: TimeSpan.FromMinutes(3),
-            period: TimeSpan.FromMinutes(3));
+        SyncNavigation();
     }
 
-    [RelayCommand]
-    private void NewDocument()
+    // --- УМНАЯ НАВИГАЦИЯ (РАДАР) ---
+
+    public void SyncNavigation()
     {
-        CurrentDocument = _documentService.CreateNew();
-        CodeListings.Clear();
-        Sections.Clear();
-        SelectedSection = null;
-        _currentFilePath = null;
-        HasUnsavedChanges = false;
-        StatusMessage = "Создан новый документ.";
-        RefreshTitlePageBindings();
-        UpdateWindowTitle();
-    }
+        NavigationItems.Clear();
 
-    [RelayCommand]
-    private void AddSection()
-    {
-        DocumentSection section = new DocumentSection
+        for (int i = 0; i < CurrentDocument.Paragraphs.Count; i++)
         {
-            Title = $"Раздел {Sections.Count + 1}",
-            Order = Sections.Count
-        };
+            Paragraph p = CurrentDocument.Paragraphs[i];
 
-        Sections.Add(section);
-        CurrentDocument.Sections.Add(section);
-        SelectedSection = section;
-        HasUnsavedChanges = true;
-        UpdateWindowTitle();
-    }
-
-    [RelayCommand]
-    private void DeleteSection(DocumentSection section)
-    {
-        Sections.Remove(section);
-        CurrentDocument.Sections.Remove(section);
-        SelectedSection = Sections.Count > 0 ? Sections[0] : null;
-        HasUnsavedChanges = true;
-        UpdateWindowTitle();
-    }
-
-    [RelayCommand(CanExecute = nameof(CanSave))]
-    private async Task SaveDocumentAsync()
-    {
-        string? filePath = await _dialogService.ShowSaveFileDialogAsync(
-            title: "Сохранить документ",
-            defaultExtension: "gost",
-            filter: "GostEditor Document (*.gost)|*.gost");
-
-        if (filePath is null)
-        {
-            return;
-        }
-
-        IsBusy = true;
-        StatusMessage = "Сохранение...";
-
-        try
-        {
-            await _documentService.SaveAsync(CurrentDocument, filePath);
-            _currentFilePath = filePath;
-            HasUnsavedChanges = false;
-            StatusMessage = $"Сохранено: {filePath}";
-            UpdateWindowTitle();
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Ошибка сохранения: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    private bool CanSave()
-    {
-        return !IsBusy;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanLoad))]
-    private async Task LoadDocumentAsync()
-    {
-        string? filePath = await _dialogService.ShowOpenFileDialogAsync(
-            title: "Открыть документ",
-            filter: "GostEditor Document (*.gost)|*.gost");
-
-        if (filePath is null)
-        {
-            return;
-        }
-
-        IsBusy = true;
-        StatusMessage = "Загрузка...";
-
-        try
-        {
-            CurrentDocument = await _documentService.LoadAsync(filePath);
-
-            Sections.Clear();
-            foreach (DocumentSection section in CurrentDocument.Sections)
+            // Если находим заголовок - добавляем его в левую панель
+            if (p.Style == ParagraphStyle.Heading1 || p.Style == ParagraphStyle.Heading2)
             {
-                Sections.Add(section);
+                string text = p.GetPlainText().Trim();
+                if (string.IsNullOrEmpty(text)) text = "[Пустой заголовок]";
+
+                NavigationItems.Add(new NavigationItem
+                {
+                    Title = text,
+                    ParagraphIndex = i,
+                    Level = p.Style == ParagraphStyle.Heading1 ? 1 : 2
+                });
             }
-
-            CodeListings.Clear();
-            foreach (CodeListing listing in CurrentDocument.CodeListings)
-            {
-                CodeListings.Add(new SelectableCodeListing(listing));
-            }
-
-            SelectedSection = Sections.Count > 0 ? Sections[0] : null;
-            _currentFilePath = filePath;
-            HasUnsavedChanges = false;
-            StatusMessage = $"Открыт: {filePath}";
-            RefreshTitlePageBindings();
-            UpdateWindowTitle();
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Ошибка загрузки: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
         }
     }
 
-    private bool CanLoad()
+    partial void OnSelectedNavigationItemChanged(NavigationItem? value)
     {
-        return !IsBusy;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanExport))]
-    private async Task ExportToDocxAsync()
-    {
-        List<string> errors = _validationService.Validate(CurrentDocument);
-
-        if (errors.Count > 0)
+        // Кликнули в левом меню? Командуем редактору: Скролль к этому абзацу!
+        if (value != null)
         {
-            string errorText = string.Join("\n", errors.Select(e => $"• {e}"));
-            StatusMessage = $"Ошибки: {errors.Count}. Исправьте перед экспортом.";
-            await _dialogService.ShowMessageAsync("Документ не готов к экспорту", errorText);
-            return;
+            OnScrollToParagraphRequested?.Invoke(value.ParagraphIndex);
         }
-
-        string? outputPath = await _dialogService.ShowSaveFileDialogAsync(
-            title: "Экспорт в Word",
-            defaultExtension: "docx",
-            filter: "Word Document (*.docx)|*.docx");
-
-        if (outputPath is null)
-        {
-            return;
-        }
-
-        IsBusy = true;
-        StatusMessage = "Экспорт в DOCX...";
-
-        try
-        {
-            await _exportService.ExportToDocxAsync(CurrentDocument, outputPath);
-            StatusMessage = $"Экспортировано: {outputPath}";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Ошибка экспорта: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    private bool CanExport()
-    {
-        return !IsBusy;
-    }
-
-    [RelayCommand(CanExecute = nameof(CanParseCode))]
-    private async Task ParseCodeFolderAsync()
-    {
-        string? folderPath = await _dialogService.ShowOpenFolderDialogAsync(
-            title: "Выбрать папку с кодом");
-
-        if (folderPath is null)
-        {
-            return;
-        }
-
-        IsBusy = true;
-        StatusMessage = "Парсинг кода...";
-
-        try
-        {
-            IReadOnlyList<CodeListing> parsed = await _codeParserService.ParseDirectoryAsync(folderPath);
-
-            CodeListings.Clear();
-            CurrentDocument.CodeListings.Clear();
-
-            foreach (CodeListing listing in parsed)
-            {
-                CodeListings.Add(new SelectableCodeListing(listing));
-                CurrentDocument.CodeListings.Add(listing);
-            }
-
-            HasUnsavedChanges = true;
-            StatusMessage = $"Найдено файлов: {parsed.Count.ToString()}";
-            UpdateWindowTitle();
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Ошибка парсинга: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    private bool CanParseCode()
-    {
-        return !IsBusy;
     }
 
     [RelayCommand]
-    private void ClearCodeListings()
+    private void AddChapter()
     {
-        CodeListings.Clear();
-        CurrentDocument.CodeListings.Clear();
-        HasUnsavedChanges = true;
-        StatusMessage = "Список файлов исходного кода очищен.";
-        UpdateWindowTitle();
+        // Уровень 1 - Глава (с новой страницы)
+        OnInsertHeadingRequested?.Invoke(1, "Новая глава");
     }
 
     [RelayCommand]
-    private void InsertCodeToEditor()
+    private void AddSubChapter()
     {
-        List<SelectableCodeListing> selectedFiles = CodeListings.Where(x => x.IsSelected).ToList();
-
-        if (selectedFiles.Count == 0)
-        {
-            return;
-        }
-
-        List<Paragraph> paragraphs = new List<Paragraph>();
-
-        Paragraph appTitle = new Paragraph
-        {
-            Alignment = GostAlignment.Right
-        };
-        appTitle.Runs.Add(new TextRun("Приложение А", isBold: true, isItalic: false) { FontSize = 14 });
-        paragraphs.Add(appTitle);
-
-        int counter = 1;
-        foreach (SelectableCodeListing item in selectedFiles)
-        {
-            Paragraph listingTitle = new Paragraph
-            {
-                Alignment = GostAlignment.Right
-            };
-            listingTitle.Runs.Add(new TextRun($"Листинг {counter}. Файл {item.Listing.FileName}", isBold: false, isItalic: false) { FontSize = 14 });
-            paragraphs.Add(listingTitle);
-
-            string rawCode = item.Listing.Content;
-
-            string[] separator = new[] { "\r\n", "\n" };
-            string[] lines = rawCode.Split(separator, StringSplitOptions.None);
-
-            List<string> cleanLines = lines.Where(l => !l.TrimStart().StartsWith("using ")).ToList();
-            string cleanCode = string.Join("\n", cleanLines).TrimStart('\r', '\n');
-
-            Paragraph codePara = new Paragraph
-            {
-                Alignment = GostAlignment.Left,
-                Style = ParagraphStyle.Code
-            };
-            codePara.Runs.Add(new TextRun(cleanCode, isBold: false, isItalic: false) { FontSize = 12 });
-            paragraphs.Add(codePara);
-
-            counter++;
-        }
-
-        OnInsertParagraphsRequested?.Invoke(paragraphs);
+        // Уровень 2 - Подраздел (на текущей странице)
+        OnInsertHeadingRequested?.Invoke(2, "Новый подраздел");
     }
 
-    [RelayCommand]
-    private async Task PasteNormalizedAsync()
-    {
-        string? clipboardText = await _dialogService.GetClipboardTextAsync();
-
-        if (string.IsNullOrEmpty(clipboardText))
-        {
-            StatusMessage = "Буфер обмена пуст.";
-            return;
-        }
-
-        string normalized = _textNormalizerService.Normalize(clipboardText);
-        await _dialogService.SetClipboardTextAsync(normalized);
-        StatusMessage = "Текст нормализован и скопирован в буфер.";
-    }
-
-    [RelayCommand]
-    private void AddStudent()
-    {
-        StudentName += "\n[Новый студент]";
-    }
-
-    private void AutoSave()
-    {
-        if (!HasUnsavedChanges || _currentFilePath is null)
-        {
-            return;
-        }
-
-        Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(async () =>
-        {
-            try
-            {
-                await _documentService.SaveAsync(CurrentDocument, _currentFilePath);
-                HasUnsavedChanges = false;
-                StatusMessage = $"Автосохранено: {DateTime.Now:HH:mm}";
-                UpdateWindowTitle();
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = $"Ошибка автосохранения: {ex.Message}";
-            }
-        });
-    }
+    // --- ЛОГИКА ТИТУЛЬНОГО ЛИСТА И UI ---
 
     private void UpdateWindowTitle()
     {
@@ -586,18 +168,10 @@ public partial class MainWindowViewModel : ViewModelBase
         WindowTitle = $"{fileName}{unsaved} — GostEditor";
     }
 
-    private void RefreshTitlePageBindings()
+    [RelayCommand]
+    private void AddStudent()
     {
-        OnPropertyChanged(nameof(University));
-        OnPropertyChanged(nameof(Department));
-        OnPropertyChanged(nameof(Discipline));
-        OnPropertyChanged(nameof(WorkType));
-        OnPropertyChanged(nameof(WorkTitle));
-        OnPropertyChanged(nameof(StudentName));
-        OnPropertyChanged(nameof(GroupNumber));
-        OnPropertyChanged(nameof(TeacherName));
-        OnPropertyChanged(nameof(City));
-        OnPropertyChanged(nameof(Year));
+        StudentName += "\n[ФИО студента]";
     }
 
     [RelayCommand]
@@ -615,5 +189,105 @@ public partial class MainWindowViewModel : ViewModelBase
         Year = DateTime.Now.Year;
 
         StatusMessage = "Настройки титульного листа сброшены.";
+    }
+
+    // --- ЛОГИКА КОМАНД ИЗ UI ---
+
+    [RelayCommand]
+    private async Task PasteNormalizedAsync()
+    {
+        StatusMessage = "Вставка текста...";
+        await Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private async Task ExportToDocxAsync()
+    {
+        IsBusy = true;
+        StatusMessage = "Экспорт в DOCX...";
+        try
+        {
+            string? exportPath = await _dialogService.ShowSaveFileDialogAsync("Экспорт в DOCX", ".docx", "Word Document (*.docx)|*.docx");
+            if (!string.IsNullOrEmpty(exportPath))
+            {
+                CurrentDocument.TitlePage.University = University;
+                CurrentDocument.TitlePage.Department = Department;
+                CurrentDocument.TitlePage.Discipline = Discipline;
+                CurrentDocument.TitlePage.WorkType = WorkType;
+                CurrentDocument.TitlePage.WorkTitle = WorkTitle;
+                CurrentDocument.TitlePage.GroupNumber = GroupNumber;
+                CurrentDocument.TitlePage.StudentName = StudentName;
+                CurrentDocument.TitlePage.TeacherName = TeacherName;
+                CurrentDocument.TitlePage.City = City;
+                CurrentDocument.TitlePage.Year = Year;
+
+                await _exportService.ExportToDocxAsync(CurrentDocument, exportPath);
+                StatusMessage = "Успешно экспортировано в DOCX.";
+            }
+            else
+            {
+                StatusMessage = "Экспорт отменен.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Ошибка экспорта: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ParseCodeFolderAsync()
+    {
+        IsBusy = true;
+        StatusMessage = "Для чтения кода используйте перетаскивание папки (Drag & Drop)";
+        await Task.CompletedTask;
+        IsBusy = false;
+    }
+
+    [RelayCommand]
+    private void ClearCodeListings()
+    {
+        CodeListings.Clear();
+        CurrentDocument.CodeListings.Clear();
+        StatusMessage = "Список исходников очищен.";
+    }
+
+    [RelayCommand]
+    private void InsertCodeToEditor()
+    {
+        if (!CodeListings.Any()) return;
+
+        List<Paragraph> codeParagraphs = new List<Paragraph>();
+        int counter = 1;
+
+        foreach (SelectableCodeListing item in CodeListings.Where(l => l.IsSelected))
+        {
+            Paragraph titlePara = new Paragraph { Alignment = GostAlignment.Left };
+            titlePara.Runs.Add(new TextRun($"Листинг {counter}. Файл {item.Listing.RelativePath}", false, false));
+            codeParagraphs.Add(titlePara);
+
+            string[] lines = item.Listing.Content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            foreach (string line in lines)
+            {
+                Paragraph linePara = new Paragraph
+                {
+                    Alignment = GostAlignment.Left,
+                    FirstLineIndent = 0,
+                    Style = ParagraphStyle.Code
+                };
+                linePara.Runs.Add(new TextRun(line.Replace("\t", "    "), false, false));
+                codeParagraphs.Add(linePara);
+            }
+
+            codeParagraphs.Add(new Paragraph());
+            counter++;
+        }
+
+        OnInsertParagraphsRequested?.Invoke(codeParagraphs);
+        StatusMessage = "Исходный код вставлен в редактор.";
     }
 }

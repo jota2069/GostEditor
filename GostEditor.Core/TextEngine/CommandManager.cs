@@ -8,21 +8,18 @@ namespace GostEditor.Core.TextEngine;
 /// </summary>
 public class CommandManager
 {
-    // ЯВНАЯ ТИПИЗАЦИЯ: используем стеки для хранения интерфейсов команд
     private readonly Stack<IEditorCommand> _undoStack = new Stack<IEditorCommand>();
     private readonly Stack<IEditorCommand> _redoStack = new Stack<IEditorCommand>();
 
     /// <summary>
     /// Выполняет новую команду и сохраняет её в историю отмен.
     /// </summary>
-    /// <param name="command">Команда для выполнения</param>
     public void ExecuteCommand(IEditorCommand command)
     {
         command.Execute();
         _undoStack.Push(command);
 
-        // Как только мы сделали новое действие, ветка "повторов" (Redo) сбрасывается.
-        // Это стандартное поведение любого текстового редактора.
+        // Сбрасываем ветку повторов при новом действии
         _redoStack.Clear();
     }
 
@@ -53,9 +50,9 @@ public class CommandManager
     }
 
     /// <summary>
-    /// Очищает историю (используется при создании нового файла или загрузке документа).
+    /// Очищает историю (используется при переключении разделов или загрузке документа).
     /// </summary>
-    public void ClearHistory()
+    public void Clear()
     {
         _undoStack.Clear();
         _redoStack.Clear();

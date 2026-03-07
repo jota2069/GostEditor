@@ -18,8 +18,6 @@ public class Paragraph
 
     public double LineSpacing { get; set; } = 1.5;
 
-    // ИСПРАВЛЕНО: Теперь мы используем наш GostAlignment.
-    // Никаких 'Avalonia' здесь быть не должно!
     public GostAlignment Alignment { get; set; } = GostAlignment.Left;
 
     public string GetPlainText()
@@ -38,6 +36,6 @@ public class Paragraph
 
     public ParagraphStyle Style { get; set; } = ParagraphStyle.Normal;
 
+    // НОВОЕ СВОЙСТВО: Принудительный разрыв страницы (для начала новых Глав)
+    public bool PageBreakBefore { get; set; } = false;
 }
-
-

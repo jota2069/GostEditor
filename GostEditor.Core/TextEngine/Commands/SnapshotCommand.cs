@@ -30,15 +30,12 @@ public class SnapshotCommand : IEditorCommand
     {
         if (_isFirstExecution)
         {
-            // Сохраняем "фотографию" ДО изменения
             _oldParagraphs = CloneDocument(_editor.Document.Paragraphs);
             _oldCaret = _editor.CaretPosition;
             _oldSelection = _editor.SelectionAnchor;
 
-            // Выполняем само действие (ввод текста, форматирование и т.д.)
             _action.Invoke();
 
-            // Сохраняем "фотографию" ПОСЛЕ изменения
             _newParagraphs = CloneDocument(_editor.Document.Paragraphs);
             _newCaret = _editor.CaretPosition;
             _newSelection = _editor.SelectionAnchor;
@@ -47,14 +44,12 @@ public class SnapshotCommand : IEditorCommand
         }
         else
         {
-            // Это срабатывает при Ctrl+Y (Повтор)
             RestoreState(_newParagraphs, _newCaret, _newSelection);
         }
     }
 
     public void Undo()
     {
-        // Это срабатывает при Ctrl+Z (Отмена)
         RestoreState(_oldParagraphs, _oldCaret, _oldSelection);
     }
 
@@ -71,7 +66,6 @@ public class SnapshotCommand : IEditorCommand
         _editor.SelectionAnchor = selection;
     }
 
-    // Глубокое копирование, чтобы старые состояния не перезаписывались новыми буквами
     private List<Paragraph> CloneDocument(List<Paragraph> source)
     {
         List<Paragraph> list = new List<Paragraph>(source.Count);
@@ -84,8 +78,7 @@ public class SnapshotCommand : IEditorCommand
                 FirstLineIndent = p.FirstLineIndent,
                 LineSpacing = p.LineSpacing,
                 Style = p.Style,
-
-                // ИСПРАВЛЕНО: Теперь история помнит про картинки и их размеры!
+                PageBreakBefore = p.PageBreakBefore,
                 ImageData = p.ImageData,
                 ImageWidth = p.ImageWidth,
                 ImageHeight = p.ImageHeight

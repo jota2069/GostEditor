@@ -11,9 +11,9 @@ public class ChangeParagraphStyleCommand : IEditorCommand
     private readonly int _startIndex;
     private readonly int _endIndex;
 
-    // Запоминаем старые стили И старые выравнивания
     private readonly List<ParagraphStyle> _oldStyles = [];
     private readonly List<GostAlignment> _oldAlignments = [];
+    private readonly List<bool> _oldPageBreaks = [];
 
     public ChangeParagraphStyleCommand(DocumentEditor editor, ParagraphStyle newStyle, int startIndex, int endIndex)
     {
@@ -27,30 +27,38 @@ public class ChangeParagraphStyleCommand : IEditorCommand
     {
         _oldStyles.Clear();
         _oldAlignments.Clear();
+        _oldPageBreaks.Clear();
 
         for (int i = _startIndex; i <= _endIndex; i++)
         {
             Paragraph p = _editor.Document.Paragraphs[i];
 
-            // Сохраняем историю для Ctrl+Z
             _oldStyles.Add(p.Style);
             _oldAlignments.Add(p.Alignment);
+            _oldPageBreaks.Add(p.PageBreakBefore);
 
-            // Применяем новый стиль
             p.Style = _newStyle;
 
-            // Настраиваем выравнивание по ГОСТу
-            if (_newStyle == ParagraphStyle.Heading1 || _newStyle == ParagraphStyle.Heading2)
+            if (_newStyle == ParagraphStyle.Heading1)
             {
                 p.Alignment = GostAlignment.Center;
+                p.FirstLineIndent = 0;
+                p.PageBreakBefore = true; // Заголовок 1 уровня всегда с новой страницы!
+            }
+            else if (_newStyle == ParagraphStyle.Heading2)
+            {
+                p.Alignment = GostAlignment.Center;
+                p.PageBreakBefore = false;
             }
             else if (_newStyle == ParagraphStyle.Normal)
             {
                 p.Alignment = GostAlignment.Justify;
+                p.PageBreakBefore = false;
             }
             else if (_newStyle == ParagraphStyle.Code)
             {
                 p.Alignment = GostAlignment.Left;
+                p.PageBreakBefore = false;
             }
         }
     }
@@ -61,9 +69,9 @@ public class ChangeParagraphStyleCommand : IEditorCommand
         {
             Paragraph p = _editor.Document.Paragraphs[i];
 
-            // Возвращаем как было
             p.Style = _oldStyles[i - _startIndex];
             p.Alignment = _oldAlignments[i - _startIndex];
+            p.PageBreakBefore = _oldPageBreaks[i - _startIndex];
         }
     }
 }

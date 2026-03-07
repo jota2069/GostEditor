@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 
@@ -36,21 +37,24 @@ public class ValidationService : IValidationService
         }
 
         // Проверка содержимого.
-        if (document.Sections.Count == 0)
+        if (document.Paragraphs.Count == 0)
         {
-            errors.Add("Документ не содержит ни одного раздела.");
+            errors.Add("Документ пуст.");
         }
-
-        foreach (DocumentSection section in document.Sections)
+        else
         {
-            if (string.IsNullOrWhiteSpace(section.Title))
+            bool hasText = false;
+            foreach (var p in document.Paragraphs)
             {
-                errors.Add($"Раздел {section.Order + 1} не имеет заголовка.");
+                if (!string.IsNullOrWhiteSpace(p.GetPlainText()) || p.ImageData != null)
+                {
+                    hasText = true;
+                    break;
+                }
             }
-
-            if (string.IsNullOrWhiteSpace(section.Content))
+            if (!hasText)
             {
-                errors.Add($"Раздел \"{section.Title}\" не содержит текста.");
+                errors.Add("Документ не содержит текста или изображений.");
             }
         }
 

@@ -1,11 +1,13 @@
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
+using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using GostDocument = GostEditor.Core.Models.GostDocument;
 
 namespace GostEditor.UI.Layout;
 
@@ -24,9 +26,16 @@ public class PageLayoutManager
 
         int figureCounter = 1;
 
-        for (int pIndex = 0; pIndex < document.Paragraphs.Count; pIndex++)
+        for (int pIndex = 0; pIndex < editor.Document.Paragraphs.Count; pIndex++)
         {
-            Paragraph paragraph = document.Paragraphs[pIndex];
+            Paragraph paragraph = editor.Document.Paragraphs[pIndex];
+
+            if (paragraph.PageBreakBefore && currentPage.Lines.Count > 0)
+            {
+                pages.Add(currentPage);
+                currentPage = new RenderedPage { PageNumber = pages.Count + 1 };
+                currentY = document.MarginTop;
+            }
 
             string plainText = paragraph.GetPlainText();
             if (string.IsNullOrEmpty(plainText))
@@ -92,10 +101,7 @@ public class PageLayoutManager
 
             foreach (GostEditor.Core.TextEngine.DOM.TextRun run in paragraph.Runs)
             {
-                if (string.IsNullOrEmpty(run.Text))
-                {
-                    continue;
-                }
+                if (string.IsNullOrEmpty(run.Text)) continue;
 
                 double runFontSizePx = run.FontSize * 1.3333333333333333;
 
@@ -165,7 +171,7 @@ public class PageLayoutManager
 
                 if (end > start)
                 {
-                    int adjustedStart = start + (pIndex == selStart.ParagraphIndex ? prefixCharsCount : 0);
+                    int adjustedStart = start + prefixCharsCount;
                     int adjustedLength = end - start;
                     selectionRects = layout.HitTestTextRange(adjustedStart, adjustedLength).ToList();
                 }
@@ -223,6 +229,7 @@ public class PageLayoutManager
 
     public DocumentHitResult? GetPositionFromPoint(RenderedPage page, Point clickPoint)
     {
+        // 1. Проверяем картинки
         foreach (ImagePlacement image in page.Images)
         {
             if (image.Bounds.Contains(clickPoint))
@@ -231,34 +238,49 @@ public class PageLayoutManager
             }
         }
 
+        if (page.Lines.Count == 0) return null;
+
+        // 2. ИСПРАВЛЕНИЕ: Умный поиск ближайшей строки!
+        // Теперь выделение не срывается, даже если ты ведешь мышку по пустым полям страницы.
+        TextLinePlacement targetLine = page.Lines.First();
+        double minDistance = double.MaxValue;
+
         foreach (TextLinePlacement line in page.Lines)
         {
-            if (clickPoint.Y >= line.Location.Y && clickPoint.Y <= line.Location.Y + line.Line.Height)
+            double lineTop = line.Location.Y;
+            double lineBottom = line.Location.Y + (line.Line.Height * 1.5);
+
+            if (clickPoint.Y >= lineTop && clickPoint.Y <= lineBottom)
             {
-                double layoutX = clickPoint.X - line.Location.X;
-                double layoutY = line.InternalY + (clickPoint.Y - line.Location.Y);
+                targetLine = line; // Точное попадание
+                break;
+            }
 
-                if (layoutX > line.Line.Width)
-                {
-                    layoutX = line.Line.Width;
-                }
-
-                if (layoutX < 0)
-                {
-                    layoutX = 0;
-                }
-
-                TextHitTestResult hitTest = line.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
-
-                int paragraphIndex = line.ParagraphIndex;
-                int clickedOffset = hitTest.TextPosition;
-
-                clickedOffset = Math.Max(0, clickedOffset - line.PrefixLength);
-
-                return new DocumentHitResult(new DocumentPosition(paragraphIndex, clickedOffset));
+            // Ищем ближайшую строку
+            double lineCenter = lineTop + (line.Line.Height / 2);
+            double dist = Math.Abs(clickPoint.Y - lineCenter);
+            if (dist < minDistance)
+            {
+                minDistance = dist;
+                targetLine = line;
             }
         }
 
-        return null;
+        double layoutX = clickPoint.X - targetLine.Location.X;
+
+        // 3. ИСПРАВЛЕНИЕ: Убрали баг с отцентрированным текстом (теперь по главам можно кликать)
+        if (layoutX < 0) layoutX = 0;
+        if (layoutX > targetLine.ParentLayout.MaxWidth) layoutX = targetLine.ParentLayout.MaxWidth;
+
+        double layoutY = targetLine.InternalY + (targetLine.Line.Height / 2);
+
+        TextHitTestResult hitTest = targetLine.ParentLayout.HitTestPoint(new Point(layoutX, layoutY));
+
+        int paragraphIndex = targetLine.ParagraphIndex;
+        int clickedOffset = hitTest.TextPosition;
+
+        clickedOffset = Math.Max(0, clickedOffset - targetLine.PrefixLength);
+
+        return new DocumentHitResult(new DocumentPosition(paragraphIndex, clickedOffset));
     }
 }

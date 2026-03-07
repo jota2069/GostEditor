@@ -542,35 +542,43 @@
                 <Grid RowDefinitions="Auto, *, Auto">
                     <Border Grid.Row="0" Padding="16,12"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                        <TextBlock Text="СТРУКТУРА ДОКУМЕНТА"
+                        <TextBlock Text="НАВИГАЦИЯ"
                                    Foreground="{StaticResource TextMutedBrush}"
                                    FontSize="10" FontWeight="Bold" LetterSpacing="1"/>
                     </Border>
+
                     <ScrollViewer Grid.Row="1" Margin="6,6">
-                        <ListBox ItemsSource="{Binding Sections}" SelectedItem="{Binding SelectedSection}"
+                        <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedNavigationItem}"
                                  Background="Transparent" BorderThickness="0">
                             <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="models:DocumentSection">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Grid.Column="0" Text="{Binding Title}"
+                                <DataTemplate x:DataType="models:NavigationItem">
+                                    <Grid ColumnDefinitions="Auto, *">
+                                        <Border Grid.Column="0" Width="16" IsVisible="{Binding IsSubChapter}"/>
+
+                                        <TextBlock Grid.Column="1" Text="{Binding Title}"
                                                    Foreground="{StaticResource TextMainBrush}"
-                                                   FontSize="13" VerticalAlignment="Center"/>
-                                        <Button Grid.Column="1" Content="✕"
-                                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).DeleteSectionCommand}"
-                                                CommandParameter="{Binding}"
-                                                Classes="toolbarBtn" Padding="4,2" FontSize="10"
-                                                Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                                                   FontSize="13" VerticalAlignment="Center"
+                                                   FontWeight="{Binding FontWeight}"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Title}"/>
                                     </Grid>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </ScrollViewer>
+
                     <Border Grid.Row="2" Padding="10"
                             BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
-                        <Button Content="+ Добавить раздел" Classes="toolbarBtn"
-                                Command="{Binding AddSectionCommand}"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                Background="#F9FAFB" FontSize="12"/>
+                        <StackPanel Spacing="6">
+                            <Button Content="+ Глава (с нов. стр.)" Classes="toolbarBtn"
+                                    Command="{Binding AddChapterCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Background="#F9FAFB" FontSize="11" FontWeight="SemiBold"/>
+                            <Button Content="+ Подраздел" Classes="toolbarBtn"
+                                    Command="{Binding AddSubChapterCommand}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                    Background="#F9FAFB" FontSize="11"/>
+                        </StackPanel>
                     </Border>
                 </Grid>
             </Border>

@@ -4,13 +4,11 @@ using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Threading.Tasks;
+using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using GostDocument = GostEditor.Core.Models.GostDocument;
 
 namespace GostEditor.Core.Serialization;
-
-// --- DTO (Data Transfer Objects) ---
-// Эти классы нужны только для того, чтобы красиво и чисто конвертировать данные в JSON.
-// Они не содержат никакой логики движка, только сырые данные.
 
 public class DocModel
 {
@@ -26,6 +24,8 @@ public class DocModel
 public class ParaModel
 {
     public GostAlignment Alignment { get; set; }
+    public ParagraphStyle Style { get; set; }
+    public bool PageBreakBefore { get; set; }
     public List<RunModel> Runs { get; set; } = [];
     public string? ImageFileName { get; set; }
     public double ImageWidth { get; set; }
@@ -40,17 +40,12 @@ public class RunModel
     public double FontSize { get; set; }
 }
 
-// --- ГЛАВНЫЙ МЕНЕДЖЕР АРХИВОВ ---
-
 public static class GostArchiveManager
 {
-    // СОХРАНЕНИЕ В ФАЙЛ
     public static async Task SaveAsync(GostDocument document, Stream outputZipStream)
     {
-        // Создаем ZIP-архив
         using ZipArchive archive = new ZipArchive(outputZipStream, ZipArchiveMode.Create, true);
 
-        // Копируем базовые настройки страницы
         DocModel docModel = new DocModel
         {
             PageWidth = document.PageWidth,
@@ -68,15 +63,16 @@ public static class GostArchiveManager
             ParaModel pModel = new ParaModel
             {
                 Alignment = p.Alignment,
+                Style = p.Style,
+                PageBreakBefore = p.PageBreakBefore,
                 ImageWidth = p.ImageWidth,
                 ImageHeight = p.ImageHeight
             };
 
-            // Если в абзаце есть картинка - сохраняем её как отдельный файл внутри ZIP-архива
             if (p.ImageData != null)
             {
                 string imgName = $"media/img_{imageCounter}.dat";
-                pModel.ImageFileName = imgName; // В JSON пишем только путь к картинке!
+                pModel.ImageFileName = imgName;
                 imageCounter++;
 
                 ZipArchiveEntry imgEntry = archive.CreateEntry(imgName, CompressionLevel.Fastest);
@@ -84,7 +80,6 @@ public static class GostArchiveManager
                 await imgStream.WriteAsync(p.ImageData);
             }
 
-            // Копируем текст и его стили
             foreach (TextRun r in p.Runs)
             {
                 pModel.Runs.Add(new RunModel
@@ -98,16 +93,13 @@ public static class GostArchiveManager
             docModel.Paragraphs.Add(pModel);
         }
 
-        // Сохраняем структуру документа в JSON
         ZipArchiveEntry jsonEntry = archive.CreateEntry("document.json", CompressionLevel.Optimal);
         await using Stream jsonStream = jsonEntry.Open();
         await JsonSerializer.SerializeAsync(jsonStream, docModel, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    // ЗАГРУЗКА ИЗ ФАЙЛА
     public static async Task<GostDocument> LoadAsync(Stream inputZipStream)
     {
-        // Читаем ZIP-архив
         using ZipArchive archive = new ZipArchive(inputZipStream, ZipArchiveMode.Read, true);
 
         ZipArchiveEntry? jsonEntry = archive.GetEntry("document.json");
@@ -117,7 +109,6 @@ public static class GostArchiveManager
         DocModel? docModel = await JsonSerializer.DeserializeAsync<DocModel>(jsonStream);
         if (docModel == null) throw new Exception("Ошибка чтения структуры документа");
 
-        // Восстанавливаем документ
         GostDocument doc = new GostDocument
         {
             PageWidth = docModel.PageWidth,
@@ -133,11 +124,12 @@ public static class GostArchiveManager
             Paragraph p = new Paragraph
             {
                 Alignment = pModel.Alignment,
+                Style = pModel.Style,
+                PageBreakBefore = pModel.PageBreakBefore,
                 ImageWidth = pModel.ImageWidth,
                 ImageHeight = pModel.ImageHeight
             };
 
-            // Если в JSON написано, что есть картинка - ищем её в папке media/
             if (!string.IsNullOrEmpty(pModel.ImageFileName))
             {
                 ZipArchiveEntry? imgEntry = archive.GetEntry(pModel.ImageFileName);
@@ -146,11 +138,10 @@ public static class GostArchiveManager
                     await using Stream imgStream = imgEntry.Open();
                     using MemoryStream ms = new MemoryStream();
                     await imgStream.CopyToAsync(ms);
-                    p.ImageData = ms.ToArray(); // Загружаем байты обратно в память
+                    p.ImageData = ms.ToArray();
                 }
             }
 
-            // Восстанавливаем текст
             foreach (RunModel rModel in pModel.Runs)
             {
                 p.Runs.Add(new TextRun(rModel.Text)
@@ -163,7 +154,6 @@ public static class GostArchiveManager
             doc.Paragraphs.Add(p);
         }
 
-        // Заглушка, если файл пустой
         if (doc.Paragraphs.Count == 0) doc.Paragraphs.Add(new Paragraph());
 
         return doc;

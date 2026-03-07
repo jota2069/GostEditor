@@ -18,7 +18,7 @@ using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.Controls;
 using GostEditor.UI.Layout;
 
-using DOMDocument = GostEditor.Core.TextEngine.DOM.GostDocument;
+using GostDocument = GostEditor.Core.Models.GostDocument;
 using DOMTextRun = GostEditor.Core.TextEngine.DOM.TextRun;
 
 namespace GostEditor.UI.Views;
@@ -59,6 +59,7 @@ public partial class DocumentEngineView : UserControl
     private double _finalResizeHeight;
 
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
+    public event Action? ContentChanged;
 
     public DocumentEngineView()
     {
@@ -67,8 +68,6 @@ public partial class DocumentEngineView : UserControl
         TextInput += OnTextInput;
         KeyDown += OnKeyDown;
 
-        // ЖЕЛЕЗОБЕТОННАЯ БРОНЯ: Убиваем системное меню Avalonia на корню,
-        // чтобы оно не вылезало поверх нашего!
         AddHandler(ContextRequestedEvent, (s, e) => e.Handled = true, RoutingStrategies.Tunnel);
 
         InitEngine();
@@ -84,16 +83,16 @@ public partial class DocumentEngineView : UserControl
 
     private void InitEngine()
     {
-        DOMDocument document = new DOMDocument();
-        Paragraph p1 = new Paragraph();
-
-        DOMTextRun welcomeRun = new DOMTextRun("Добро пожаловать в новый движок! Жми Ctrl+I для импорта кода.");
-
-        p1.Runs.Add(welcomeRun);
-        document.Paragraphs.Add(p1);
-
+        GostDocument document = new GostDocument();
         _editor = new DocumentEditor(document);
         _layoutManager = new PageLayoutManager();
+
+        Paragraph p1 = new Paragraph();
+        DOMTextRun welcomeRun = new DOMTextRun("Добро пожаловать в новый движок! Жми Ctrl+I для импорта кода.");
+        p1.Runs.Add(welcomeRun);
+
+        _editor.Document.Paragraphs.Clear();
+        _editor.Document.Paragraphs.Add(p1);
 
         _editor.CaretPosition = new DocumentPosition(0, welcomeRun.Text.Length);
 
@@ -154,6 +153,7 @@ public partial class DocumentEngineView : UserControl
         _editor.SelectedImageParagraphIndex = null;
         _editor.InsertText(e.Text);
         RefreshView();
+        ContentChanged?.Invoke();
         e.Handled = true;
     }
 
@@ -180,6 +180,10 @@ public partial class DocumentEngineView : UserControl
                 });
 
                 RefreshView();
+                if (e.Key == Key.Back || e.Key == Key.Delete || e.Key == Key.Enter || e.Key == Key.V || e.Key == Key.X)
+                {
+                    ContentChanged?.Invoke();
+                }
                 e.Handled = true;
                 return;
             }
@@ -352,7 +356,6 @@ public partial class DocumentEngineView : UserControl
         {
             PointerPointProperties pointerProps = e.GetCurrentPoint(pageControl).Properties;
 
-            // ОБРАБОТКА ПРАВОГО КЛИКА
             if (pointerProps.IsRightButtonPressed)
             {
                 int pageIndex = PagesStackPanel.Children.IndexOf(pageControl);
@@ -371,7 +374,7 @@ public partial class DocumentEngineView : UserControl
                 }
 
                 ShowContextMenu(pageControl);
-                e.Handled = true; // Добиваем системное всплытие
+                e.Handled = true;
                 return;
             }
 
@@ -619,7 +622,6 @@ public partial class DocumentEngineView : UserControl
 
     private void OnPagePointerReleased(object? sender, PointerReleasedEventArgs e)
     {
-        // И еще одна глушилка: запрещаем Avalonia делать свои дела после отпускания ПКМ
         if (e.InitialPressMouseButton == MouseButton.Right)
         {
             e.Handled = true;
@@ -751,6 +753,62 @@ public partial class DocumentEngineView : UserControl
     public string GetSelectedText() { return _editor != null ? _editor.GetSelectedText() : string.Empty; }
     public void DeleteSelection() { if (_editor == null) return; _editor.DeleteSelection(); RefreshView(); Focus(); }
     public void PasteText(string text) { if (_editor == null) return; _editor.PasteText(text); RefreshView(); Focus(); }
+
+    // --- НОВЫЕ МЕТОДЫ ДЛЯ ЛЕВОЙ ПАНЕЛИ ---
+
+    public void ScrollToParagraph(int paragraphIndex)
+    {
+        if (_editor == null || paragraphIndex < 0 || paragraphIndex >= _editor.Document.Paragraphs.Count) return;
+
+        // Ставим каретку в самое начало выбранного абзаца
+        _editor.CaretPosition = new DocumentPosition(paragraphIndex, 0);
+        _editor.ClearSelection();
+
+        // RefreshView сам вызовет метод ScrollToCaret() и прокрутит экран к этому месту!
+        RefreshView();
+        Focus();
+    }
+
+    public void InsertHeading(int level, string text)
+    {
+        if (_editor == null) return;
+
+        _editor.ExecuteWithSnapshot(() =>
+        {
+            // Создаем сам заголовок
+            Paragraph headingPara = new Paragraph
+            {
+                Style = level == 1 ? ParagraphStyle.Heading1 : ParagraphStyle.Heading2,
+                Alignment = GostAlignment.Center,
+                PageBreakBefore = level == 1, // Если Глава - начинаем с новой страницы
+                FirstLineIndent = 0
+            };
+
+            // Если Глава - 16 шрифт, если подраздел - 14
+            headingPara.Runs.Add(new DOMTextRun(text, true, false) { FontSize = level == 1 ? 16 : 14 });
+            _editor.Document.Paragraphs.Add(headingPara);
+
+            // Создаем ОБЫЧНЫЙ абзац сразу после заголовка (чтобы пользователь мог сразу печатать)
+            Paragraph emptyPara = new Paragraph
+            {
+                Style = ParagraphStyle.Normal,
+                Alignment = GostAlignment.Justify, // По ширине
+                FirstLineIndent = 47.0 // Абзацный отступ
+            };
+            emptyPara.Runs.Add(new DOMTextRun("", false, false) { FontSize = 14 }); // 14 шрифт
+            _editor.Document.Paragraphs.Add(emptyPara);
+
+            // Ставим каретку в этот новый пустой абзац
+            _editor.CaretPosition = new DocumentPosition(_editor.Document.Paragraphs.Count - 1, 0);
+            _editor.ClearSelection();
+        });
+
+        RefreshView();
+        ContentChanged?.Invoke();
+        Focus();
+    }
+
+    // ------------------------------------
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e)
     {
@@ -901,11 +959,9 @@ public partial class DocumentEngineView : UserControl
         Focus();
     }
 
-    // Доступ к текущему документу для сохранения
-    public DOMDocument? CurrentDocument => _editor?.Document;
+    public GostDocument? CurrentDocument => _editor?.Document;
 
-    // Загрузка нового документа из файла
-    public void LoadDocument(DOMDocument newDocument)
+    public void LoadDocument(GostDocument newDocument)
     {
         _editor = new DocumentEditor(newDocument);
         RefreshView();
@@ -923,10 +979,7 @@ public partial class DocumentEngineView : UserControl
             int pIndex = _editor.SelectedImageParagraphIndex.Value;
 
             MenuItem copyItem = new MenuItem { Header = "Копировать" };
-            copyItem.Click += (_, _) =>
-            {
-                // Задел под копирование (буфер обмена)
-            };
+            copyItem.Click += (_, _) => { };
 
             MenuItem replaceItem = new MenuItem { Header = "Заменить" };
             replaceItem.Click += async (_, _) =>
@@ -945,20 +998,16 @@ public partial class DocumentEngineView : UserControl
             MenuItem editItem = new MenuItem { Header = "Редактировать" };
             editItem.Click += async (_, _) =>
             {
-                // 1. Получаем родительское окно (чтобы модалка открылась поверх него)
                 Window? mainWindow = TopLevel.GetTopLevel(this) as Window;
                 if (mainWindow == null) return;
 
-                // 2. Берем байты выделенной картинки
                 Paragraph p = _editor.Document.Paragraphs[pIndex];
                 byte[]? originalBytes = p.ImageData;
                 if (originalBytes == null) return;
 
-                // 3. Создаем редактор и ждем результата!
                 ImageEditorWindow editorWindow = new ImageEditorWindow();
                 byte[]? newImageBytes = await editorWindow.ShowDialogAsync(mainWindow, originalBytes);
 
-                // 4. Если юзер нажал "Применить" и вернул новые байты - обновляем документ
                 if (newImageBytes != null)
                 {
                     using MemoryStream ms = new MemoryStream(newImageBytes);
@@ -993,12 +1042,27 @@ public partial class DocumentEngineView : UserControl
         }
         else
         {
+            MenuItem heading1Item = new MenuItem { Header = "Сделать Главой (Уровень 1)", FontWeight = FontWeight.Bold };
+            heading1Item.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Heading1); ContentChanged?.Invoke(); };
+
+            MenuItem heading2Item = new MenuItem { Header = "Сделать Подразделом (Уровень 2)", FontWeight = FontWeight.SemiBold };
+            heading2Item.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Heading2); ContentChanged?.Invoke(); };
+
+            MenuItem normalItem = new MenuItem { Header = "Сделать обычным текстом" };
+            normalItem.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Normal); ContentChanged?.Invoke(); };
+
+            MenuItem separator = new MenuItem { Header = "-" }; // Разделитель
+
             MenuItem copyTextItem = new MenuItem { Header = "Копировать текст" };
             copyTextItem.Click += OnCopyClick;
 
             MenuItem pasteTextItem = new MenuItem { Header = "Вставить текст" };
             pasteTextItem.Click += OnPasteClick;
 
+            items.Add(heading1Item);
+            items.Add(heading2Item);
+            items.Add(normalItem);
+            items.Add(separator);
             items.Add(copyTextItem);
             items.Add(pasteTextItem);
         }

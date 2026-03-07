@@ -9,12 +9,13 @@ using Avalonia.Platform.Storage;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.ViewModels;
+using GostDocument = GostEditor.Core.Models.GostDocument;
 
 namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
-    private bool _isUpdatingUI = false;
+    private bool _isUpdatingUi;
 
     public MainWindow()
     {
@@ -34,14 +35,51 @@ public partial class MainWindow : Window
 
         if (DataContext is MainWindowViewModel vm)
         {
+            // === ИСПРАВЛЕНИЕ: ЖЕНИМ РЕДАКТОР И ЛЕВУЮ ПАНЕЛЬ ===
+            if (MainEditor != null)
+            {
+                MainEditor.LoadDocument(vm.CurrentDocument);
+            }
+
             vm.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
+            vm.OnScrollToParagraphRequested -= ScrollToParagraph;
+            vm.OnInsertHeadingRequested -= InsertHeading;
+
+            if (MainEditor != null)
+                MainEditor.ContentChanged -= vm.SyncNavigation;
+
             vm.OnInsertParagraphsRequested += InsertParagraphsToEditor;
+            vm.OnScrollToParagraphRequested += ScrollToParagraph;
+            vm.OnInsertHeadingRequested += InsertHeading;
+
+            if (MainEditor != null)
+                MainEditor.ContentChanged += vm.SyncNavigation;
+        }
+    }
+
+    private void ScrollToParagraph(int index)
+    {
+        if (MainEditor != null)
+        {
+            MainEditor.ScrollToParagraph(index);
+        }
+    }
+
+    private void InsertHeading(int level, string text)
+    {
+        if (MainEditor != null)
+        {
+            MainEditor.InsertHeading(level, text);
+            if (DataContext is MainWindowViewModel vm)
+            {
+                vm.SyncNavigation(); // Обновляем левую панель после добавления
+            }
         }
     }
 
     private void MainEditor_CaretStyleChanged(object? sender, CaretStyleChangedEventArgs e)
     {
-        _isUpdatingUI = true;
+        _isUpdatingUi = true;
 
         if (BtnBold != null) BtnBold.IsChecked = e.IsBold;
         if (BtnItalic != null) BtnItalic.IsChecked = e.IsItalic;
@@ -69,7 +107,7 @@ public partial class MainWindow : Window
             }
         }
 
-        _isUpdatingUI = false;
+        _isUpdatingUi = false;
     }
 
     private void InsertParagraphsToEditor(List<Paragraph> paragraphs)
@@ -81,8 +119,6 @@ public partial class MainWindow : Window
             MainEditor.Focus();
         }
     }
-
-    // --- КНОПКИ ФОРМАТИРОВАНИЯ ---
 
     private void OnBoldClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyBold(); MainEditor?.Focus(); }
     private void OnItalicClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyItalic(); MainEditor?.Focus(); }
@@ -106,7 +142,7 @@ public partial class MainWindow : Window
 
     private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingUI || MainEditor == null || sender == null) return;
+        if (_isUpdatingUi || MainEditor == null || sender == null) return;
 
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem { Content: not null } selectedItem)
         {
@@ -131,13 +167,10 @@ public partial class MainWindow : Window
         }
     }
 
-    // --- ЛОГИКА СОХРАНЕНИЯ И ОТКРЫТИЯ (.GOST) ---
-
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
         try
         {
-            // Горячая клавиша Ctrl+S
             if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
             {
                 await SaveDocumentToFileAsync();
@@ -172,7 +205,14 @@ public partial class MainWindow : Window
             {
                 await using Stream stream = await files[0].OpenReadAsync();
                 GostDocument loadedDoc = await GostArchiveManager.LoadAsync(stream);
-                MainEditor.LoadDocument(loadedDoc);
+
+                // === ИСПРАВЛЕНИЕ: Обновляем документ и в UI, и во ViewModel ===
+                if (DataContext is MainWindowViewModel vm)
+                {
+                    vm.CurrentDocument = loadedDoc;
+                    MainEditor.LoadDocument(loadedDoc);
+                    vm.SyncNavigation();
+                }
             }
         }
         catch (Exception ex)
@@ -208,9 +248,13 @@ public partial class MainWindow : Window
 
     private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
     {
-        if (MainEditor != null)
+        // === ИСПРАВЛЕНИЕ: При создании нового файла синхронизируем их ===
+        if (DataContext is MainWindowViewModel vm && MainEditor != null)
         {
-            MainEditor.LoadDocument(new GostDocument());
+            GostDocument newDoc = new GostDocument();
+            vm.CurrentDocument = newDoc;
+            MainEditor.LoadDocument(newDoc);
+            vm.SyncNavigation();
         }
     }
 
