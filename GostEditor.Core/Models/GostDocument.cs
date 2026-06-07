@@ -4,21 +4,34 @@ using GostEditor.Core.TextEngine.DOM;
 
 namespace GostEditor.Core.Models;
 
+/// <summary>
+/// Настройки модулей документа (Согласно ЭТАПУ 2 ТЗ)
+/// </summary>
+public class DocumentModules
+{
+    public bool HasTitlePage { get; set; } = true;
+    public bool HasTableOfContents { get; set; } = true;
+    public bool HasBibliography { get; set; } = false;
+    public bool HasAppendix { get; set; } = true;
+    public int ContentStartPage { get; set; } = 3;
+    public bool AutoGenerateTOC { get; set; } = true;
+    public int TOCMaxLevel { get; set; } = 2;
+}
+
 public class GostDocument
 {
     public TitlePageInfo TitlePage { get; set; } = new TitlePageInfo();
-
     public List<Paragraph> Paragraphs { get; set; } = new List<Paragraph>();
-
     public List<CodeListing> CodeListings { get; set; } = new List<CodeListing>();
     public List<ImageAttachment> Images { get; set; } = new List<ImageAttachment>();
+    public DocumentModules Modules { get; set; } = new DocumentModules();
     public DocumentCounters Counters { get; set; } = new DocumentCounters();
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
 
     public double PageWidth { get; set; } = 794.0;
     public double PageHeight { get; set; } = 1123.0;
-
     public double MarginLeft { get; set; } = 113.0;
     public double MarginRight { get; set; } = 57.0;
     public double MarginTop { get; set; } = 76.0;
@@ -47,10 +60,8 @@ public class NavigationItem
     public string Title { get; set; } = string.Empty;
     public int ParagraphIndex { get; set; }
     public int Level { get; set; }
-
-    // === ИСПРАВЛЕНИЕ: Хелперы для Левой панели ===
-    public bool IsSubChapter => Level > 1; // Если это подраздел - сделаем отступ
-    public string FontWeight => Level == 1 ? "Bold" : "Normal"; // Главы делаем жирными
+    public bool IsSubChapter => Level > 1;
+    public string FontWeight => Level == 1 ? "Bold" : "Normal";
 }
 
 public class CodeListing

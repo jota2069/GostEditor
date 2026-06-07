@@ -1,19 +1,20 @@
+using Microsoft.Extensions.DependencyInjection;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Services;
-using Microsoft.Extensions.DependencyInjection;
+using GostEditor.Core.Serialization;
 
 namespace GostEditor.Core;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddGostEditorCore(
-        this IServiceCollection services)
+    public static IServiceCollection AddGostEditorCore(this IServiceCollection services)
     {
-        services.AddSingleton<ITextNormalizerService, TextNormalizerService>();
-        services.AddSingleton<ICodeParserService, CodeParserService>();
-        services.AddSingleton<IDocumentService, DocumentService>();
+        services.AddSingleton<IArchiveService, ArchiveService>();
         services.AddSingleton<IExportService, ExportService>();
         services.AddSingleton<IValidationService, ValidationService>();
+        services.AddSingleton<ITextNormalizerService, TextNormalizerService>();
+        services.AddSingleton<ICodeParserService, CodeParserService>(); // ← УБЕДИСЬ ЧТО ЕСТЬ
+
         return services;
     }
 }

@@ -1,7 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="GostEditor.UI.Views.DocumentEngineView">
-
+             x:Class="GostEditor.UI.Views.DocumentEngineView"
+             Focusable="True"
+             Background="Transparent">
     <UserControl.ContextMenu>
         <ContextMenu>
             <MenuItem Header="Копировать" InputGesture="Ctrl+C" Click="OnCopyClick"/>

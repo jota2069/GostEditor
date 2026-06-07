@@ -9,7 +9,7 @@ namespace GostEditor.Core.TextEngine;
 
 public class DocumentEditor
 {
-    public GostDocument Document { get; }
+    public GostDocument Document { get; private set; }
     public DocumentPosition CaretPosition { get; set; }
     public DocumentPosition? SelectionAnchor { get; set; }
     public int? SelectedImageParagraphIndex { get; set; }
@@ -20,16 +20,73 @@ public class DocumentEditor
 
     private bool _isExecutingCommand = false;
 
-    public DocumentEditor(GostDocument document)
+    public DocumentEditor()
     {
-        Document = document;
-
+        Document = new GostDocument();
         if (Document.Paragraphs.Count == 0)
         {
             Document.Paragraphs.Add(new Paragraph());
         }
-
         CaretPosition = new DocumentPosition(0, 0);
+    }
+
+    public DocumentEditor(GostDocument document)
+    {
+        Document = document ?? new GostDocument();
+        if (Document.Paragraphs.Count == 0)
+        {
+            Document.Paragraphs.Add(new Paragraph());
+        }
+        CaretPosition = new DocumentPosition(0, 0);
+    }
+
+    public void LoadDocument(GostDocument document)
+    {
+        if (document is null) return;
+
+        Document = document;
+        if (Document.Paragraphs.Count == 0)
+        {
+            Document.Paragraphs.Add(new Paragraph());
+        }
+        CaretPosition = new DocumentPosition(0, 0);
+        ClearSelection();
+        History.Clear();
+    }
+
+    public void ApplyBold() => ToggleBold();
+    public void ApplyItalic() => ToggleItalic();
+    public void ApplyFontSize(double size) => SetFontSize(size);
+
+    public void AlignLeft() => SetAlignment(GostAlignment.Left);
+    public void AlignCenter() => SetAlignment(GostAlignment.Center);
+    public void AlignRight() => SetAlignment(GostAlignment.Right);
+    public void AlignJustify() => SetAlignment(GostAlignment.Justify);
+
+    public void InsertHeading(int level, string text)
+    {
+        Paragraph heading = new Paragraph();
+        heading.Runs.Add(new TextRun(text, isBold: true, isItalic: false)
+        {
+            FontSize = level == 1 ? 16 : 14
+        });
+
+        heading.Style = level == 1 ? ParagraphStyle.Heading1 : ParagraphStyle.Heading2;
+        heading.Alignment = GostAlignment.Center;
+        heading.FirstLineIndent = 0;
+        heading.PageBreakBefore = (level == 1);
+
+        Document.Paragraphs.Add(heading);
+        CaretPosition = new DocumentPosition(Document.Paragraphs.Count - 1, text.Length);
+    }
+
+    public void ScrollToParagraph(int index)
+    {
+        if (index >= 0 && index < Document.Paragraphs.Count)
+        {
+            ClearSelection();
+            CaretPosition = new DocumentPosition(index, 0);
+        }
     }
 
     public void ExecuteWithSnapshot(Action action)
@@ -108,7 +165,7 @@ public class DocumentEditor
                 FirstLineIndent = currentParagraph.FirstLineIndent,
                 LineSpacing = currentParagraph.LineSpacing,
                 Style = currentParagraph.Style,
-                PageBreakBefore = false // НИКОГДА не переносим разрыв на новую строку
+                PageBreakBefore = false
             };
 
             SplitAt(CaretPosition.ParagraphIndex, CaretPosition.Offset);
@@ -148,15 +205,13 @@ public class DocumentEditor
                 newParagraph.Runs.Add(emptyRun);
             }
 
-            // === ИСПРАВЛЕНИЕ: Выход из заголовка по Enter ===
-            // Если мы стояли в заголовке и нажали Enter в самом конце - сбрасываем стиль на "Обычный текст"
             if ((currentParagraph.Style == ParagraphStyle.Heading1 || currentParagraph.Style == ParagraphStyle.Heading2) && newParagraph.GetPlainText().Length == 0)
             {
                 newParagraph.Style = ParagraphStyle.Normal;
                 newParagraph.Alignment = GostAlignment.Justify;
-                newParagraph.FirstLineIndent = 47.0; // 1.25 см
+                newParagraph.FirstLineIndent = 47.0;
                 newParagraph.Runs.Clear();
-                newParagraph.Runs.Add(new TextRun("", false, false) { FontSize = 14 }); // Сбрасываем на 14 шрифт
+                newParagraph.Runs.Add(new TextRun("", false, false) { FontSize = 14 });
             }
 
             Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, newParagraph);
@@ -591,17 +646,16 @@ public class DocumentEditor
             {
                 Document.Paragraphs[pIdx].Style = style;
 
-                // === ИСПРАВЛЕНИЕ: Жестко задаем размеры и форматирование для стилей ===
                 if (style == ParagraphStyle.Heading1)
                 {
                     Document.Paragraphs[pIdx].Alignment = GostAlignment.Center;
                     Document.Paragraphs[pIdx].FirstLineIndent = 0;
-                    Document.Paragraphs[pIdx].PageBreakBefore = true; // С новой страницы!
+                    Document.Paragraphs[pIdx].PageBreakBefore = true;
 
-                    foreach (var run in Document.Paragraphs[pIdx].Runs)
+                    foreach (TextRun run in Document.Paragraphs[pIdx].Runs)
                     {
                         run.IsBold = true;
-                        run.FontSize = 16; // Глава = 16 шрифт
+                        run.FontSize = 16;
                     }
                 }
                 else if (style == ParagraphStyle.Heading2)
@@ -610,22 +664,22 @@ public class DocumentEditor
                     Document.Paragraphs[pIdx].FirstLineIndent = 0;
                     Document.Paragraphs[pIdx].PageBreakBefore = false;
 
-                    foreach (var run in Document.Paragraphs[pIdx].Runs)
+                    foreach (TextRun run in Document.Paragraphs[pIdx].Runs)
                     {
                         run.IsBold = true;
-                        run.FontSize = 14; // Подраздел = 14 шрифт
+                        run.FontSize = 14;
                     }
                 }
                 else if (style == ParagraphStyle.Normal)
                 {
                     Document.Paragraphs[pIdx].Alignment = GostAlignment.Justify;
-                    Document.Paragraphs[pIdx].FirstLineIndent = 47.0; // 1.25 см
+                    Document.Paragraphs[pIdx].FirstLineIndent = 47.0;
                     Document.Paragraphs[pIdx].PageBreakBefore = false;
 
-                    foreach (var run in Document.Paragraphs[pIdx].Runs)
+                    foreach (TextRun run in Document.Paragraphs[pIdx].Runs)
                     {
                         run.IsBold = false;
-                        run.FontSize = 14; // Обычный текст = 14 шрифт
+                        run.FontSize = 14;
                     }
                 }
             }

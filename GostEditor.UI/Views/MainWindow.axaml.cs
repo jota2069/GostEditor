@@ -1,15 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
-using GostEditor.Core.Serialization;
+using GostEditor.Core.Interfaces;
+using GostEditor.Core.Models;
+using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.ViewModels;
-using GostDocument = GostEditor.Core.Models.GostDocument;
+using GostEditor.UI.Controllers;
 
 namespace GostEditor.UI.Views;
 
@@ -33,28 +36,53 @@ public partial class MainWindow : Window
     {
         base.OnDataContextChanged(e);
 
-        if (DataContext is MainWindowViewModel vm)
+        if (DataContext is MainWindowViewModel viewModel)
         {
-            // === ИСПРАВЛЕНИЕ: ЖЕНИМ РЕДАКТОР И ЛЕВУЮ ПАНЕЛЬ ===
             if (MainEditor != null)
             {
-                MainEditor.LoadDocument(vm.CurrentDocument);
+                MainEditor.LoadDocument(viewModel.CurrentDocument);
             }
 
-            vm.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
-            vm.OnScrollToParagraphRequested -= ScrollToParagraph;
-            vm.OnInsertHeadingRequested -= InsertHeading;
+            // Отписка от старых событий
+            viewModel.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
+            viewModel.OnScrollToParagraphRequested -= ScrollToParagraph;
+            viewModel.OnInsertHeadingRequested -= InsertHeading;
+            viewModel.GetEditorDocument -= GetDocumentFromEditor;
 
             if (MainEditor != null)
-                MainEditor.ContentChanged -= vm.SyncNavigation;
+            {
+                MainEditor.ContentChanged -= viewModel.SyncNavigation;
+            }
 
-            vm.OnInsertParagraphsRequested += InsertParagraphsToEditor;
-            vm.OnScrollToParagraphRequested += ScrollToParagraph;
-            vm.OnInsertHeadingRequested += InsertHeading;
+            // Подписка на новые события
+            viewModel.OnInsertParagraphsRequested += InsertParagraphsToEditor;
+            viewModel.OnScrollToParagraphRequested += ScrollToParagraph;
+            viewModel.OnInsertHeadingRequested += InsertHeading;
+            viewModel.GetEditorDocument += GetDocumentFromEditor;
 
             if (MainEditor != null)
-                MainEditor.ContentChanged += vm.SyncNavigation;
+            {
+                MainEditor.ContentChanged += viewModel.SyncNavigation;
+            }
         }
+    }
+
+    private GostDocument GetDocumentFromEditor()
+    {
+        if (MainEditor == null || MainEditor.CurrentDocument == null)
+        {
+            Debug.WriteLine("[MAINWINDOW] Редактор не инициализирован или документ пуст!");
+            return new GostDocument();
+        }
+
+        GostDocument document = MainEditor.CurrentDocument;
+
+        Debug.WriteLine($"[MAINWINDOW] Получен документ из редактора:");
+        Debug.WriteLine($"[MAINWINDOW]   Параграфов: {document.Paragraphs.Count}");
+        Debug.WriteLine($"[MAINWINDOW]   Листингов: {document.CodeListings.Count}");
+        Debug.WriteLine($"[MAINWINDOW]   Изображений: {document.Images.Count}");
+
+        return document;
     }
 
     private void ScrollToParagraph(int index)
@@ -70,9 +98,10 @@ public partial class MainWindow : Window
         if (MainEditor != null)
         {
             MainEditor.InsertHeading(level, text);
-            if (DataContext is MainWindowViewModel vm)
+
+            if (DataContext is MainWindowViewModel viewModel)
             {
-                vm.SyncNavigation(); // Обновляем левую панель после добавления
+                viewModel.SyncNavigation();
             }
         }
     }
@@ -81,21 +110,45 @@ public partial class MainWindow : Window
     {
         _isUpdatingUi = true;
 
-        if (BtnBold != null) BtnBold.IsChecked = e.IsBold;
-        if (BtnItalic != null) BtnItalic.IsChecked = e.IsItalic;
+        if (BtnBold != null)
+        {
+            BtnBold.IsChecked = e.IsBold;
+        }
 
-        if (BtnAlignLeft != null) BtnAlignLeft.IsChecked = e.Alignment == GostAlignment.Left;
-        if (BtnAlignCenter != null) BtnAlignCenter.IsChecked = e.Alignment == GostAlignment.Center;
-        if (BtnAlignRight != null) BtnAlignRight.IsChecked = e.Alignment == GostAlignment.Right;
-        if (BtnAlignJustify != null) BtnAlignJustify.IsChecked = e.Alignment == GostAlignment.Justify;
+        if (BtnItalic != null)
+        {
+            BtnItalic.IsChecked = e.IsItalic;
+        }
+
+        if (BtnAlignLeft != null)
+        {
+            BtnAlignLeft.IsChecked = e.Alignment == GostAlignment.Left;
+        }
+
+        if (BtnAlignCenter != null)
+        {
+            BtnAlignCenter.IsChecked = e.Alignment == GostAlignment.Center;
+        }
+
+        if (BtnAlignRight != null)
+        {
+            BtnAlignRight.IsChecked = e.Alignment == GostAlignment.Right;
+        }
+
+        if (BtnAlignJustify != null)
+        {
+            BtnAlignJustify.IsChecked = e.Alignment == GostAlignment.Justify;
+        }
 
         if (FontSizeComboBox != null)
         {
-            foreach (object itemObj in FontSizeComboBox.Items)
+            foreach (object? itemObj in FontSizeComboBox.Items)
             {
                 if (itemObj is ComboBoxItem { Content: not null } item)
                 {
-                    if (double.TryParse(item.Content.ToString(), out double size))
+                    string? contentString = item.Content.ToString();
+
+                    if (contentString != null && double.TryParse(contentString, out double size))
                     {
                         if (Math.Abs(size - e.FontSize) < 0.1)
                         {
@@ -115,38 +168,82 @@ public partial class MainWindow : Window
         if (paragraphs.Count > 0 && MainEditor != null)
         {
             MainEditor.AppendParagraphs(paragraphs);
-            if (MainTabs != null) MainTabs.SelectedIndex = 0;
+
+            if (MainTabs != null)
+            {
+                MainTabs.SelectedIndex = 0;
+            }
+
             MainEditor.Focus();
         }
     }
 
-    private void OnBoldClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyBold(); MainEditor?.Focus(); }
-    private void OnItalicClick(object? sender, RoutedEventArgs e) { MainEditor?.ApplyItalic(); MainEditor?.Focus(); }
-    private void OnAlignLeftClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignLeft(); MainEditor?.Focus(); }
-    private void OnAlignCenterClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignCenter(); MainEditor?.Focus(); }
-    private void OnAlignRightClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignRight(); MainEditor?.Focus(); }
-    private void OnAlignJustifyClick(object? sender, RoutedEventArgs e) { MainEditor?.AlignJustify(); MainEditor?.Focus(); }
-    private void OnClearFormattingClick(object? sender, RoutedEventArgs e) { MainEditor?.Focus(); }
-    private void OnUndoToolbarClick(object? sender, RoutedEventArgs e) { MainEditor?.Undo(); MainEditor?.Focus(); }
-    private void OnRedoToolbarClick(object? sender, RoutedEventArgs e) { MainEditor?.Redo(); MainEditor?.Focus(); }
-
-    private void OnStartPageNumberChanged(object? sender, NumericUpDownValueChangedEventArgs e)
+    private void OnBoldClick(object? sender, RoutedEventArgs e)
     {
-        if (e.NewValue.HasValue && CurrentStartPageLabel != null)
-        {
-            int newStartPage = (int)e.NewValue.Value;
-            CurrentStartPageLabel.Text = $"(Сейчас: {newStartPage})";
-            if (MainEditor != null) MainEditor.SetStartPageNumber(newStartPage);
-        }
+        MainEditor?.ApplyBold();
+        MainEditor?.Focus();
     }
+
+    private void OnItalicClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.ApplyItalic();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignLeftClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignLeft();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignCenterClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignCenter();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignRightClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignRight();
+        MainEditor?.Focus();
+    }
+
+    private void OnAlignJustifyClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.AlignJustify();
+        MainEditor?.Focus();
+    }
+
+    private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.Focus();
+    }
+
+    private void OnUndoToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.Undo();
+        MainEditor?.Focus();
+    }
+
+    private void OnRedoToolbarClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.Redo();
+        MainEditor?.Focus();
+    }
+
 
     private void OnFontSizeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (_isUpdatingUi || MainEditor == null || sender == null) return;
+        if (_isUpdatingUi || MainEditor == null || sender == null)
+        {
+            return;
+        }
 
         if (sender is ComboBox comboBox && comboBox.SelectedItem is ComboBoxItem { Content: not null } selectedItem)
         {
-            if (double.TryParse(selectedItem.Content.ToString(), out double newSize))
+            string? contentString = selectedItem.Content.ToString();
+
+            if (contentString != null && double.TryParse(contentString, out double newSize))
             {
                 MainEditor.ApplyFontSize(newSize);
             }
@@ -157,11 +254,16 @@ public partial class MainWindow : Window
     {
         if ((e.KeyModifiers & KeyModifiers.Control) != 0)
         {
-            if (DataContext is MainWindowViewModel vm)
+            if (DataContext is MainWindowViewModel viewModel)
             {
                 double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
-                double newZoom = Math.Round(vm.ZoomLevel + delta, 1);
-                if (newZoom >= 0.5 && newZoom <= 2.0) vm.ZoomLevel = newZoom;
+                double newZoom = Math.Round(viewModel.ZoomLevel + delta, 1);
+
+                if (newZoom >= 0.5 && newZoom <= 2.0)
+                {
+                    viewModel.ZoomLevel = newZoom;
+                }
+
                 e.Handled = true;
             }
         }
@@ -179,82 +281,126 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка сохранения по хоткею: {ex.Message}");
+            Debug.WriteLine($"[MAINWINDOW] Ошибка сохранения по хоткею: {ex.Message}");
         }
     }
 
-    public async void OnSaveClick(object? sender, RoutedEventArgs e)
+    private async void OnSaveClick(object? sender, RoutedEventArgs e)
     {
         await SaveDocumentToFileAsync();
     }
 
-    public async void OnOpenClick(object? sender, RoutedEventArgs e)
+    private async void OnOpenClick(object? sender, RoutedEventArgs e)
     {
+        if (DataContext is not MainWindowViewModel viewModel || MainEditor == null)
+        {
+            return;
+        }
+
+        viewModel.IsBusy = true;
+        viewModel.StatusMessage = "Загрузка...";
+
         try
         {
-            if (MainEditor == null) return;
-
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "Открыть документ",
-                AllowMultiple = false,
-                FileTypeFilter = [ new FilePickerFileType("GOST Document") { Patterns = ["*.gost"] } ]
-            });
+            IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(
+                new FilePickerOpenOptions
+                {
+                    Title = "Открыть документ",
+                    AllowMultiple = false,
+                    FileTypeFilter = new[]
+                    {
+                        new FilePickerFileType("GOST Document")
+                        {
+                            Patterns = new[] { "*.gost" }
+                        }
+                    }
+                });
 
             if (files.Count > 0)
             {
                 await using Stream stream = await files[0].OpenReadAsync();
-                GostDocument loadedDoc = await GostArchiveManager.LoadAsync(stream);
+                GostDocument loadedDocument = await viewModel.ArchiveService.LoadAsync(stream);
 
-                // === ИСПРАВЛЕНИЕ: Обновляем документ и в UI, и во ViewModel ===
-                if (DataContext is MainWindowViewModel vm)
-                {
-                    vm.CurrentDocument = loadedDoc;
-                    MainEditor.LoadDocument(loadedDoc);
-                    vm.SyncNavigation();
-                }
+                viewModel.CurrentDocument = loadedDocument;
+                MainEditor.LoadDocument(loadedDocument);
+                viewModel.SyncNavigation();
+
+                viewModel.StatusMessage = "Документ загружен";
+            }
+            else
+            {
+                viewModel.StatusMessage = "Готово";
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка при открытии файла: {ex.Message}");
+            viewModel.StatusMessage = $"Ошибка загрузки: {ex.Message}";
+            Debug.WriteLine($"[MAINWINDOW] Ошибка загрузки: {ex}");
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
         }
     }
 
     private async Task SaveDocumentToFileAsync()
     {
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor == null ||
+            MainEditor.CurrentDocument == null)
+        {
+            return;
+        }
+
+        viewModel.IsBusy = true;
+        viewModel.StatusMessage = "Сохранение...";
+
         try
         {
-            if (MainEditor == null || MainEditor.CurrentDocument == null) return;
-
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-            {
-                Title = "Сохранить документ",
-                DefaultExtension = ".gost",
-                FileTypeChoices = [ new FilePickerFileType("GOST Document") { Patterns = ["*.gost"] } ]
-            });
+            IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions
+                {
+                    Title = "Сохранить документ",
+                    DefaultExtension = ".gost",
+                    FileTypeChoices = new[]
+                    {
+                        new FilePickerFileType("GOST Document")
+                        {
+                            Patterns = new[] { "*.gost" }
+                        }
+                    }
+                });
 
             if (file != null)
             {
                 await using Stream stream = await file.OpenWriteAsync();
-                await GostArchiveManager.SaveAsync(MainEditor.CurrentDocument, stream);
+                await viewModel.ArchiveService.SaveAsync(MainEditor.CurrentDocument, stream);
+                viewModel.StatusMessage = "Документ сохранен";
+            }
+            else
+            {
+                viewModel.StatusMessage = "Сохранение отменено";
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка сохранения: {ex.Message}");
+            viewModel.StatusMessage = $"Ошибка сохранения: {ex.Message}";
+            Debug.WriteLine($"[MAINWINDOW] Ошибка сохранения: {ex}");
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
         }
     }
 
     private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
     {
-        // === ИСПРАВЛЕНИЕ: При создании нового файла синхронизируем их ===
-        if (DataContext is MainWindowViewModel vm && MainEditor != null)
+        if (DataContext is MainWindowViewModel viewModel && MainEditor != null)
         {
-            GostDocument newDoc = new GostDocument();
-            vm.CurrentDocument = newDoc;
-            MainEditor.LoadDocument(newDoc);
-            vm.SyncNavigation();
+            GostDocument newDocument = new GostDocument();
+            viewModel.CurrentDocument = newDocument;
+            MainEditor.LoadDocument(newDocument);
+            viewModel.SyncNavigation();
         }
     }
 
@@ -269,7 +415,174 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Ошибка при вставке рисунка: {ex.Message}");
+            Debug.WriteLine($"[MAINWINDOW] Ошибка при вставке рисунка: {ex}");
         }
     }
+
+    private async void OnExportClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor == null ||
+            MainEditor.CurrentDocument == null)
+        {
+            Debug.WriteLine("[MAINWINDOW] Не удалось экспортировать: нет ViewModel или документа");
+            return;
+        }
+
+        viewModel.IsBusy = true;
+        viewModel.StatusMessage = "Экспорт в DOCX...";
+
+        try
+        {
+            IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
+                new FilePickerSaveOptions
+                {
+                    Title = "Экспорт в формат Word (ГОСТ)",
+                    DefaultExtension = ".docx",
+                    SuggestedFileName = "Документ_ГОСТ",
+                    FileTypeChoices = new[]
+                    {
+                        new FilePickerFileType("Word Document")
+                        {
+                            Patterns = new[] { "*.docx" }
+                        }
+                    }
+                });
+
+            if (file == null)
+            {
+                viewModel.StatusMessage = "Экспорт отменен";
+                return;
+            }
+
+            // КРИТИЧНО: Получаем локальный путь безопасно
+            string outputPath = file.Path.LocalPath;
+
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                viewModel.StatusMessage = "Ошибка: невозможно получить путь к файлу";
+                Debug.WriteLine("[MAINWINDOW] file.Path.LocalPath вернул null или пустую строку!");
+                return;
+            }
+
+            Debug.WriteLine($"[MAINWINDOW] Экспорт в: {outputPath}");
+            Debug.WriteLine($"[MAINWINDOW] Параграфов в документе: {MainEditor.CurrentDocument.Paragraphs.Count}");
+
+            // Получаем документ из редактора
+            GostDocument documentToExport = MainEditor.CurrentDocument;
+
+            // Синхронизируем метаданные из ViewModel
+            documentToExport.TitlePage.University = viewModel.University;
+            documentToExport.TitlePage.Department = viewModel.Department;
+            documentToExport.TitlePage.Discipline = viewModel.Discipline;
+            documentToExport.TitlePage.WorkType = viewModel.WorkType;
+            documentToExport.TitlePage.WorkTitle = viewModel.WorkTitle;
+            documentToExport.TitlePage.GroupNumber = viewModel.GroupNumber;
+            documentToExport.TitlePage.StudentName = viewModel.StudentName;
+            documentToExport.TitlePage.TeacherName = viewModel.TeacherName;
+            documentToExport.TitlePage.City = viewModel.City;
+            documentToExport.TitlePage.Year = viewModel.Year;
+
+            // Синхронизируем листинги кода
+            documentToExport.CodeListings.Clear();
+
+            foreach (CodeListingViewModel listingViewModel in viewModel.CodeListings)
+            {
+                if (listingViewModel.IsSelected)
+                {
+                    documentToExport.CodeListings.Add(listingViewModel.Listing);
+                }
+            }
+
+            Debug.WriteLine($"[MAINWINDOW] Подготовлено листингов: {documentToExport.CodeListings.Count}");
+
+            // ИСПОЛЬЗУЕМ СЕРВИС ИЗ DI!
+            await viewModel.ExportService.ExportToDocxAsync(documentToExport, outputPath);
+
+            viewModel.StatusMessage = "Успешно экспортировано!";
+            Debug.WriteLine("[MAINWINDOW] Экспорт завершён успешно");
+        }
+        catch (Exception ex)
+        {
+            viewModel.StatusMessage = $"Ошибка экспорта: {ex.Message}";
+            Debug.WriteLine($"[MAINWINDOW] Ошибка экспорта: {ex}");
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
+        }
+    }
+
+    private async void OnParseFolderClick(object? sender, RoutedEventArgs e)
+{
+    if (DataContext is not MainWindowViewModel viewModel)
+    {
+        return;
+    }
+
+    viewModel.IsBusy = true;
+    viewModel.StatusMessage = "Выбор папки...";
+
+    try
+    {
+        IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = "Выберите папку с исходным кодом проекта",
+                AllowMultiple = false
+            });
+
+        if (folders.Count > 0)
+        {
+            IStorageFolder selectedFolder = folders[0];
+            string folderPath = selectedFolder.Path.LocalPath;
+
+            Debug.WriteLine($"[MAINWINDOW] Выбрана папка: {folderPath}");
+
+            viewModel.StatusMessage = "Парсинг файлов...";
+
+            // КРИТИЧНО: Используем сервис из DI через ViewModel
+            // Но пока создаём напрямую (можно улучшить через DI)
+            CodeParserService codeParserService = new CodeParserService();
+            IReadOnlyList<CodeListing> listings = await codeParserService.ParseDirectoryAsync(folderPath);
+
+            viewModel.CodeListings.Clear();
+
+            foreach (CodeListing listing in listings)
+            {
+                viewModel.CodeListings.Add(new CodeListingViewModel
+                {
+                    Listing = listing,
+                    IsSelected = true
+                });
+
+                Debug.WriteLine($"[MAINWINDOW] Добавлен файл: {listing.RelativePath} ({listing.Language})");
+            }
+
+            viewModel.StatusMessage = $"Найдено файлов: {listings.Count}";
+            Debug.WriteLine($"[MAINWINDOW] Всего загружено: {listings.Count} файлов");
+
+            // Переключаемся на вкладку "Структура документа" -> "Приложения"
+            if (MainTabs != null)
+            {
+                MainTabs.SelectedIndex = 1; // Вкладка "Структура документа"
+            }
+
+            viewModel.SelectedModuleIndex = 3; // Подвкладка "Приложения (Код)"
+        }
+        else
+        {
+            viewModel.StatusMessage = "Выбор папки отменён";
+        }
+    }
+    catch (Exception ex)
+    {
+        viewModel.StatusMessage = $"Ошибка парсинга: {ex.Message}";
+        Debug.WriteLine($"[MAINWINDOW] Ошибка парсинга: {ex}");
+    }
+    finally
+    {
+        viewModel.IsBusy = false;
+    }
+}
 }

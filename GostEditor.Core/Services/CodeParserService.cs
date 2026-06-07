@@ -1,27 +1,54 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.TextEngine.DOM;
 
 namespace GostEditor.Core.Services;
 
+/// <summary>
+/// Сервис для парсинга исходного кода проекта с очисткой и форматированием под ГОСТ
+/// </summary>
 public class CodeParserService : ICodeParserService
 {
-    private static readonly Dictionary<string, string> ExtensionToLanguage =
-        new Dictionary<string, string>()
-        {
-            [".cs"] = "csharp",
-            [".py"] = "python",
-            [".js"] = "javascript",
-            [".ts"] = "typescript",
-            [".axaml"] = "xml",
-            [".xaml"] = "xml",
-        };
+    private static readonly Dictionary<string, string> ExtensionToLanguage = new Dictionary<string, string>
+    {
+        [".cs"] = "csharp",
+        [".py"] = "python",
+        [".js"] = "javascript",
+        [".ts"] = "typescript",
+        [".axaml"] = "xml",
+        [".xaml"] = "xml",
+        [".cpp"] = "cpp",
+        [".c"] = "c",
+        [".h"] = "c",
+        [".hpp"] = "cpp",
+        [".java"] = "java",
+        [".html"] = "html",
+        [".css"] = "css",
+        [".xml"] = "xml",
+        [".json"] = "json",
+        [".sql"] = "sql"
+    };
 
-    private static readonly HashSet<string> CSharpSkipPrefixes =
-        new HashSet<string>()
-        {
-            "using ", "#nullable", "#pragma"
-        };
+    private static readonly HashSet<string> CSharpSkipPrefixes = new HashSet<string>
+    {
+        "using ", "#nullable", "#pragma"
+    };
 
+    private static readonly HashSet<string> ExcludedDirectories = new HashSet<string>
+    {
+        "bin", "obj", "node_modules", ".git", ".vs", ".vscode",
+        "packages", "Debug", "Release", "dist", "build"
+    };
+
+    /// <summary>
+    /// Парсит директорию и возвращает список листингов кода
+    /// </summary>
     public async Task<IReadOnlyList<CodeListing>> ParseDirectoryAsync(string directoryPath)
     {
         if (!Directory.Exists(directoryPath))
@@ -29,13 +56,34 @@ public class CodeParserService : ICodeParserService
             throw new DirectoryNotFoundException($"Папка не найдена: {directoryPath}");
         }
 
-        HashSet<string> supportedExtensions =
-            new HashSet<string>(ExtensionToLanguage.Keys);
+        Debug.WriteLine($"[CODE PARSER] Начало парсинга: {directoryPath}");
+
+        HashSet<string> supportedExtensions = new HashSet<string>(ExtensionToLanguage.Keys);
 
         List<string> files = Directory
             .EnumerateFiles(directoryPath, "*.*", SearchOption.AllDirectories)
-            .Where(filePath => supportedExtensions.Contains(
-                Path.GetExtension(filePath).ToLower()))
+            .Where(filePath =>
+            {
+                // Проверяем расширение
+                if (!supportedExtensions.Contains(Path.GetExtension(filePath).ToLower()))
+                {
+                    return false;
+                }
+
+                // Исключаем файлы из запрещённых папок
+                string relativePath = Path.GetRelativePath(directoryPath, filePath);
+                string[] pathParts = relativePath.Split(Path.DirectorySeparatorChar);
+
+                foreach (string part in pathParts)
+                {
+                    if (ExcludedDirectories.Contains(part.ToLower()))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            })
             .OrderBy(filePath => filePath)
             .ToList();
 
@@ -45,18 +93,30 @@ public class CodeParserService : ICodeParserService
         foreach (string file in files)
         {
             CodeListing listing = await Task.Run(() => ParseFile(file, directoryPath));
-            listing.Order = order++;
+            listing.Order = order;
+            listing.ListingNumber = order + 1;
+            order++;
             listings.Add(listing);
+
+            Debug.WriteLine($"[CODE PARSER] Добавлен файл: {listing.RelativePath} ({listing.Language})");
         }
+
+        Debug.WriteLine($"[CODE PARSER] Найдено файлов: {listings.Count}");
 
         return listings;
     }
 
+    /// <summary>
+    /// Парсит один файл (публичный метод для интерфейса)
+    /// </summary>
     public CodeListing ParseFile(string filePath)
     {
         return ParseFile(filePath, Path.GetDirectoryName(filePath) ?? string.Empty);
     }
 
+    /// <summary>
+    /// Парсит один файл с учётом корневой директории
+    /// </summary>
     private CodeListing ParseFile(string filePath, string rootDirectory)
     {
         string extension = Path.GetExtension(filePath).ToLower();
@@ -64,7 +124,7 @@ public class CodeParserService : ICodeParserService
         string[] rawLines = File.ReadAllLines(filePath);
         IEnumerable<string> cleanedLines = CleanLines(rawLines, language);
 
-        // Вычисляем относительный путь от корневой папки.
+        // Вычисляем относительный путь от корневой папки
         string relativePath = Path.GetRelativePath(rootDirectory, filePath);
 
         return new CodeListing
@@ -77,6 +137,9 @@ public class CodeParserService : ICodeParserService
         };
     }
 
+    /// <summary>
+    /// Очищает строки кода от лишних элементов (usings, pragma, пустые строки)
+    /// </summary>
     private static IEnumerable<string> CleanLines(string[] lines, string language)
     {
         List<string> result = new List<string>();
@@ -86,8 +149,9 @@ public class CodeParserService : ICodeParserService
         {
             string trimmed = line.TrimEnd();
 
-            if (language == "csharp"
-                && CSharpSkipPrefixes.Any(prefix => trimmed.TrimStart().StartsWith(prefix)))
+            // Для C# файлов убираем using, #nullable, #pragma
+            if (language == "csharp" &&
+                CSharpSkipPrefixes.Any(prefix => trimmed.TrimStart().StartsWith(prefix)))
             {
                 continue;
             }
@@ -96,6 +160,7 @@ public class CodeParserService : ICodeParserService
 
             if (isEmpty)
             {
+                // Оставляем максимум одну пустую строку подряд
                 if (!previousWasEmpty && result.Count > 0)
                 {
                     result.Add(string.Empty);
@@ -109,6 +174,7 @@ public class CodeParserService : ICodeParserService
             previousWasEmpty = false;
         }
 
+        // Убираем пустые строки в конце
         while (result.Count > 0 && string.IsNullOrWhiteSpace(result[^1]))
         {
             result.RemoveAt(result.Count - 1);
@@ -118,51 +184,80 @@ public class CodeParserService : ICodeParserService
     }
 
     /// <summary>
-    /// Превращает список выбранных листингов кода в готовые абзацы для вставки в редактор.
+    /// Генерирует параграфы для приложения с листингами кода
+    /// Формат: "Листинг N — файл путь/к/файлу.cs"
     /// </summary>
-    public List<GostEditor.Core.TextEngine.DOM.Paragraph> GenerateAppendixParagraphs(IEnumerable<CodeListing> listings)
+    public List<Paragraph> GenerateAppendixParagraphs(IEnumerable<CodeListing> listings)
     {
-        // ЯВНАЯ ТИПИЗАЦИЯ
-        List<GostEditor.Core.TextEngine.DOM.Paragraph> appendixParagraphs = new List<GostEditor.Core.TextEngine.DOM.Paragraph>();
+        List<Paragraph> appendixParagraphs = new List<Paragraph>();
 
-        // Заголовок приложения (По центру)
-        GostEditor.Core.TextEngine.DOM.Paragraph titlePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Center };
-        titlePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun("ПРИЛОЖЕНИЕ А", isBold: true, isItalic: false));
+        // Заголовок приложения (по центру, жирный, 14pt)
+        Paragraph titlePara = new Paragraph
+        {
+            Alignment = GostAlignment.Center,
+            FirstLineIndent = 0
+        };
+        titlePara.Runs.Add(new TextRun("ПРИЛОЖЕНИЕ А", isBold: true, isItalic: false) { FontSize = 14 });
         appendixParagraphs.Add(titlePara);
 
         // Пустая строка после заголовка
-        appendixParagraphs.Add(new GostEditor.Core.TextEngine.DOM.Paragraph());
+        appendixParagraphs.Add(new Paragraph { FirstLineIndent = 0 });
 
         int listingCounter = 1;
 
         foreach (CodeListing listing in listings)
         {
             // Пропускаем файлы, с которых сняли галочку в UI
-            if (!listing.IsSelected) continue;
+            if (!listing.IsSelected)
+            {
+                continue;
+            }
 
-            // Название листинга (Листинг 1. Файл Models/ProcessInfo.cs)
-            GostEditor.Core.TextEngine.DOM.Paragraph fileTitlePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Left };
-            fileTitlePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun($"Листинг {listingCounter}. Файл {listing.RelativePath}", isBold: false, isItalic: false));
+            // Заголовок листинга: "Листинг N — файл путь/к/файлу.cs" (14pt, СПРАВА)
+            Paragraph fileTitlePara = new Paragraph
+            {
+                Alignment = GostAlignment.Right,
+                FirstLineIndent = 0
+            };
+            fileTitlePara.Runs.Add(new TextRun(
+                $"Листинг {listingCounter} - файл {listing.RelativePath}",
+                isBold: false,
+                isItalic: false) { FontSize = 14 });
             appendixParagraphs.Add(fileTitlePara);
 
-            // Разбиваем код на строки и добавляем
-            string[] lines = listing.Content.Split(new[] { "\r\n", "\n" }, System.StringSplitOptions.None);
-            for (int i = 0; i < lines.Length; i++)
+            // Разбиваем код на строки
+            string[] lines = listing.Content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            foreach (string line in lines)
             {
-                string line = lines[i];
+                // Заменяем табы на пробелы
                 string cleanLine = line.Replace("\t", "    ");
 
-                GostEditor.Core.TextEngine.DOM.Paragraph linePara = new GostEditor.Core.TextEngine.DOM.Paragraph { Alignment = GostEditor.Core.TextEngine.DOM.GostAlignment.Left };
-                linePara.Runs.Add(new GostEditor.Core.TextEngine.DOM.TextRun(cleanLine, isBold: false, isItalic: false));
+                // Если строка пустая, вставляем неразрывный пробел
+                if (string.IsNullOrWhiteSpace(cleanLine))
+                {
+                    cleanLine = " ";
+                }
+
+                // Строка кода: 12pt, СЛЕВА, без отступа
+                Paragraph linePara = new Paragraph
+                {
+                    Alignment = GostAlignment.Left,
+                    FirstLineIndent = 0,
+                    Style = ParagraphStyle.Code
+                };
+                linePara.Runs.Add(new TextRun(cleanLine, isBold: false, isItalic: false) { FontSize = 12 });
                 appendixParagraphs.Add(linePara);
             }
 
-            // Отступ между файлами
-            appendixParagraphs.Add(new GostEditor.Core.TextEngine.DOM.Paragraph());
+            // Пустая строка между листингами
+            appendixParagraphs.Add(new Paragraph { FirstLineIndent = 0 });
+
             listingCounter++;
         }
 
+        Debug.WriteLine($"[CODE PARSER] Сгенерировано параграфов приложения: {appendixParagraphs.Count}");
+
         return appendixParagraphs;
     }
-
 }

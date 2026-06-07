@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Core.Models;
 
 namespace GostEditor.Core.TextEngine.Layout;
 

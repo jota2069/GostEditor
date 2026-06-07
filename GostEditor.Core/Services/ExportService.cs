@@ -1,30 +1,22 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Xceed.Words.NET;
-using Xceed.Document.NET;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
-
-using EngineParagraph = GostEditor.Core.TextEngine.DOM.Paragraph;
-using EngineTextRun = GostEditor.Core.TextEngine.DOM.TextRun;
-using EngineAlignment = GostEditor.Core.TextEngine.DOM.GostAlignment;
-using ParagraphStyle = GostEditor.Core.TextEngine.DOM.ParagraphStyle;
+using Xceed.Document.NET;
+using Xceed.Words.NET;
 
 namespace GostEditor.Core.Services;
 
 public class ExportService : IExportService
 {
-    private const string FontName = "Times New Roman";
-    private const float FontSize = 14f;
-    private const float LineSpacing = 1.5f;
-    private const float ParagraphIndent = 1.25f;
-
-    private const float MarginLeft = 3.0f;
-    private const float MarginRight = 1.0f;
-    private const float MarginTop = 2.0f;
-    private const float MarginBottom = 2.0f;
+    private const string GlobalFontName = "Times New Roman";
+    private const double GlobalFontSize = 14D;
+    private const float ParagraphIndentCm = 1.25f;
+    private const float CmToPoints = 28.35f; // 1 см = 28.35 пунктов
 
     public async Task ExportToDocxAsync(GostDocument document, string outputPath)
     {
@@ -33,213 +25,226 @@ public class ExportService : IExportService
 
     private void BuildDocument(GostDocument document, string outputPath)
     {
-        using DocX doc = DocX.Create(outputPath);
+        Debug.WriteLine($"[EXPORT] Начало экспорта. Параграфов: {document.Paragraphs.Count}");
 
-        ApplyPageSettings(doc);
-        AddPageNumbers(doc);
-        RecalculateCounters(document);
+        using FileStream fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
+        DocX doc = DocX.Create(fs);
 
-        AddTitlePage(doc, document.TitlePage);
-
-        // Автоматическое оглавление Word (TOC) - обновленный формат
-        var tocSwitches = new Dictionary<TableOfContentsSwitches, string>
+        try
         {
-            { TableOfContentsSwitches.O, "1-3" },
-            { TableOfContentsSwitches.U, "" },
-            { TableOfContentsSwitches.Z, "" },
-            { TableOfContentsSwitches.H, "" }
-        };
-        doc.InsertTableOfContents("СОДЕРЖАНИЕ", tocSwitches);
-        doc.InsertParagraph().InsertPageBreakAfterSelf();
+            ApplyPageSettings(doc);
+            AddPageNumbers(doc);
 
-        AddBody(doc, document.Paragraphs);
-        AddCodeListings(doc, document.CodeListings);
+            if (document.Modules.HasTitlePage) AddTitlePage(doc, document.TitlePage);
+            if (document.Modules.HasTableOfContents) AddTableOfContents(doc);
 
-        doc.Save();
-    }
+            AddBody(doc, document.Paragraphs);
 
-    private void RecalculateCounters(GostDocument document)
-    {
-        int listingNumber = 1;
-        foreach (CodeListing listing in document.CodeListings.Where(l => l.IsSelected))
+            if (document.Modules.HasAppendix && document.CodeListings.Any(listing => listing.IsSelected))
+            {
+                Debug.WriteLine($"[EXPORT] Добавление приложений. Листингов: {document.CodeListings.Count(l => l.IsSelected)}");
+                AddCodeListings(doc, document.CodeListings);
+            }
+
+            doc.Save();
+            Debug.WriteLine($"[EXPORT] Документ сохранён успешно");
+        }
+        catch (Exception ex)
         {
-            listing.ListingNumber = listingNumber++;
+            Debug.WriteLine($"[EXPORT ERROR] {ex}");
+            throw;
+        }
+        finally
+        {
+            doc.Dispose();
         }
     }
 
     private void ApplyPageSettings(DocX doc)
     {
-        doc.MarginLeft = CmToTwips(MarginLeft);
-        doc.MarginRight = CmToTwips(MarginRight);
-        doc.MarginTop = CmToTwips(MarginTop);
-        doc.MarginBottom = CmToTwips(MarginBottom);
-    }
-
-    private void AddTitlePage(DocX doc, TitlePageInfo titlePage)
-    {
-        Paragraph universityParagraph = doc.InsertParagraph();
-        universityParagraph.Append(titlePage.University).Font(FontName).FontSize(FontSize);
-        universityParagraph.Alignment = Alignment.center;
-
-        Paragraph departmentParagraph = doc.InsertParagraph();
-        departmentParagraph.Append(titlePage.Department).Font(FontName).FontSize(FontSize);
-        departmentParagraph.Alignment = Alignment.center;
-
-        doc.InsertParagraph(); doc.InsertParagraph();
-
-        Paragraph titleParagraph = doc.InsertParagraph();
-        titleParagraph.Append(titlePage.WorkTitle).Font(FontName).FontSize(FontSize).Bold();
-        titleParagraph.Alignment = Alignment.center;
-
-        doc.InsertParagraph(); doc.InsertParagraph();
-
-        Paragraph studentParagraph = doc.InsertParagraph();
-        studentParagraph.Append($"Выполнил: {titlePage.StudentName}").Font(FontName).FontSize(FontSize);
-        studentParagraph.Alignment = Alignment.right;
-
-        Paragraph groupParagraph = doc.InsertParagraph();
-        groupParagraph.Append($"Группа: {titlePage.GroupNumber}").Font(FontName).FontSize(FontSize);
-        groupParagraph.Alignment = Alignment.right;
-
-        Paragraph teacherParagraph = doc.InsertParagraph();
-        teacherParagraph.Append($"Проверил: {titlePage.TeacherName}").Font(FontName).FontSize(FontSize);
-        teacherParagraph.Alignment = Alignment.right;
-
-        doc.InsertParagraph(); doc.InsertParagraph();
-
-        Paragraph yearParagraph = doc.InsertParagraph();
-        yearParagraph.Append(titlePage.Year.ToString()).Font(FontName).FontSize(FontSize);
-        yearParagraph.Alignment = Alignment.center;
-
-        doc.InsertParagraph().InsertPageBreakAfterSelf();
-    }
-
-    private void AddBody(DocX doc, List<EngineParagraph> paragraphs)
-    {
-        int figureCounter = 1;
-
-        foreach (EngineParagraph enginePara in paragraphs)
-        {
-            Paragraph wordPara = doc.InsertParagraph();
-            ApplyParagraphStyle(wordPara);
-
-            // Нативный метод разрыва страницы в Word!
-            if (enginePara.PageBreakBefore)
-            {
-                wordPara.InsertPageBreakBeforeSelf();
-            }
-
-            wordPara.Alignment = MapAlignment(enginePara.Alignment);
-
-            if (enginePara.Style == ParagraphStyle.Heading1)
-            {
-                wordPara.Heading(HeadingType.Heading1);
-            }
-            else if (enginePara.Style == ParagraphStyle.Heading2)
-            {
-                wordPara.Heading(HeadingType.Heading2);
-            }
-
-            if (enginePara.ImageData != null && enginePara.ImageData.Length > 0)
-            {
-                using MemoryStream imageStream = new MemoryStream(enginePara.ImageData);
-                Xceed.Document.NET.Image docImage = doc.AddImage(imageStream);
-                Picture picture = docImage.CreatePicture();
-
-                if (enginePara.ImageWidth > 0 && enginePara.ImageHeight > 0)
-                {
-                    picture.Width = (int)enginePara.ImageWidth;
-                    picture.Height = (int)enginePara.ImageHeight;
-                }
-
-                wordPara.AppendPicture(picture);
-
-                Paragraph captionPara = doc.InsertParagraph();
-                captionPara.Append($"Рисунок {figureCounter} — ").Font(FontName).FontSize(FontSize);
-                captionPara.Alignment = Alignment.center;
-                figureCounter++;
-
-                foreach (EngineTextRun run in enginePara.Runs)
-                {
-                    Formatting formatting = new Formatting { FontFamily = new Font(FontName), Size = run.FontSize };
-                    if (run.IsBold) formatting.Bold = true;
-                    if (run.IsItalic) formatting.Italic = true;
-
-                    captionPara.Append(run.Text, formatting);
-                }
-            }
-            else
-            {
-                foreach (EngineTextRun run in enginePara.Runs)
-                {
-                    Formatting formatting = new Formatting { FontFamily = new Font(FontName), Size = run.FontSize };
-                    if (run.IsBold) formatting.Bold = true;
-                    if (run.IsItalic) formatting.Italic = true;
-
-                    wordPara.Append(run.Text, formatting);
-                }
-            }
-        }
-    }
-
-    private Alignment MapAlignment(EngineAlignment alignment)
-    {
-        if (alignment == EngineAlignment.Left) return Alignment.left;
-        if (alignment == EngineAlignment.Center) return Alignment.center;
-        if (alignment == EngineAlignment.Right) return Alignment.right;
-        if (alignment == EngineAlignment.Justify) return Alignment.both;
-        return Alignment.left;
-    }
-
-    private void AddCodeListings(DocX doc, List<CodeListing> listings)
-    {
-        List<CodeListing> selectedListings = listings.Where(l => l.IsSelected).ToList();
-        if (selectedListings.Count == 0) return;
-
-        Paragraph listingsHeading = doc.InsertParagraph();
-        listingsHeading.InsertPageBreakBeforeSelf();
-        listingsHeading.Append("ПРИЛОЖЕНИЕ. ЛИСТИНГИ ПРОГРАММНОГО КОДА")
-            .Font(FontName).FontSize(FontSize).Bold();
-        listingsHeading.Alignment = Alignment.center;
-        listingsHeading.Heading(HeadingType.Heading1);
-
-        doc.InsertParagraph();
-
-        foreach (CodeListing listing in selectedListings)
-        {
-            Paragraph fileNameParagraph = doc.InsertParagraph();
-            fileNameParagraph.Append($"Листинг {listing.ListingNumber} — {listing.RelativePath}")
-                .Font(FontName).FontSize(FontSize).Italic();
-            fileNameParagraph.Alignment = Alignment.left;
-
-            Paragraph codeParagraph = doc.InsertParagraph();
-            codeParagraph.Append(listing.Content).Font("Courier New").FontSize(12);
-            codeParagraph.Alignment = Alignment.left;
-
-            doc.InsertParagraph();
-        }
-    }
-
-    private void ApplyParagraphStyle(Paragraph paragraph)
-    {
-        paragraph.LineSpacingAfter = 0;
-        paragraph.LineSpacing = LineSpacing * 240f;
-        paragraph.IndentationFirstLine = CmToTwips(ParagraphIndent);
-    }
-
-    private float CmToTwips(float cm)
-    {
-        return cm * 567f;
+        doc.MarginLeft = CmToPoints * 3.0f;   // 3 см
+        doc.MarginRight = CmToPoints * 1.5f;  // 1.5 см
+        doc.MarginTop = CmToPoints * 2.0f;    // 2 см
+        doc.MarginBottom = CmToPoints * 2.0f; // 2 см
     }
 
     private void AddPageNumbers(DocX doc)
     {
-        Footer footer = doc.Footers.Odd;
-        if (footer != null)
+        doc.AddFooters();
+        if (doc.Footers.Odd is { } footer)
         {
-            Paragraph footerParagraph = footer.Paragraphs.First();
+            Paragraph footerParagraph = footer.Paragraphs.Count > 0 ? footer.Paragraphs[0] : footer.InsertParagraph();
             footerParagraph.Alignment = Alignment.center;
-            footerParagraph.AppendPageNumber(PageNumberFormat.normal).Font(FontName).FontSize(FontSize);
+            footerParagraph.AppendPageNumber(PageNumberFormat.normal).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize);
         }
+    }
+
+    private void AddTitlePage(DocX doc, TitlePageInfo titlePage)
+    {
+        doc.InsertParagraph("Министерство науки и высшего образования Российской Федерации").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph("Федеральное государственное бюджетное образовательное учреждение").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph("высшего образования").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph(titlePage.University).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.center;
+        doc.InsertParagraph(titlePage.Department).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+
+        doc.InsertParagraph(); doc.InsertParagraph();
+
+        doc.InsertParagraph(titlePage.WorkType).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph($"по дисциплине «{titlePage.Discipline}»").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph($"на тему «{titlePage.WorkTitle}»").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+
+        for (int i = 0; i < 5; i++) doc.InsertParagraph();
+
+        doc.InsertParagraph("Выполнил:").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.right;
+        doc.InsertParagraph($"студент группы {titlePage.GroupNumber}").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.right;
+        doc.InsertParagraph(titlePage.StudentName).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.right;
+
+        doc.InsertParagraph("Принял:").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.right;
+        doc.InsertParagraph(titlePage.TeacherName).Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.right;
+
+        for (int i = 0; i < 5; i++) doc.InsertParagraph();
+
+        doc.InsertParagraph($"{titlePage.City}, {titlePage.Year} г.").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Alignment = Alignment.center;
+        doc.InsertParagraph().InsertPageBreakAfterSelf();
+    }
+
+    private void AddTableOfContents(DocX doc)
+    {
+        doc.InsertParagraph("СОДЕРЖАНИЕ").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.center;
+        doc.InsertParagraph();
+
+        doc.InsertParagraph("< Оглавление необходимо обновить или сгенерировать вручную в вашем редакторе >")
+           .Font(new Font(GlobalFontName))
+           .FontSize(12D)
+           .Italic()
+           .Alignment = Alignment.center;
+
+        doc.InsertParagraph().InsertPageBreakAfterSelf();
+    }
+
+    private void AddBody(DocX doc, List<GostEditor.Core.TextEngine.DOM.Paragraph> paragraphs)
+    {
+        int figureCounter = 1;
+
+        foreach (GostEditor.Core.TextEngine.DOM.Paragraph engineParagraph in paragraphs)
+        {
+            if (engineParagraph.ImageData is { Length: > 0 })
+            {
+                InsertImage(doc, engineParagraph, ref figureCounter);
+                continue;
+            }
+
+            Paragraph wordParagraph = doc.InsertParagraph();
+            ApplyGostStyle(wordParagraph, engineParagraph);
+
+            bool textAdded = false;
+            foreach (GostEditor.Core.TextEngine.DOM.TextRun run in engineParagraph.Runs)
+            {
+                if (string.IsNullOrEmpty(run.Text)) continue;
+
+                var appender = wordParagraph.Append(run.Text)
+                                            .Font(new Font(GlobalFontName))
+                                            .FontSize(run.FontSize > 0 ? run.FontSize : GlobalFontSize);
+
+                if (run.IsBold) appender.Bold();
+                if (run.IsItalic) appender.Italic();
+
+                textAdded = true;
+            }
+
+            if (!textAdded) wordParagraph.Append("\u00A0").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize);
+        }
+    }
+
+    private void InsertImage(DocX doc, GostEditor.Core.TextEngine.DOM.Paragraph enginePara, ref int counter)
+    {
+        try
+        {
+            using MemoryStream ms = new MemoryStream(enginePara.ImageData!);
+            Image img = doc.AddImage(ms);
+            Picture pic = img.CreatePicture();
+            pic.Width = enginePara.ImageWidth > 0 ? (int)enginePara.ImageWidth : 450;
+            pic.Height = enginePara.ImageHeight > 0 ? (int)enginePara.ImageHeight : 300;
+
+            doc.InsertParagraph().AppendPicture(pic).Alignment = Alignment.center;
+            doc.InsertParagraph($"Рисунок {counter++} — Подпись").Font(new Font(GlobalFontName)).FontSize(12D).Alignment = Alignment.center;
+        }
+        catch { /* Игнорируем битые картинки */ }
+    }
+
+    private void AddCodeListings(DocX doc, List<CodeListing> listings)
+    {
+        List<CodeListing> selectedListings = listings.Where(listing => listing.IsSelected).ToList();
+        if (selectedListings.Count == 0)
+        {
+            Debug.WriteLine("[EXPORT] Нет выбранных листингов для приложения");
+            return;
+        }
+
+        Paragraph listingsHeading = doc.InsertParagraph("ПРИЛОЖЕНИЕ А");
+        listingsHeading.Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.center;
+        listingsHeading.InsertPageBreakBeforeSelf();
+        listingsHeading.Heading(HeadingType.Heading1);
+
+        doc.InsertParagraph();
+
+        int counter = 1;
+
+        foreach (CodeListing listing in selectedListings)
+        {
+            // Заголовок листинга: 12pt курсив, выравнивание слева
+            doc.InsertParagraph($"Листинг {counter} — файл {listing.RelativePath}")
+                .Font(new Font(GlobalFontName))
+                .FontSize(12D)
+                .Italic()
+                .Alignment = Alignment.left;
+
+            Debug.WriteLine($"[EXPORT] Листинг {counter}: {listing.RelativePath}");
+
+            string[] lines = listing.Content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            Debug.WriteLine($"[EXPORT]   Строк кода: {lines.Length}");
+
+            foreach (string line in lines)
+            {
+                string cleanLine = line.Replace("\t", "    ");
+
+                if (string.IsNullOrWhiteSpace(cleanLine))
+                {
+                    cleanLine = "\u00A0";
+                }
+
+                // Код: 10pt Consolas, выравнивание слева
+                doc.InsertParagraph(cleanLine)
+                    .Font(new Font("Consolas"))
+                    .FontSize(10D)
+                    .Alignment = Alignment.left;
+            }
+
+            doc.InsertParagraph();
+
+            counter++;
+        }
+
+        Debug.WriteLine($"[EXPORT] Добавлено листингов: {selectedListings.Count}");
+    }
+
+    private void ApplyGostStyle(Paragraph wordPara, GostEditor.Core.TextEngine.DOM.Paragraph enginePara)
+    {
+        if (enginePara.FirstLineIndent > 0)
+            wordPara.IndentationFirstLine = CmToPoints * ParagraphIndentCm;
+
+        wordPara.Alignment = enginePara.Alignment switch
+        {
+            GostEditor.Core.TextEngine.DOM.GostAlignment.Center => Alignment.center,
+            GostEditor.Core.TextEngine.DOM.GostAlignment.Right => Alignment.right,
+            GostEditor.Core.TextEngine.DOM.GostAlignment.Justify => Alignment.both,
+            _ => Alignment.left
+        };
+
+        if (enginePara.Style == GostEditor.Core.TextEngine.DOM.ParagraphStyle.Heading1)
+            wordPara.Heading(HeadingType.Heading1);
+        else if (enginePara.Style == GostEditor.Core.TextEngine.DOM.ParagraphStyle.Heading2)
+            wordPara.Heading(HeadingType.Heading2);
     }
 }

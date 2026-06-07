@@ -23,10 +23,11 @@ public class GostPageControl : Control
     private int _startPageNumber = 1;
     private int? _selectedImageParagraphIndex;
 
-    // НОВОЕ: Временные координаты рамки во время перетаскивания
+    // Временные координаты рамки во время перетаскивания
     public Rect? TempResizeBounds { get; set; }
 
-    private readonly Dictionary<byte[], Bitmap> _imageCache = new Dictionary<byte[], Bitmap>();
+    // ИСПРАВЛЕНИЕ: Используем кастомный компаратор для правильного кеширования байтов
+    private readonly Dictionary<byte[], Bitmap> _imageCache = new Dictionary<byte[], Bitmap>(new ByteArrayEqualityComparer());
 
     public event EventHandler<Point>? PageClicked;
 
@@ -71,7 +72,7 @@ public class GostPageControl : Control
         context.FillRectangle(Brushes.White, backgroundRect);
         context.DrawRectangle(new Pen(Brushes.LightGray, 1), backgroundRect);
 
-        if (_pageToRender == null) return;
+        if (_pageToRender is null) return;
 
         SolidColorBrush selectionBrush = new SolidColorBrush(Color.FromArgb(80, 0, 120, 215));
         foreach (Rect selRect in _pageToRender.SelectionBounds)
@@ -83,11 +84,13 @@ public class GostPageControl : Control
         {
             foreach (ImagePlacement img in _pageToRender.Images)
             {
-                if (!_imageCache.TryGetValue(img.ImageData, out Bitmap? bmp))
+                byte[] imageBytes = (byte[])img.ImageData;
+
+                if (!_imageCache.TryGetValue(imageBytes, out Bitmap? bmp))
                 {
-                    using MemoryStream ms = new MemoryStream((byte[])img.ImageData);
+                    using MemoryStream ms = new MemoryStream(imageBytes);
                     bmp = new Bitmap(ms);
-                    _imageCache[img.ImageData] = bmp;
+                    _imageCache[imageBytes] = bmp;
                 }
 
                 if (bmp != null)
@@ -173,5 +176,47 @@ public class GostPageControl : Control
     {
         base.OnPointerPressed(e);
         PageClicked?.Invoke(this, e.GetPosition(this));
+    }
+
+    /// <summary>
+    /// Кастомный компаратор для сравнения массивов байт по их содержимому, а не по ссылке.
+    /// Используется для эффективного кеширования изображений.
+    /// </summary>
+    private sealed class ByteArrayEqualityComparer : IEqualityComparer<byte[]>
+    {
+        public bool Equals(byte[]? x, byte[]? y)
+        {
+            if (ReferenceEquals(x, y)) return true;
+            if (x is null || y is null) return false;
+            if (x.Length != y.Length) return false;
+
+            for (int i = 0; i < x.Length; i++)
+            {
+                if (x[i] != y[i]) return false;
+            }
+
+            return true;
+        }
+
+        public int GetHashCode(byte[] obj)
+        {
+            if (obj is null || obj.Length == 0) return 0;
+
+            // FNV-1a hash для производительности
+            unchecked
+            {
+                const int p = 16777619;
+                int hash = (int)2166136261;
+
+                // Хешируем первые 8 байт для скорости (этого достаточно для уникальности начала файла)
+                int limit = Math.Min(8, obj.Length);
+                for (int i = 0; i < limit; i++)
+                {
+                    hash = (hash ^ obj[i]) * p;
+                }
+
+                return hash;
+            }
+        }
     }
 }

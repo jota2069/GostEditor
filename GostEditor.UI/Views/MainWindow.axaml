@@ -163,18 +163,35 @@
             <Setter Property="BorderThickness" Value="0"/>
         </Style>
 
-        <Style Selector="TabItem">
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontWeight" Value="Medium"/>
+        <Style Selector="TabControl.mainTabs > TabItem">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
-            <Setter Property="Padding" Value="20,10"/>
+            <Setter Property="Padding" Value="24,12"/>
         </Style>
-        <Style Selector="TabItem:selected">
+        <Style Selector="TabControl.mainTabs > TabItem:selected">
             <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
         </Style>
-        <Style Selector="TabItem:selected /template/ Border#PART_SelectedPipe">
+        <Style Selector="TabControl.mainTabs > TabItem:selected /template/ Border#PART_SelectedPipe">
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
-            <Setter Property="Height" Value="2"/>
+            <Setter Property="Height" Value="3"/>
+        </Style>
+
+        <Style Selector="TabControl.hiddenTabs > TabItem">
+            <Setter Property="IsVisible" Value="False"/>
+        </Style>
+
+        <Style Selector="ListBox.sidebarMenu ListBoxItem">
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="Margin" Value="12,4"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.sidebarMenu ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="#E8EEF7"/>
+        </Style>
+        <Style Selector="ListBox.sidebarMenu ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#F3F4F6"/>
         </Style>
 
     </Window.Styles>
@@ -201,8 +218,7 @@
                                        RadiusX="1" RadiusY="1" Stroke="#1565C0" StrokeThickness="1.5" Fill="#E8EEF7"/>
                         </Canvas>
                     </Button>
-                    <TextBlock Text="Сохранить" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Сохранить" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
@@ -218,117 +234,47 @@
                             <Line StartPoint="13,18" EndPoint="21,18" Stroke="#1565C0" StrokeThickness="2"/>
                         </Canvas>
                     </Button>
-                    <TextBlock Text="Новый" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Новый" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn" Click="OnOpenClick"
-                            IsEnabled="{Binding !IsBusy}"
-                            ToolTip.Tip="Открыть файл">
-                        <Grid>
-                            <Grid>
-                                <TextBlock Text="🗁"
-                                           FontSize="22"
-                                           Foreground="#1565C0"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-
-                                <TextBlock Text="🗁"
-                                           FontSize="22"
-                                           Foreground="#1565C0"
-                                           Margin="0.5,0.5,0,0"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-
-                                <TextBlock Text="🗁"
-                                           FontSize="22"
-                                           Foreground="#1565C0"
-                                           Margin="-0.5,0.5,0,0"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-
-                                <TextBlock Text="🗁"
-                                           FontSize="22"
-                                           Foreground="#1565C0"
-                                           Margin="0.5,-0.5,0,0"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-
-                                <TextBlock Text="🗁"
-                                           FontSize="22"
-                                           Foreground="#1565C0"
-                                           Margin="-0.5,-0.5,0,0"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center"/>
-                            </Grid>
-                        </Grid>
+                    <Button Classes="iconBtn" Click="OnOpenClick" IsEnabled="{Binding !IsBusy}" ToolTip.Tip="Открыть файл">
+                        <TextBlock Text="🗁" FontSize="22" Foreground="#1565C0" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
-
-                    <TextBlock Text="Открыть"
-                               FontSize="9"
-                               HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Открыть" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" ToolTip.Tip="Поиск (Ctrl+F)">
                         <Canvas Width="24" Height="24">
-                            <Ellipse Canvas.Left="3" Canvas.Top="3" Width="13" Height="13"
-                                     Stroke="#1565C0" StrokeThickness="2" Fill="Transparent"/>
-                            <Line StartPoint="14,14" EndPoint="21,21"
-                                  Stroke="#1565C0" StrokeThickness="2.5" StrokeLineCap="Round"/>
+                            <Ellipse Canvas.Left="3" Canvas.Top="3" Width="13" Height="13" Stroke="#1565C0" StrokeThickness="2" Fill="Transparent"/>
+                            <Line StartPoint="14,14" EndPoint="21,21" Stroke="#1565C0" StrokeThickness="2.5" StrokeLineCap="Round"/>
                         </Canvas>
                     </Button>
-                    <TextBlock Text="Поиск" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Поиск" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn"
-                            Click="OnUndoToolbarClick"
-                            ToolTip.Tip="Отменить (Ctrl+Z)">
-                        <TextBlock Text="⬅"
-                                   FontSize="30"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Foreground="#1565C0"/>
+                    <Button Classes="iconBtn" Click="OnUndoToolbarClick" ToolTip.Tip="Отменить (Ctrl+Z)">
+                        <TextBlock Text="⬅" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#1565C0"/>
                     </Button>
-
-                    <TextBlock Text="CTRL+Z"
-                               FontSize="9"
-                               HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="CTRL+Z" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
-
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn"
-                            Click="OnRedoToolbarClick"
-                            ToolTip.Tip="Повторить (Ctrl+Y)">
-                        <TextBlock Text="➡"
-                                   FontSize="30"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   Foreground="#1565C0"/>
+                    <Button Classes="iconBtn" Click="OnRedoToolbarClick" ToolTip.Tip="Повторить (Ctrl+Y)">
+                        <TextBlock Text="➡" FontSize="30" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#1565C0"/>
                     </Button>
-
-                    <TextBlock Text="CTRL+Y"
-                               FontSize="9"
-                               HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="CTRL+Y" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить текстовый блок">
-                        <TextBlock Text="T" FontSize="28" FontWeight="Black"
-                                   Foreground="White" FontFamily="Times New Roman"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Text="T" FontSize="28" FontWeight="Black" Foreground="White" FontFamily="Times New Roman" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
-                    <TextBlock Text="Текст" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Текст" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
@@ -338,482 +284,452 @@
                             <Ellipse Canvas.Left="19" Canvas.Top="2" Width="8" Height="8" Fill="White"/>
                         </Canvas>
                     </Button>
-                    <TextBlock Text="Рисунок" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Рисунок" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
                     <Button Classes="iconBtn" ToolTip.Tip="Вставить таблицу">
                         <Canvas Width="24" Height="22">
-                            <Rectangle Width="24" Height="22" Stroke="#1565C0" StrokeThickness="1.5"
-                                       Fill="Transparent" RadiusX="2" RadiusY="2"/>
-                            <Line StartPoint="0,8"  EndPoint="24,8"  Stroke="#1565C0" StrokeThickness="1.2"/>
+                            <Rectangle Width="24" Height="22" Stroke="#1565C0" StrokeThickness="1.5" Fill="Transparent" RadiusX="2" RadiusY="2"/>
+                            <Line StartPoint="0,8" EndPoint="24,8" Stroke="#1565C0" StrokeThickness="1.2"/>
                             <Line StartPoint="0,15" EndPoint="24,15" Stroke="#1565C0" StrokeThickness="1.2"/>
-                            <Line StartPoint="8,0"  EndPoint="8,22"  Stroke="#1565C0" StrokeThickness="1.2"/>
+                            <Line StartPoint="8,0" EndPoint="8,22" Stroke="#1565C0" StrokeThickness="1.2"/>
                             <Line StartPoint="16,0" EndPoint="16,22" Stroke="#1565C0" StrokeThickness="1.2"/>
                         </Canvas>
                     </Button>
-                    <TextBlock Text="Таблица" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Таблица" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <ToggleButton x:Name="BtnBold" Classes="iconBtn"
-                                  Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный (Ctrl+B)">
-                        <TextBlock Text="Ж" FontSize="24" FontWeight="Black"
-                                   FontFamily="Times New Roman"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <ToggleButton x:Name="BtnBold" Classes="iconBtn" Focusable="False" Click="OnBoldClick" ToolTip.Tip="Жирный (Ctrl+B)">
+                        <TextBlock Text="Ж" FontSize="24" FontWeight="Black" FontFamily="Times New Roman" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </ToggleButton>
-                    <TextBlock Text="Жирный" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Жирный" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <ToggleButton x:Name="BtnItalic" Classes="iconBtn"
-                                  Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив (Ctrl+I)">
-                        <TextBlock Text="К" FontSize="24" FontStyle="Italic"
-                                   FontFamily="Times New Roman"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    <ToggleButton x:Name="BtnItalic" Classes="iconBtn" Focusable="False" Click="OnItalicClick" ToolTip.Tip="Курсив (Ctrl+I)">
+                        <TextBlock Text="К" FontSize="24" FontStyle="Italic" FontFamily="Times New Roman" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </ToggleButton>
-                    <TextBlock Text="Курсив" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Курсив" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Border BorderBrush="{StaticResource ToolbarBorder}" BorderThickness="1"
-                            CornerRadius="6" Background="White" Width="64" Height="52">
-                        <ComboBox x:Name="FontSizeComboBox" Width="62" VerticalAlignment="Center"
-                                  SelectionChanged="OnFontSizeSelectionChanged" SelectedIndex="2"
-                                  Background="Transparent" BorderThickness="0"
-                                  HorizontalContentAlignment="Center"
-                                  FontSize="20" FontWeight="SemiBold"
-                                  Foreground="{StaticResource TextMainBrush}"
-                                  FontFamily="Times New Roman">
-                            <ComboBoxItem Content="10"/>
-                            <ComboBoxItem Content="12"/>
-                            <ComboBoxItem Content="14"/>
-                            <ComboBoxItem Content="16"/>
-                            <ComboBoxItem Content="18"/>
-                            <ComboBoxItem Content="20"/>
-                            <ComboBoxItem Content="24"/>
+                    <Border BorderBrush="{StaticResource ToolbarBorder}" BorderThickness="1" CornerRadius="6" Background="White" Width="64" Height="52">
+                        <ComboBox x:Name="FontSizeComboBox" Width="62" VerticalAlignment="Center" SelectionChanged="OnFontSizeSelectionChanged" SelectedIndex="2" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Center" FontSize="20" FontWeight="SemiBold" FontFamily="Times New Roman">
+                            <ComboBoxItem Content="10"/><ComboBoxItem Content="12"/><ComboBoxItem Content="14"/><ComboBoxItem Content="16"/><ComboBoxItem Content="18"/><ComboBoxItem Content="20"/><ComboBoxItem Content="24"/>
                         </ComboBox>
                     </Border>
-                    <TextBlock Text="Размер" FontSize="9" HorizontalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Размер" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                 </StackPanel>
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <TextBlock Text="Выравнивание" FontSize="9" FontWeight="SemiBold"
-                               HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
+                    <TextBlock Text="Выравнивание" FontSize="9" FontWeight="SemiBold" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                     <StackPanel Orientation="Horizontal" Spacing="3">
-
                         <StackPanel Spacing="3">
-                            <ToggleButton x:Name="BtnAlignLeft" Classes="alignBtn"
-                                          Focusable="False" Click="OnAlignLeftClick" ToolTip.Tip="По левому краю">
+                            <ToggleButton x:Name="BtnAlignLeft" Classes="alignBtn" Focusable="False" Click="OnAlignLeftClick" ToolTip.Tip="По левому краю">
                                 <Canvas Width="26" Height="20">
-                                    <Rectangle Canvas.Left="0" Canvas.Top="0"  Width="26" Height="3" Fill="#1565C0"/>
-                                    <Rectangle Canvas.Left="0" Canvas.Top="6"  Width="18" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="26" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="6" Width="18" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="0" Canvas.Top="12" Width="22" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="0" Canvas.Top="18" Width="14" Height="2" Fill="#1565C0"/>
                                 </Canvas>
                             </ToggleButton>
-                            <TextBlock Text="Слева" FontSize="9" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="Слева" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                         </StackPanel>
-
                         <StackPanel Spacing="3">
-                            <ToggleButton x:Name="BtnAlignCenter" Classes="alignBtn"
-                                          Focusable="False" Click="OnAlignCenterClick" ToolTip.Tip="По центру">
+                            <ToggleButton x:Name="BtnAlignCenter" Classes="alignBtn" Focusable="False" Click="OnAlignCenterClick" ToolTip.Tip="По центру">
                                 <Canvas Width="26" Height="20">
-                                    <Rectangle Canvas.Left="0" Canvas.Top="0"  Width="26" Height="3" Fill="#1565C0"/>
-                                    <Rectangle Canvas.Left="4" Canvas.Top="6"  Width="18" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="26" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="4" Canvas.Top="6" Width="18" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="2" Canvas.Top="12" Width="22" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="6" Canvas.Top="18" Width="14" Height="2" Fill="#1565C0"/>
                                 </Canvas>
                             </ToggleButton>
-                            <TextBlock Text="По центру" FontSize="9" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="По центру" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                         </StackPanel>
-
                         <StackPanel Spacing="3">
-                            <ToggleButton x:Name="BtnAlignRight" Classes="alignBtn"
-                                          Focusable="False" Click="OnAlignRightClick" ToolTip.Tip="По правому краю">
+                            <ToggleButton x:Name="BtnAlignRight" Classes="alignBtn" Focusable="False" Click="OnAlignRightClick" ToolTip.Tip="По правому краю">
                                 <Canvas Width="26" Height="20">
-                                    <Rectangle Canvas.Left="0"  Canvas.Top="0"  Width="26" Height="3" Fill="#1565C0"/>
-                                    <Rectangle Canvas.Left="8"  Canvas.Top="6"  Width="18" Height="3" Fill="#1565C0"/>
-                                    <Rectangle Canvas.Left="4"  Canvas.Top="12" Width="22" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="26" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="8" Canvas.Top="6" Width="18" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="4" Canvas.Top="12" Width="22" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="12" Canvas.Top="18" Width="14" Height="2" Fill="#1565C0"/>
                                 </Canvas>
                             </ToggleButton>
-                            <TextBlock Text="Справа" FontSize="9" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="Справа" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                         </StackPanel>
-
                         <StackPanel Spacing="3">
-                            <ToggleButton x:Name="BtnAlignJustify" Classes="alignBtn"
-                                          Focusable="False" Click="OnAlignJustifyClick" ToolTip.Tip="По ширине">
+                            <ToggleButton x:Name="BtnAlignJustify" Classes="alignBtn" Focusable="False" Click="OnAlignJustifyClick" ToolTip.Tip="По ширине">
                                 <Canvas Width="26" Height="20">
-                                    <Rectangle Canvas.Left="0" Canvas.Top="0"  Width="26" Height="3" Fill="#1565C0"/>
-                                    <Rectangle Canvas.Left="0" Canvas.Top="6"  Width="26" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="0" Width="26" Height="3" Fill="#1565C0"/>
+                                    <Rectangle Canvas.Left="0" Canvas.Top="6" Width="26" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="0" Canvas.Top="12" Width="26" Height="3" Fill="#1565C0"/>
                                     <Rectangle Canvas.Left="0" Canvas.Top="18" Width="26" Height="2" Fill="#1565C0"/>
                                 </Canvas>
                             </ToggleButton>
-                            <TextBlock Text="По ширине" FontSize="9" HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TextMutedBrush}"/>
+                            <TextBlock Text="По ширине" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
                         </StackPanel>
-
                     </StackPanel>
                 </StackPanel>
 
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
                 <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <Button Content="Вставить текст" Classes="toolbarBtn"
-                            Command="{Binding PasteNormalizedCommand}"
-                            IsEnabled="{Binding !IsBusy}" FontSize="12"/>
-                    <Button Content="Экспорт DOCX" Classes="accentBtn"
-                            Command="{Binding ExportToDocxCommand}"
-                            IsEnabled="{Binding !IsBusy}"/>
-                    <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True"
-                                 Width="70" Height="4" VerticalAlignment="Center" Foreground="#1565C0"/>
+                    <Button Content="Вставить текст" Classes="toolbarBtn" Command="{Binding PasteNormalizedCommand}" IsEnabled="{Binding !IsBusy}" FontSize="12"/>
+                    <Button Content="Экспорт DOCX" Classes="accentBtn" Click="OnExportClick" IsEnabled="{Binding !IsBusy}"/>
+                    <ProgressBar IsVisible="{Binding IsBusy}" IsIndeterminate="True" Width="70" Height="4" VerticalAlignment="Center" Foreground="#1565C0"/>
                 </StackPanel>
 
             </StackPanel>
         </Border>
 
-        <Border DockPanel.Dock="Bottom"
-                Background="{StaticResource SurfaceBrush}"
-                BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="0,1,0,0"
-                Padding="16,6">
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="16,6">
             <Grid ColumnDefinitions="Auto, *, Auto">
-
-
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                    <Button Content="Убрать форматирование" Classes="toolbarBtn"
-                            Padding="8,4" FontSize="11" Click="OnClearFormattingClick"/>
+                    <Button Content="Убрать форматирование" Classes="toolbarBtn" Padding="8,4" FontSize="11" Click="OnClearFormattingClick"/>
                     <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                        <TextBlock Text="Начать с листа №:"
-                                   VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   FontSize="11"/>
-
-                        <NumericUpDown x:Name="StartPagePicker"
-                                       Minimum="1" Maximum="999" Value="1"
-                                       FormatString="0"
-                                       ValueChanged="OnStartPageNumberChanged"
-                                       Width="100" Height="24" FontSize="11"
-                                       Padding="2,0"
-                                       HorizontalContentAlignment="Center"
-                                       VerticalContentAlignment="Center"/>
-
-                        <TextBlock x:Name="CurrentStartPageLabel"
-                                   Text="(Сейчас: 1)"
-                                   VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   FontSize="11"/>
+                        <TextBlock Text="Начать с листа №:" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="11"/>
+                        <NumericUpDown Minimum="1" Maximum="999" Value="{Binding ContentStartPage}" FormatString="0" Width="80" Height="24" FontSize="11" Padding="2,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                        <TextBlock Text="{Binding ContentStartPage, StringFormat='(Сейчас: {0})'}" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="11"/>
                     </StackPanel>
                 </StackPanel>
 
-                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}"
-                           Foreground="{StaticResource TextMutedBrush}" FontSize="11"
-                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <TextBlock Text="Масштаб:" VerticalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}" FontSize="11"/>
-                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}"
-                            Width="100" VerticalAlignment="Center"
-                            TickFrequency="0.1" IsSnapToTickEnabled="True" Foreground="#1565C0"/>
-                    <TextBlock Text="{Binding ZoomPercentage}" VerticalAlignment="Center"
-                               Foreground="{StaticResource TextMutedBrush}" FontSize="11" Width="38"/>
+                    <TextBlock Text="Масштаб:" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="11"/>
+                    <Slider Minimum="0.5" Maximum="2.0" Value="{Binding ZoomLevel}" Width="100" VerticalAlignment="Center" TickFrequency="0.1" IsSnapToTickEnabled="True" Foreground="#1565C0"/>
+                    <TextBlock Text="{Binding ZoomPercentage}" VerticalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Width="38"/>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <Grid ColumnDefinitions="240, *">
+        <Border DockPanel.Dock="Left" Width="240" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto, *, Auto">
+                <Border Grid.Row="0" Padding="16,12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                    <TextBlock Text="НАВИГАЦИЯ" Foreground="{StaticResource TextMutedBrush}" FontSize="10" FontWeight="Bold" LetterSpacing="1"/>
+                </Border>
 
-            <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-                <Grid RowDefinitions="Auto, *, Auto">
-                    <Border Grid.Row="0" Padding="16,12"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
-                        <TextBlock Text="НАВИГАЦИЯ"
-                                   Foreground="{StaticResource TextMutedBrush}"
-                                   FontSize="10" FontWeight="Bold" LetterSpacing="1"/>
-                    </Border>
+                <ScrollViewer Grid.Row="1" Margin="6,6">
+                    <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedNavigationItem}" Background="Transparent" BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="models:NavigationItem">
+                                <Grid ColumnDefinitions="Auto, *">
+                                    <Border Grid.Column="0" Width="16" IsVisible="{Binding IsSubChapter}"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Title}" Foreground="{StaticResource TextMainBrush}" FontSize="13" VerticalAlignment="Center" FontWeight="{Binding FontWeight}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </ScrollViewer>
 
-                    <ScrollViewer Grid.Row="1" Margin="6,6">
-                        <ListBox ItemsSource="{Binding NavigationItems}" SelectedItem="{Binding SelectedNavigationItem}"
-                                 Background="Transparent" BorderThickness="0">
-                            <ListBox.ItemTemplate>
-                                <DataTemplate x:DataType="models:NavigationItem">
-                                    <Grid ColumnDefinitions="Auto, *">
-                                        <Border Grid.Column="0" Width="16" IsVisible="{Binding IsSubChapter}"/>
+                <Border Grid.Row="2" Padding="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+                    <StackPanel Spacing="6">
+                        <Button Content="+ Глава (с нов. стр.)" Classes="toolbarBtn" Command="{Binding AddChapterCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#F9FAFB" FontSize="11" FontWeight="SemiBold"/>
+                        <Button Content="+ Подраздел" Classes="toolbarBtn" Command="{Binding AddSubChapterCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#F9FAFB" FontSize="11"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
 
-                                        <TextBlock Grid.Column="1" Text="{Binding Title}"
-                                                   Foreground="{StaticResource TextMainBrush}"
-                                                   FontSize="13" VerticalAlignment="Center"
-                                                   FontWeight="{Binding FontWeight}"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding Title}"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+        <TabControl x:Name="MainTabs" Classes="mainTabs" Background="{StaticResource BackgroundBrush}" BorderThickness="0" Padding="0">
+
+            <TabItem Header="Редактор">
+                <Grid Background="{StaticResource BackgroundBrush}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                        <LayoutTransformControl HorizontalAlignment="Center" Margin="40">
+                            <LayoutTransformControl.LayoutTransform>
+                                <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
+                            </LayoutTransformControl.LayoutTransform>
+                            <Border Background="White" BoxShadow="0 8 24 0 #18000000" CornerRadius="2">
+                                <views:DocumentEngineView x:Name="MainEditor"/>
+                            </Border>
+                        </LayoutTransformControl>
                     </ScrollViewer>
-
-                    <Border Grid.Row="2" Padding="10"
-                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
-                        <StackPanel Spacing="6">
-                            <Button Content="+ Глава (с нов. стр.)" Classes="toolbarBtn"
-                                    Command="{Binding AddChapterCommand}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                    Background="#F9FAFB" FontSize="11" FontWeight="SemiBold"/>
-                            <Button Content="+ Подраздел" Classes="toolbarBtn"
-                                    Command="{Binding AddSubChapterCommand}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                    Background="#F9FAFB" FontSize="11"/>
-                        </StackPanel>
-                    </Border>
                 </Grid>
-            </Border>
+            </TabItem>
 
-            <TabControl x:Name="MainTabs" Grid.Column="1"
-                        Background="{StaticResource BackgroundBrush}"
-                        BorderThickness="0" Padding="0">
+            <TabItem Header="Структура документа">
+                <Grid ColumnDefinitions="300, *" Background="{StaticResource BackgroundBrush}">
 
-                <TabItem Header="Редактор">
-                    <Grid Background="{StaticResource BackgroundBrush}">
-                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                            <LayoutTransformControl HorizontalAlignment="Center" Margin="40">
-                                <LayoutTransformControl.LayoutTransform>
-                                    <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
-                                </LayoutTransformControl.LayoutTransform>
-                                <Border Background="White" BoxShadow="0 8 24 0 #18000000" CornerRadius="2">
-                                    <views:DocumentEngineView x:Name="MainEditor"/>
-                                </Border>
-                            </LayoutTransformControl>
-                        </ScrollViewer>
-                    </Grid>
-                </TabItem>
+                    <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                        <StackPanel Margin="0,12,0,0">
+                            <TextBlock Text="РАЗДЕЛЫ ПРОЕКТА" Margin="24,12,0,16" Foreground="{StaticResource TextMutedBrush}" FontSize="11" FontWeight="Bold" LetterSpacing="1"/>
 
-                <TabItem Header="Титульный лист">
-                    <Grid ColumnDefinitions="400, *">
-                        <ScrollViewer Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                                      BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
-                            <Border Padding="24">
-                                <StackPanel Spacing="20">
-                                    <TextBlock Text="Настройки титульного листа" FontSize="18" FontWeight="Bold"
-                                               Foreground="{StaticResource TextMainBrush}"/>
-                                    <StackPanel Spacing="12">
-                                        <TextBlock Text="Учебное заведение" FontSize="12" FontWeight="Medium"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                        <TextBox Text="{Binding University}" Watermark="Например, ТвГТУ"
-                                                 Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <TextBlock Text="Кафедра" FontSize="12" FontWeight="Medium"
-                                                   Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
-                                        <TextBox Text="{Binding Department}" Background="#F9FAFB"
-                                                 CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <TextBlock Text="Дисциплина" FontSize="12" FontWeight="Medium"
-                                                   Foreground="{StaticResource TextMutedBrush}" Margin="0,4,0,0"/>
-                                        <TextBox Text="{Binding Discipline}" Background="#F9FAFB"
-                                                 CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8"/>
-                                        <TextBlock Text="Информация о работе" FontSize="12" FontWeight="Medium"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                        <TextBox Text="{Binding WorkType}" Watermark="Тип работы" Background="#F9FAFB"
-                                                 CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <TextBox Text="{Binding WorkTitle}" Watermark="Тема работы" Background="#F9FAFB"
-                                                 CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"
-                                                 MinHeight="60" AcceptsReturn="True" TextWrapping="Wrap"/>
-                                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8"/>
-                                        <TextBlock Text="Люди" FontSize="12" FontWeight="Medium"
-                                                   Foreground="{StaticResource TextMutedBrush}"/>
-                                        <TextBox Text="{Binding GroupNumber}" Watermark="Номер группы" Background="#F9FAFB"
-                                                 CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <Grid ColumnDefinitions="*, Auto">
-                                            <TextBox Grid.Column="0" Text="{Binding StudentName}"
-                                                     AcceptsReturn="True" MinHeight="60" Watermark="ФИО студента(ов)"
-                                                     Background="#F9FAFB" CornerRadius="6"
-                                                     BorderBrush="{StaticResource BorderBrush}" TextWrapping="Wrap"/>
-                                            <Button Grid.Column="1" Content="+" Command="{Binding AddStudentCommand}"
-                                                    Classes="accentBtn" VerticalAlignment="Top"
-                                                    Margin="8,0,0,0" Width="36" Height="36"
-                                                    HorizontalContentAlignment="Center" Padding="0"/>
-                                        </Grid>
-                                        <TextBox Text="{Binding TeacherName}" Watermark="ФИО преподавателя"
-                                                 Background="#F9FAFB" CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                        <Grid ColumnDefinitions="*, 160" Margin="0,8,0,0">
-                                            <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
-                                                <TextBlock Text="Город" FontSize="12" FontWeight="Medium"
-                                                           Foreground="{StaticResource TextMutedBrush}"/>
-                                                <TextBox Text="{Binding City}" Background="#F9FAFB"
-                                                         CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Spacing="4">
-                                                <TextBlock Text="Год" FontSize="12" FontWeight="Medium"
-                                                           Foreground="{StaticResource TextMutedBrush}"/>
-                                                <NumericUpDown Value="{Binding Year}" Minimum="1900" Maximum="2100"
-                                                               FormatString="0" Background="#F9FAFB"
-                                                               CornerRadius="6" BorderBrush="{StaticResource BorderBrush}"/>
-                                            </StackPanel>
-                                        </Grid>
+                            <ListBox Classes="sidebarMenu" SelectedIndex="{Binding SelectedModuleIndex}" BorderThickness="0">
+
+                                <ListBoxItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox IsChecked="{Binding HasTitlePage}" Focusable="False" CornerRadius="4"/>
+                                        <TextBlock Text="Титульный лист" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
                                     </StackPanel>
-                                    <Button Content="Сбросить по умолчанию" Command="{Binding ResetTitlePageCommand}"
-                                            Classes="toolbarBtn" HorizontalAlignment="Stretch"
-                                            HorizontalContentAlignment="Center"
-                                            Background="#FEE2E2" Foreground="#DC2626" Margin="0,10,0,0"/>
+                                </ListBoxItem>
+
+                                <ListBoxItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox IsChecked="{Binding HasTableOfContents}" Focusable="False" CornerRadius="4"/>
+                                        <TextBlock Text="Содержание" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                    </StackPanel>
+                                </ListBoxItem>
+
+                                <ListBoxItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox IsChecked="{Binding HasBibliography}" Focusable="False" CornerRadius="4"/>
+                                        <TextBlock Text="Список литературы" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                    </StackPanel>
+                                </ListBoxItem>
+
+                                <ListBoxItem>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox IsChecked="{Binding HasAppendix}" Focusable="False" CornerRadius="4"/>
+                                        <TextBlock Text="Приложения (Код)" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="14"/>
+                                    </StackPanel>
+                                </ListBoxItem>
+
+                            </ListBox>
+
+                            <Border Background="#E8EEF7" CornerRadius="8" Padding="16" Margin="16,24,16,0">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="💡 Как это работает" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" FontSize="12"/>
+                                    <TextBlock Text="Галочка слева определяет, попадет ли этот раздел в итоговый DOCX-файл. Кликните по названию раздела, чтобы настроить его."
+                                               FontSize="12" Foreground="{StaticResource TextMainBrush}" TextWrapping="Wrap" LineHeight="18"/>
                                 </StackPanel>
                             </Border>
-                        </ScrollViewer>
-                        <ScrollViewer Grid.Column="1" Background="{StaticResource BackgroundBrush}"
-                                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-                            <Border Padding="40" HorizontalAlignment="Center" VerticalAlignment="Top">
-                                <LayoutTransformControl>
-                                    <LayoutTransformControl.LayoutTransform>
-                                        <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
-                                    </LayoutTransformControl.LayoutTransform>
-                                    <Border Width="794" Height="1123" Background="White"
-                                            BoxShadow="0 10 30 0 #1A000000" CornerRadius="2">
-                                        <Grid Margin="113,76,57,76">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="*"/>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="Auto"/>
-                                            </Grid.RowDefinitions>
-                                            <StackPanel Grid.Row="0" HorizontalAlignment="Stretch" Spacing="0">
-                                                <TextBlock Text="Министерство науки и высшего образования Российской Федерации"
-                                                           TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
-                                                <TextBlock Text="Федеральное государственное бюджетное образовательное учреждение"
-                                                           TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
-                                                <TextBlock Text="высшего образования" TextAlignment="Center" FontSize="19"
-                                                           FontFamily="Times New Roman, Liberation Serif, serif"/>
-                                                <TextBox Classes="titleInput" Text="{Binding University}" TextAlignment="Center"
-                                                         FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold"/>
-                                                <TextBox Classes="titleInput" Text="{Binding Department}" TextAlignment="Center"
-                                                         FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" Margin="0,15,0,0"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Stretch" Spacing="0">
-                                                <TextBox Classes="titleInput" Text="{Binding WorkType}" TextAlignment="Center"
-                                                         FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                                    <TextBlock Text="по дисциплине «" FontSize="19"
-                                                               FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                    <TextBox Classes="titleInput" Text="{Binding Discipline}" FontSize="19"
-                                                             FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                    <TextBlock Text="»" FontSize="19"
-                                                               FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                                    <TextBlock Text="на тему « " FontSize="19"
-                                                               FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                    <TextBox Classes="titleInput" Text="{Binding WorkTitle}" FontSize="19"
-                                                             FontFamily="Times New Roman, Liberation Serif, serif"
-                                                             TextWrapping="Wrap" MaxWidth="450" VerticalAlignment="Center"/>
-                                                    <TextBlock Text=" »" FontSize="19"
-                                                               FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                            </StackPanel>
-                                            <StackPanel Grid.Row="2" HorizontalAlignment="Right" Margin="0,0,0,40" Spacing="0">
-                                                <TextBlock Text="Выполнил:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"
-                                                           FontWeight="Bold" TextAlignment="Left"/>
-                                                <TextBlock Text="студент группы" FontSize="19"
-                                                           FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left"/>
-                                                <TextBox Classes="titleInput" Text="{Binding GroupNumber}" FontSize="19"
-                                                         FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
-                                                <TextBox Classes="titleInput" Text="{Binding StudentName}" AcceptsReturn="True"
-                                                         FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"
-                                                         TextAlignment="Left" TextWrapping="Wrap"/>
-                                                <TextBlock Text="Принял:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"
-                                                           FontWeight="Bold" Margin="0,15,0,0" TextAlignment="Left"/>
-                                                <TextBox Classes="titleInput" Text="{Binding TeacherName}" FontSize="19"
-                                                         FontFamily="Times New Roman, Liberation Serif, serif"
-                                                         TextAlignment="Left" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="0">
-                                                <TextBox Classes="titleInput" Text="{Binding City}" FontSize="19"
-                                                         FontFamily="Times New Roman, Liberation Serif, serif"
-                                                         VerticalAlignment="Center" TextAlignment="Right"/>
-                                                <TextBlock Text=", " FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBox Classes="titleInput" Text="{Binding Year}" FontSize="19"
-                                                         FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
-                                                <TextBlock Text=" г." FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"
-                                                           VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </LayoutTransformControl>
-                            </Border>
-                        </ScrollViewer>
-                    </Grid>
-                </TabItem>
 
-                <TabItem Header="Исходный код">
-                    <Grid ColumnDefinitions="350, *" Background="{StaticResource BackgroundBrush}">
-                        <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}"
-                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0" Padding="24">
-                            <StackPanel Spacing="16">
-                                <TextBlock Text="Приложение (Код)" FontSize="18" FontWeight="Bold"
-                                           Foreground="{StaticResource TextMainBrush}"/>
-                                <TextBlock Text="Загрузите папку с вашим проектом. GostEditor автоматически прочитает файлы и добавит их в конец документа как листинги кода, оформленные по всем правилам ГОСТ."
-                                           FontSize="13" Foreground="{StaticResource TextMutedBrush}"
-                                           TextWrapping="Wrap" LineHeight="20"/>
-                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4"/>
-                                <Button Content="Выбрать папку проекта" Classes="accentBtn"
-                                        Command="{Binding ParseCodeFolderCommand}"
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,8,0,0"/>
-                                <Button Content="Очистить список файлов" Command="{Binding ClearCodeListingsCommand}"
-                                        Classes="toolbarBtn" HorizontalAlignment="Stretch"
-                                        HorizontalContentAlignment="Center" Background="#FEE2E2" Foreground="#DC2626"/>
-                                <Border Background="#E8EEF7" CornerRadius="8" Padding="12" Margin="0,16,0,0">
-                                    <StackPanel Spacing="8">
-                                        <TextBlock Text="Подсказка:" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource AccentBrush}" FontSize="12"/>
-                                        <TextBlock Text="При экспорте в DOCX эти файлы будут автоматически добавлены в раздел «Приложение А» шрифтом Consolas (12pt)."
-                                                   FontSize="12" Foreground="{StaticResource TextMainBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TabControl Grid.Column="1" Classes="hiddenTabs" SelectedIndex="{Binding SelectedModuleIndex}" Padding="0" Background="Transparent">
+
+                        <TabItem>
+                            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                <Grid ColumnDefinitions="450, *">
+                                    <Border Grid.Column="0" Padding="40" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                                        <StackPanel Spacing="24">
+                                            <TextBlock Text="Настройки титульного листа" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
+
+                                            <StackPanel Spacing="16">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Учебное заведение" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                    <TextBox Text="{Binding University}" Watermark="Министерство... ВУЗ" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Кафедра" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                    <TextBox Text="{Binding Department}" Watermark="Название кафедры" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                </StackPanel>
+
+                                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4"/>
+
+                                                <Grid ColumnDefinitions="*, *">
+                                                    <StackPanel Grid.Column="0" Spacing="6" Margin="0,0,8,0">
+                                                        <TextBlock Text="Дисциплина" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                        <TextBox Text="{Binding Discipline}" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Spacing="6" Margin="8,0,0,0">
+                                                        <TextBlock Text="Тип работы" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                        <TextBox Text="{Binding WorkType}" Watermark="Курсовая работа" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Тема работы" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                    <TextBox Text="{Binding WorkTitle}" Background="#F9FAFB" CornerRadius="6" BorderThickness="1" MinHeight="60" AcceptsReturn="True" TextWrapping="Wrap"/>
+                                                </StackPanel>
+
+                                                <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4"/>
+
+                                                <Grid ColumnDefinitions="*, *">
+                                                    <StackPanel Grid.Column="0" Spacing="6" Margin="0,0,8,0">
+                                                        <TextBlock Text="Группа" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                        <TextBox Text="{Binding GroupNumber}" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Spacing="6" Margin="8,0,0,0">
+                                                        <TextBlock Text="Год сдачи" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                        <NumericUpDown Value="{Binding Year}" FormatString="0" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                    </StackPanel>
+                                                </Grid>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Студент (ФИО)" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                    <TextBox Text="{Binding StudentName}" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                </StackPanel>
+
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="Преподаватель (ФИО)" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}"/>
+                                                    <TextBox Text="{Binding TeacherName}" Background="#F9FAFB" CornerRadius="6" BorderThickness="1"/>
+                                                </StackPanel>
+
+                                            </StackPanel>
+
+                                            <Button Content="Сбросить поля" Command="{Binding ResetTitlePageCommand}" Classes="toolbarBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#FEE2E2" Foreground="#DC2626" Margin="0,10,0,0"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Grid.Column="1" Padding="40" Background="{StaticResource BackgroundBrush}">
+                                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly">
+                                            <Border Width="794" Height="1123" Background="White" BoxShadow="0 10 30 0 #1A000000" CornerRadius="2">
+                                                <Grid Margin="113,76,57,76">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="*"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                    </Grid.RowDefinitions>
+                                                    <StackPanel Grid.Row="0" HorizontalAlignment="Stretch" Spacing="0">
+                                                        <TextBlock Text="Министерство науки и высшего образования Российской Федерации" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                        <TextBlock Text="Федеральное государственное бюджетное образовательное учреждение" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                        <TextBlock Text="высшего образования" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding University}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding Department}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" Margin="0,15,0,0"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Stretch" Spacing="0">
+                                                        <TextBox Classes="titleInput" Text="{Binding WorkType}" TextAlignment="Center" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif"/>
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                            <TextBlock Text="по дисциплине «" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                            <TextBox Classes="titleInput" Text="{Binding Discipline}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="»" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                            <TextBlock Text="на тему « " FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                            <TextBox Classes="titleInput" Text="{Binding WorkTitle}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextWrapping="Wrap" MaxWidth="450" VerticalAlignment="Center"/>
+                                                            <TextBlock Text=" »" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Row="2" HorizontalAlignment="Right" Margin="0,0,0,40" Spacing="0">
+                                                        <TextBlock Text="Выполнил:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold" TextAlignment="Left"/>
+                                                        <TextBlock Text="студент группы" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding GroupNumber}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding StudentName}" AcceptsReturn="True" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
+                                                        <TextBlock Text="Принял:" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" FontWeight="Bold" Margin="0,15,0,0" TextAlignment="Left"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding TeacherName}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" TextAlignment="Left" TextWrapping="Wrap"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="0">
+                                                        <TextBox Classes="titleInput" Text="{Binding City}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center" TextAlignment="Right"/>
+                                                        <TextBlock Text=", " FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                        <TextBox Classes="titleInput" Text="{Binding Year}" FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                        <TextBlock Text=" г." FontSize="19" FontFamily="Times New Roman, Liberation Serif, serif" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                        </Viewbox>
+                                    </Border>
+                                </Grid>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem>
+                            <Border Padding="60">
+                                <StackPanel Spacing="24" MaxWidth="700" HorizontalAlignment="Left">
+                                    <TextBlock Text="Содержание (Оглавление)" FontSize="28" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
+
+                                    <TextBlock Text="Оглавление формируется автоматически при экспорте в Word. Программа находит все абзацы со стилем «Глава» (Heading 1) и «Подраздел» (Heading 2) и выстраивает из них иерархию с указанием номеров страниц."
+                                               FontSize="15" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="24"/>
+
+                                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="24" Margin="0,16,0,0">
+                                        <StackPanel Spacing="16">
+                                            <TextBlock Text="Пример генерации:" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource TextMutedBrush}"/>
+
+                                            <Grid ColumnDefinitions="*, Auto" Margin="0,8">
+                                                <TextBlock Grid.Column="0" Text="ВВЕДЕНИЕ" FontWeight="Bold" FontFamily="Times New Roman" FontSize="16"/>
+                                                <TextBlock Grid.Column="1" Text="3" FontFamily="Times New Roman" FontSize="16"/>
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*, Auto">
+                                                <TextBlock Grid.Column="0" Text="1. ТЕОРЕТИЧЕСКАЯ ЧАСТЬ" FontWeight="Bold" FontFamily="Times New Roman" FontSize="16"/>
+                                                <TextBlock Grid.Column="1" Text="4" FontFamily="Times New Roman" FontSize="16"/>
+                                            </Grid>
+                                            <Grid ColumnDefinitions="*, Auto" Margin="24,0,0,0">
+                                                <TextBlock Grid.Column="0" Text="1.1 Обзор предметной области" FontFamily="Times New Roman" FontSize="16"/>
+                                                <TextBlock Grid.Column="1" Text="4" FontFamily="Times New Roman" FontSize="16"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <TabItem>
+                            <Border Padding="60">
+                                <StackPanel Spacing="24" MaxWidth="700" HorizontalAlignment="Left">
+                                    <TextBlock Text="Список литературы по ГОСТ" FontSize="28" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
+                                    <TextBlock Text="Менеджер библиографии позволит добавлять источники (книги, статьи, ссылки) и автоматически формировать правильный список в конце документа, а также вставлять квадратные скобки [1] в текст."
+                                               FontSize="15" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="24"/>
+
+                                    <Border Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="8" Padding="20">
+                                        <StackPanel Orientation="Horizontal" Spacing="16">
+                                            <TextBlock Text="🚧" FontSize="24" VerticalAlignment="Center"/>
+                                            <TextBlock Text="Этот раздел находится в разработке. Мы реализуем его на Этапе 3."
+                                                       Foreground="#D97706" FontWeight="Medium" FontSize="14" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </TabItem>
+
+                        <TabItem>
+                            <Grid ColumnDefinitions="380, *">
+                                <Border Grid.Column="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0" Padding="32">
+                                    <StackPanel Spacing="20">
+                                        <TextBlock Text="Приложения (Листинги)" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
+
+                                        <TextBlock Text="Загрузите папку с вашим проектом. GostEditor автоматически прочитает файлы и добавит их в конец документа как листинги кода."
+                                                   FontSize="13" TextWrapping="Wrap" Foreground="{StaticResource TextMutedBrush}" LineHeight="20"/>
+
+                                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,4"/>
+
+                                        <Button Content="Выбрать папку проекта"
+                                                Classes="accentBtn"
+                                                Click="OnParseFolderClick"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center"
+                                                Padding="12,14"/>
+                                        <Button Content="Очистить список" Command="{Binding ClearCodeListingsCommand}" Classes="toolbarBtn" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Background="#FEE2E2" Foreground="#DC2626"/>
+
+                                        <Border Background="#F9FAFB" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,20,0,0">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="Форматирование ГОСТ:" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextMainBrush}"/>
+                                                <TextBlock Text="• Раздел «ПРИЛОЖЕНИЕ А»&#x0a;• Шрифт: Consolas, 10pt&#x0a;• Одинарный интервал&#x0a;• Подпись: Листинг 1 — Имя файла"
+                                                           FontSize="12" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="20"/>
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
                                 </Border>
-                            </StackPanel>
-                        </Border>
-                        <Border Grid.Column="1" Padding="32">
-                            <Grid RowDefinitions="Auto, *, Auto">
-                                <TextBlock Grid.Row="0" Text="Загруженные файлы для листинга:"
-                                           FontWeight="SemiBold" FontSize="16" Margin="0,0,0,16"
-                                           Foreground="{StaticResource TextMainBrush}"/>
-                                <ScrollViewer Grid.Row="1">
-                                    <ListBox ItemsSource="{Binding CodeListings}"
-                                             Background="Transparent" BorderThickness="0">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:SelectableCodeListing">
-                                                <Border Background="{StaticResource SurfaceBrush}"
-                                                        CornerRadius="8" Padding="12" Margin="0,0,0,8"
-                                                        BoxShadow="0 2 8 0 #0A000000">
-                                                    <CheckBox IsChecked="{Binding IsSelected}"
-                                                              Content="{Binding Listing.FileName}"
-                                                              FontWeight="Medium" FontSize="14"
-                                                              Foreground="{StaticResource TextMainBrush}"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
-                                </ScrollViewer>
-                                <Button Grid.Row="2" Content="Добавить выбранные в редактор"
-                                        Classes="accentBtn" Command="{Binding InsertCodeToEditorCommand}"
-                                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        Margin="0,16,0,0" Padding="16,12" FontSize="14"/>
-                            </Grid>
-                        </Border>
-                    </Grid>
-                </TabItem>
+                                <Border Grid.Column="1" Padding="40" Background="{StaticResource BackgroundBrush}">
+                                    <Grid RowDefinitions="Auto, *, Auto">
+                                        <TextBlock Grid.Row="0" Text="Выбранные файлы:" FontWeight="Bold" FontSize="18" Margin="0,0,0,20" Foreground="{StaticResource TextMainBrush}"/>
 
-            </TabControl>
-        </Grid>
+                                        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                            <ScrollViewer>
+                                                <ListBox ItemsSource="{Binding CodeListings}" Background="Transparent" Padding="8">
+                                                    <ListBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:CodeListingViewModel">
+                                                            <Border Background="#F9FAFB" CornerRadius="6" Padding="12,10" Margin="0,4">
+                                                                <Grid ColumnDefinitions="*, Auto">
+                                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" Content="{Binding Listing.FileName}" FontWeight="Medium" FontSize="14" Foreground="{StaticResource TextMainBrush}"/>
+                                                                    <TextBlock Grid.Column="1" Text="{Binding LinesCount, StringFormat='{}Строк: {0}'}" FontSize="12" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ListBox.ItemTemplate>
+                                                </ListBox>
+                                            </ScrollViewer>
+                                        </Border>
+
+                                        <Button Grid.Row="2" Content="Вставить код прямо в текст (опционально)" Classes="toolbarBtn" Command="{Binding InsertCodeToEditorCommand}" HorizontalAlignment="Center" Margin="0,20,0,0"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+
+                    </TabControl>
+                </Grid>
+            </TabItem>
+
+        </TabControl>
     </DockPanel>
 </Window>

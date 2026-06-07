@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Media.TextFormatting;
-using GostEditor.Core.TextEngine.DOM; // Добавили для DocumentPosition
+using GostEditor.Core.TextEngine.DOM;
 
 namespace GostEditor.UI.Layout;
 

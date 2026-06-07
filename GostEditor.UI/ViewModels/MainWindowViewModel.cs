@@ -1,237 +1,251 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
-using GostEditor.UI.Services;
-using GostDocument = GostEditor.Core.Models.GostDocument;
 
 namespace GostEditor.UI.ViewModels;
 
-public partial class SelectableCodeListing : ObservableObject
+/// <summary>
+/// Главная модель представления для управления состоянием окна редактора.
+/// </summary>
+public partial class MainWindowViewModel : ObservableObject
 {
-    [ObservableProperty]
-    private bool _isSelected = true;
-
-    public CodeListing Listing { get; }
-
-    public SelectableCodeListing(CodeListing listing)
-    {
-        Listing = listing;
-    }
-}
-
-public partial class MainWindowViewModel : ViewModelBase
-{
-    private readonly IDocumentService _documentService;
+    private readonly IArchiveService _archiveService;
     private readonly IExportService _exportService;
-    private readonly ICodeParserService _codeParserService;
-    private readonly ITextNormalizerService _textNormalizerService;
-    private readonly IValidationService _validationService;
-    private readonly DialogService _dialogService;
 
-    private string? _currentFilePath;
+    public IArchiveService ArchiveService => _archiveService;
+    public IExportService ExportService => _exportService;
 
+    [ObservableProperty]
+    private string _windowTitle = "GostEditor - Новый документ";
+
+    [ObservableProperty]
+    private bool _isBusy;
+
+    [ObservableProperty]
+    private string _statusMessage = "Готово";
+
+    private double _zoomLevel = 1.0;
+
+    public double ZoomLevel
+    {
+        get => _zoomLevel;
+        set
+        {
+            if (SetProperty(ref _zoomLevel, value))
+            {
+                OnPropertyChanged(nameof(ZoomPercentage));
+            }
+        }
+    }
+
+    public string ZoomPercentage => $"{(int)(ZoomLevel * 100)}%";
+
+    [ObservableProperty]
+    private GostDocument _currentDocument;
+
+    // События для взаимодействия с редактором
     public event Action<List<Paragraph>>? OnInsertParagraphsRequested;
-
-    // Новые события для связи с редактором
     public event Action<int>? OnScrollToParagraphRequested;
     public event Action<int, string>? OnInsertHeadingRequested;
+    public event Func<GostDocument>? GetEditorDocument;
+
+    // === МЕТАДАННЫЕ ТИТУЛЬНОГО ЛИСТА ===
+    [ObservableProperty]
+    private string _university = string.Empty;
 
     [ObservableProperty]
-    private GostDocument _currentDocument = new GostDocument();
+    private string _department = string.Empty;
 
-    // НОВОЕ: Наш список "Умного оглавления"
+    [ObservableProperty]
+    private string _discipline = string.Empty;
+
+    [ObservableProperty]
+    private string _workType = string.Empty;
+
+    [ObservableProperty]
+    private string _workTitle = string.Empty;
+
+    [ObservableProperty]
+    private string _studentName = string.Empty;
+
+    [ObservableProperty]
+    private string _groupNumber = string.Empty;
+
+    [ObservableProperty]
+    private string _teacherName = string.Empty;
+
+    [ObservableProperty]
+    private string _city = string.Empty;
+
+    [ObservableProperty]
+    private int _year = DateTime.Now.Year;
+
+    // === МОДУЛЬНАЯ СИСТЕМА ===
+
+    [ObservableProperty]
+    private int _selectedModuleIndex = 0;
+
+    [ObservableProperty]
+    private bool _hasTitlePage = true;
+
+    [ObservableProperty]
+    private bool _hasTableOfContents = true;
+
+    [ObservableProperty]
+    private bool _hasBibliography = false;
+
+    [ObservableProperty]
+    private bool _hasAppendix = true;
+
+    [ObservableProperty]
+    private int _contentStartPage = 3;
+
+    // === НАВИГАЦИЯ ПО ДОКУМЕНТУ ===
+
     [ObservableProperty]
     private ObservableCollection<NavigationItem> _navigationItems = new ObservableCollection<NavigationItem>();
 
     [ObservableProperty]
     private NavigationItem? _selectedNavigationItem;
 
-    [ObservableProperty]
-    private ObservableCollection<SelectableCodeListing> _codeListings = new ObservableCollection<SelectableCodeListing>();
-
-    [ObservableProperty] private string _university = "«Тверской государственный технический университет»";
-    [ObservableProperty] private string _department = "Кафедра [Название]";
-    [ObservableProperty] private string _discipline = "[Дисциплина]";
-    [ObservableProperty] private string _workType = "[Тип работы]";
-    [ObservableProperty] private string _workTitle = "[Тема работы]";
-    [ObservableProperty] private string _groupNumber = "[Группа]";
-    [ObservableProperty] private string _studentName = "[ФИО студента]";
-    [ObservableProperty] private string _teacherName = "[ФИО преподавателя]";
-    [ObservableProperty] private string _city = "Тверь";
-    [ObservableProperty] private int _year = DateTime.Now.Year;
+    // === ЛИСТИНГИ КОДА ===
 
     [ObservableProperty]
-    private string _windowTitle = "Новый документ — GostEditor";
+    private ObservableCollection<CodeListingViewModel> _codeListings = new ObservableCollection<CodeListingViewModel>();
 
-    [ObservableProperty]
-    private string _statusMessage = "Готово";
+    // === КОНСТРУКТОР ===
 
-    [ObservableProperty]
-    private double _zoomLevel = 1.0;
-
-    [ObservableProperty]
-    private bool _hasUnsavedChanges = false;
-
-    [ObservableProperty]
-    private bool _isBusy = false;
-
-    public string ZoomPercentage => $"{Math.Round(ZoomLevel * 100)}%";
-
-    partial void OnZoomLevelChanged(double value)
+    public MainWindowViewModel(IArchiveService archiveService, IExportService exportService)
     {
-        OnPropertyChanged(nameof(ZoomPercentage));
+        _archiveService = archiveService ?? throw new ArgumentNullException(nameof(archiveService));
+        _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+        _currentDocument = new GostDocument();
+
+        Debug.WriteLine("[VM] MainWindowViewModel инициализирован");
     }
 
-    public MainWindowViewModel(
-        IDocumentService documentService,
-        IExportService exportService,
-        ICodeParserService codeParserService,
-        ITextNormalizerService textNormalizerService,
-        IValidationService validationService,
-        DialogService dialogService)
-    {
-        _documentService = documentService;
-        _exportService = exportService;
-        _codeParserService = codeParserService;
-        _textNormalizerService = textNormalizerService;
-        _validationService = validationService;
-        _dialogService = dialogService;
+    // === МЕТОДЫ ===
 
-        SyncNavigation();
-    }
-
-    // --- УМНАЯ НАВИГАЦИЯ (РАДАР) ---
-
+    /// <summary>
+    /// Синхронизирует навигацию с текущим документом (строит дерево заголовков)
+    /// </summary>
     public void SyncNavigation()
     {
+        if (CurrentDocument == null)
+        {
+            Debug.WriteLine("[VM] SyncNavigation: CurrentDocument is null");
+            return;
+        }
+
         NavigationItems.Clear();
 
         for (int i = 0; i < CurrentDocument.Paragraphs.Count; i++)
         {
-            Paragraph p = CurrentDocument.Paragraphs[i];
+            Paragraph paragraph = CurrentDocument.Paragraphs[i];
 
-            // Если находим заголовок - добавляем его в левую панель
-            if (p.Style == ParagraphStyle.Heading1 || p.Style == ParagraphStyle.Heading2)
+            if (paragraph.Style == ParagraphStyle.Heading1 ||
+                paragraph.Style == ParagraphStyle.Heading2)
             {
-                string text = p.GetPlainText().Trim();
-                if (string.IsNullOrEmpty(text)) text = "[Пустой заголовок]";
+                int level = paragraph.Style == ParagraphStyle.Heading1 ? 1 : 2;
+                string title = paragraph.GetPlainText();
 
                 NavigationItems.Add(new NavigationItem
                 {
-                    Title = text,
+                    Title = title,
                     ParagraphIndex = i,
-                    Level = p.Style == ParagraphStyle.Heading1 ? 1 : 2
+                    Level = level
                 });
+
+                Debug.WriteLine($"[VM] Добавлен заголовок: '{title}' (уровень {level})");
             }
         }
+
+        Debug.WriteLine($"[VM] SyncNavigation завершена: найдено {NavigationItems.Count} заголовков");
     }
 
+    /// <summary>
+    /// Вызывается автоматически при изменении выбранного элемента навигации
+    /// </summary>
     partial void OnSelectedNavigationItemChanged(NavigationItem? value)
     {
-        // Кликнули в левом меню? Командуем редактору: Скролль к этому абзацу!
         if (value != null)
         {
+            Debug.WriteLine($"[VM] Навигация к параграфу {value.ParagraphIndex}: '{value.Title}'");
             OnScrollToParagraphRequested?.Invoke(value.ParagraphIndex);
         }
     }
 
-    [RelayCommand]
-    private void AddChapter()
-    {
-        // Уровень 1 - Глава (с новой страницы)
-        OnInsertHeadingRequested?.Invoke(1, "Новая глава");
-    }
+    // === КОМАНДЫ ===
 
-    [RelayCommand]
-    private void AddSubChapter()
-    {
-        // Уровень 2 - Подраздел (на текущей странице)
-        OnInsertHeadingRequested?.Invoke(2, "Новый подраздел");
-    }
-
-    // --- ЛОГИКА ТИТУЛЬНОГО ЛИСТА И UI ---
-
-    private void UpdateWindowTitle()
-    {
-        string fileName = _currentFilePath is not null
-            ? System.IO.Path.GetFileName(_currentFilePath)
-            : "Новый документ";
-
-        string unsaved = HasUnsavedChanges ? " *" : "";
-        WindowTitle = $"{fileName}{unsaved} — GostEditor";
-    }
-
-    [RelayCommand]
-    private void AddStudent()
-    {
-        StudentName += "\n[ФИО студента]";
-    }
-
-    [RelayCommand]
-    private void ResetTitlePage()
-    {
-        University = "«Тверской государственный технический университет»";
-        Department = "Кафедра [Название]";
-        Discipline = "[Дисциплина]";
-        WorkType = "[Тип работы]";
-        WorkTitle = "[Тема работы]";
-        GroupNumber = "[Группа]";
-        StudentName = "[ФИО студента]";
-        TeacherName = "[ФИО преподавателя]";
-        City = "Тверь";
-        Year = DateTime.Now.Year;
-
-        StatusMessage = "Настройки титульного листа сброшены.";
-    }
-
-    // --- ЛОГИКА КОМАНД ИЗ UI ---
-
-    [RelayCommand]
-    private async Task PasteNormalizedAsync()
-    {
-        StatusMessage = "Вставка текста...";
-        await Task.CompletedTask;
-    }
-
+    /// <summary>
+    /// Экспорт документа в формат DOCX
+    /// </summary>
     [RelayCommand]
     private async Task ExportToDocxAsync()
     {
         IsBusy = true;
         StatusMessage = "Экспорт в DOCX...";
+
+        Debug.WriteLine("[VM] Начало экспорта DOCX");
+
         try
         {
-            string? exportPath = await _dialogService.ShowSaveFileDialogAsync("Экспорт в DOCX", ".docx", "Word Document (*.docx)|*.docx");
-            if (!string.IsNullOrEmpty(exportPath))
-            {
-                CurrentDocument.TitlePage.University = University;
-                CurrentDocument.TitlePage.Department = Department;
-                CurrentDocument.TitlePage.Discipline = Discipline;
-                CurrentDocument.TitlePage.WorkType = WorkType;
-                CurrentDocument.TitlePage.WorkTitle = WorkTitle;
-                CurrentDocument.TitlePage.GroupNumber = GroupNumber;
-                CurrentDocument.TitlePage.StudentName = StudentName;
-                CurrentDocument.TitlePage.TeacherName = TeacherName;
-                CurrentDocument.TitlePage.City = City;
-                CurrentDocument.TitlePage.Year = Year;
+            // Получаем актуальный документ из редактора
+            GostDocument editorDocument = GetEditorDocument?.Invoke() ?? CurrentDocument;
 
-                await _exportService.ExportToDocxAsync(CurrentDocument, exportPath);
-                StatusMessage = "Успешно экспортировано в DOCX.";
-            }
-            else
+            Debug.WriteLine($"[VM] Документ для экспорта получен:");
+            Debug.WriteLine($"[VM]   Параграфов: {editorDocument.Paragraphs.Count}");
+            Debug.WriteLine($"[VM]   Листингов: {editorDocument.CodeListings.Count}");
+            Debug.WriteLine($"[VM]   Изображений: {editorDocument.Images.Count}");
+
+            // Синхронизация метаданных титульного листа
+            editorDocument.TitlePage.University = University;
+            editorDocument.TitlePage.Department = Department;
+            editorDocument.TitlePage.Discipline = Discipline;
+            editorDocument.TitlePage.WorkType = WorkType;
+            editorDocument.TitlePage.WorkTitle = WorkTitle;
+            editorDocument.TitlePage.GroupNumber = GroupNumber;
+            editorDocument.TitlePage.StudentName = StudentName;
+            editorDocument.TitlePage.TeacherName = TeacherName;
+            editorDocument.TitlePage.City = City;
+            editorDocument.TitlePage.Year = Year;
+
+            // Синхронизация модулей
+            editorDocument.Modules.HasTitlePage = HasTitlePage;
+            editorDocument.Modules.HasTableOfContents = HasTableOfContents;
+            editorDocument.Modules.HasBibliography = HasBibliography;
+            editorDocument.Modules.HasAppendix = HasAppendix;
+            editorDocument.Modules.ContentStartPage = ContentStartPage;
+
+            // Синхронизация листингов кода
+            editorDocument.CodeListings.Clear();
+
+            foreach (CodeListingViewModel listingViewModel in CodeListings.Where(listing => listing.IsSelected))
             {
-                StatusMessage = "Экспорт отменен.";
+                editorDocument.CodeListings.Add(listingViewModel.Listing);
             }
+
+            Debug.WriteLine($"[VM] Метаданные синхронизированы");
+            Debug.WriteLine($"[VM] Подготовлено листингов: {editorDocument.CodeListings.Count}");
+
+            // ВАЖНО: Экспорт вызывается из MainWindow.axaml.cs
+            await Task.CompletedTask;
+
+            StatusMessage = "Готово к экспорту";
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Ошибка экспорта: {ex.Message}";
+            StatusMessage = $"Ошибка подготовки к экспорту: {ex.Message}";
+            Debug.WriteLine($"[VM] Ошибка экспорта: {ex}");
         }
         finally
         {
@@ -239,55 +253,235 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
+    /// <summary>
+    /// Добавить главу (заголовок 1 уровня)
+    /// </summary>
     [RelayCommand]
-    private async Task ParseCodeFolderAsync()
+    private void AddChapter()
     {
-        IsBusy = true;
-        StatusMessage = "Для чтения кода используйте перетаскивание папки (Drag & Drop)";
-        await Task.CompletedTask;
-        IsBusy = false;
+        Debug.WriteLine("[VM] Добавление главы");
+        OnInsertHeadingRequested?.Invoke(1, "Новая глава");
     }
 
+    /// <summary>
+    /// Добавить подраздел (заголовок 2 уровня)
+    /// </summary>
+    [RelayCommand]
+    private void AddSubChapter()
+    {
+        Debug.WriteLine("[VM] Добавление подраздела");
+        OnInsertHeadingRequested?.Invoke(2, "Новый подраздел");
+    }
+
+    /// <summary>
+    /// Сброс всех полей титульного листа
+    /// </summary>
+    [RelayCommand]
+    private void ResetTitlePage()
+    {
+        Debug.WriteLine("[VM] Сброс титульного листа");
+
+        University = string.Empty;
+        Department = string.Empty;
+        Discipline = string.Empty;
+        WorkType = string.Empty;
+        WorkTitle = string.Empty;
+        StudentName = string.Empty;
+        GroupNumber = string.Empty;
+        TeacherName = string.Empty;
+        City = string.Empty;
+        Year = DateTime.Now.Year;
+
+        StatusMessage = "Титульный лист сброшен";
+    }
+
+    /// <summary>
+    /// Очистить список листингов кода
+    /// </summary>
     [RelayCommand]
     private void ClearCodeListings()
     {
+        Debug.WriteLine("[VM] Очистка списка листингов");
+
         CodeListings.Clear();
-        CurrentDocument.CodeListings.Clear();
-        StatusMessage = "Список исходников очищен.";
+        StatusMessage = "Список листингов очищен";
     }
 
+    /// <summary>
+    /// Вставить выбранные листинги в редактор
+    /// ИСПРАВЛЕНО: Используем CodeParserService.GenerateAppendixParagraphs для правильного формата
+    /// </summary>
     [RelayCommand]
     private void InsertCodeToEditor()
     {
-        if (!CodeListings.Any()) return;
+        Debug.WriteLine("[VM] Вставка кода в редактор");
 
-        List<Paragraph> codeParagraphs = new List<Paragraph>();
-        int counter = 1;
-
-        foreach (SelectableCodeListing item in CodeListings.Where(l => l.IsSelected))
+        if (!CodeListings.Any(l => l.IsSelected))
         {
-            Paragraph titlePara = new Paragraph { Alignment = GostAlignment.Left };
-            titlePara.Runs.Add(new TextRun($"Листинг {counter}. Файл {item.Listing.RelativePath}", false, false));
-            codeParagraphs.Add(titlePara);
-
-            string[] lines = item.Listing.Content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-            foreach (string line in lines)
-            {
-                Paragraph linePara = new Paragraph
-                {
-                    Alignment = GostAlignment.Left,
-                    FirstLineIndent = 0,
-                    Style = ParagraphStyle.Code
-                };
-                linePara.Runs.Add(new TextRun(line.Replace("\t", "    "), false, false));
-                codeParagraphs.Add(linePara);
-            }
-
-            codeParagraphs.Add(new Paragraph());
-            counter++;
+            StatusMessage = "Не выбрано ни одного листинга";
+            Debug.WriteLine("[VM] Нет выбранных листингов");
+            return;
         }
 
-        OnInsertParagraphsRequested?.Invoke(codeParagraphs);
-        StatusMessage = "Исходный код вставлен в редактор.";
+        try
+        {
+            // Используем CodeParserService для генерации правильных параграфов с заголовками
+            CodeParserService codeParserService = new CodeParserService();
+
+            List<Paragraph> paragraphs = codeParserService.GenerateAppendixParagraphs(
+                CodeListings.Where(l => l.IsSelected).Select(vm => vm.Listing)
+            );
+
+            Debug.WriteLine($"[VM] Сгенерировано параграфов: {paragraphs.Count}");
+
+            if (paragraphs.Count > 0)
+            {
+                OnInsertParagraphsRequested?.Invoke(paragraphs);
+
+                int selectedCount = CodeListings.Count(l => l.IsSelected);
+                StatusMessage = $"Вставлено листингов: {selectedCount}";
+
+                Debug.WriteLine($"[VM] Вставлено листингов в редактор: {selectedCount}");
+            }
+            else
+            {
+                StatusMessage = "Ошибка генерации листингов";
+                Debug.WriteLine("[VM] GenerateAppendixParagraphs вернул пустой список");
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Ошибка вставки кода: {ex.Message}";
+            Debug.WriteLine($"[VM] Ошибка вставки кода: {ex}");
+        }
     }
+
+    /// <summary>
+    /// Вставка нормализованного текста (очищенного от форматирования)
+    /// </summary>
+    [RelayCommand]
+    private void PasteNormalized()
+    {
+        Debug.WriteLine("[VM] Вставка нормализованного текста");
+
+        // TODO: Реализовать вставку очищенного текста из буфера обмена
+        OnInsertParagraphsRequested?.Invoke(new List<Paragraph>());
+
+        StatusMessage = "Вставка нормализованного текста (не реализовано)";
+    }
+
+    /// <summary>
+    /// Добавить соавтора/студента
+    /// </summary>
+    [RelayCommand]
+    private void AddStudent()
+    {
+        Debug.WriteLine("[VM] Добавление соавтора");
+
+        // TODO: Реализовать добавление нескольких студентов
+        StatusMessage = "Добавление соавтора (не реализовано)";
+    }
+
+    // === СИНХРОНИЗАЦИЯ МОДУЛЕЙ С ДОКУМЕНТОМ ===
+
+    partial void OnHasTitlePageChanged(bool value)
+    {
+        if (CurrentDocument?.Modules != null)
+        {
+            CurrentDocument.Modules.HasTitlePage = value;
+            Debug.WriteLine($"[VM] HasTitlePage = {value}");
+        }
+    }
+
+    partial void OnHasTableOfContentsChanged(bool value)
+    {
+        if (CurrentDocument?.Modules != null)
+        {
+            CurrentDocument.Modules.HasTableOfContents = value;
+            Debug.WriteLine($"[VM] HasTableOfContents = {value}");
+        }
+    }
+
+    partial void OnHasBibliographyChanged(bool value)
+    {
+        if (CurrentDocument?.Modules != null)
+        {
+            CurrentDocument.Modules.HasBibliography = value;
+            Debug.WriteLine($"[VM] HasBibliography = {value}");
+        }
+    }
+
+    partial void OnHasAppendixChanged(bool value)
+    {
+        if (CurrentDocument?.Modules != null)
+        {
+            CurrentDocument.Modules.HasAppendix = value;
+            Debug.WriteLine($"[VM] HasAppendix = {value}");
+        }
+    }
+
+    partial void OnContentStartPageChanged(int value)
+    {
+        if (CurrentDocument?.Modules != null)
+        {
+            CurrentDocument.Modules.ContentStartPage = value;
+            Debug.WriteLine($"[VM] ContentStartPage = {value}");
+        }
+    }
+
+    /// <summary>
+    /// Вызывается автоматически при изменении CurrentDocument
+    /// Синхронизирует настройки модулей из документа в UI
+    /// </summary>
+    partial void OnCurrentDocumentChanged(GostDocument value)
+    {
+        if (value?.Modules != null)
+        {
+            // Загружаем настройки модулей из документа в UI
+            // Используем backing fields для избежания вызова OnChanged методов
+            _hasTitlePage = value.Modules.HasTitlePage;
+            _hasTableOfContents = value.Modules.HasTableOfContents;
+            _hasBibliography = value.Modules.HasBibliography;
+            _hasAppendix = value.Modules.HasAppendix;
+            _contentStartPage = value.Modules.ContentStartPage;
+
+            // Уведомляем UI об изменениях
+            OnPropertyChanged(nameof(HasTitlePage));
+            OnPropertyChanged(nameof(HasTableOfContents));
+            OnPropertyChanged(nameof(HasBibliography));
+            OnPropertyChanged(nameof(HasAppendix));
+            OnPropertyChanged(nameof(ContentStartPage));
+
+            Debug.WriteLine($"[VM] Синхронизированы настройки модулей из документа");
+            Debug.WriteLine($"[VM]   TitlePage: {_hasTitlePage}");
+            Debug.WriteLine($"[VM]   TOC: {_hasTableOfContents}");
+            Debug.WriteLine($"[VM]   Bibliography: {_hasBibliography}");
+            Debug.WriteLine($"[VM]   Appendix: {_hasAppendix}");
+            Debug.WriteLine($"[VM]   ContentStartPage: {_contentStartPage}");
+        }
+    }
+}
+
+/// <summary>
+/// ViewModel для отображения листинга кода с чекбоксом выбора
+/// </summary>
+public partial class CodeListingViewModel : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isSelected = true;
+
+    [ObservableProperty]
+    private CodeListing _listing = new CodeListing();
+
+    public string DisplayName =>
+        !string.IsNullOrEmpty(Listing.RelativePath)
+            ? Listing.RelativePath
+            : Listing.FileName;
+
+    public string Language => Listing.Language;
+
+    public int LinesCount =>
+        string.IsNullOrEmpty(Listing.Content)
+            ? 0
+            : Listing.Content.Split('\n').Length;
 }

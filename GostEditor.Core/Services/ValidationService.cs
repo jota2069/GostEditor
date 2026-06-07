@@ -1,61 +1,66 @@
 using System.Collections.Generic;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.TextEngine.DOM;
 
 namespace GostEditor.Core.Services;
 
+/// <summary>
+/// Сервис для проверки документа на соответствие минимальным требованиям ГОСТ перед экспортом.
+/// </summary>
 public class ValidationService : IValidationService
 {
+    /// <summary>
+    /// Выполняет полную проверку документа и возвращает список найденных ошибок.
+    /// </summary>
+    /// <param name="document">Документ для проверки</param>
+    /// <returns>Список строк с описанием ошибок. Если список пуст — документ валиден.</returns>
     public List<string> Validate(GostDocument document)
     {
-        List<string> errors = [];
+        List<string> errors = new List<string>();
 
-        // Проверка титульного листа.
-        if (string.IsNullOrWhiteSpace(document.TitlePage.University))
+        if (document is null)
         {
-            errors.Add("Не указан университет.");
+            errors.Add("Документ не инициализирован.");
+            return errors;
         }
 
-        if (string.IsNullOrWhiteSpace(document.TitlePage.WorkTitle))
-        {
-            errors.Add("Не указано название работы.");
-        }
-
-        if (string.IsNullOrWhiteSpace(document.TitlePage.StudentName))
-        {
-            errors.Add("Не указано ФИО студента.");
-        }
-
-        if (string.IsNullOrWhiteSpace(document.TitlePage.GroupNumber))
-        {
-            errors.Add("Не указан номер группы.");
-        }
-
-        if (string.IsNullOrWhiteSpace(document.TitlePage.TeacherName))
-        {
-            errors.Add("Не указано ФИО преподавателя.");
-        }
-
-        // Проверка содержимого.
+        // 1. Проверка на абсолютную пустоту
         if (document.Paragraphs.Count == 0)
         {
-            errors.Add("Документ пуст.");
+            errors.Add("Документ пуст. Добавьте хотя бы один абзац текста.");
+            return errors; // Дальше проверять нет смысла, прерываем проверку
         }
-        else
+
+        // 2. Проверка структуры (наличие заголовков)
+        bool hasHeadings = false;
+        foreach (Paragraph p in document.Paragraphs)
         {
-            bool hasText = false;
-            foreach (var p in document.Paragraphs)
+            if (p.Style == ParagraphStyle.Heading1 || p.Style == ParagraphStyle.Heading2)
             {
-                if (!string.IsNullOrWhiteSpace(p.GetPlainText()) || p.ImageData != null)
-                {
-                    hasText = true;
-                    break;
-                }
+                hasHeadings = true;
+                break;
             }
-            if (!hasText)
+        }
+
+        if (!hasHeadings)
+        {
+            errors.Add("Документ не содержит структуры. Рекомендуется добавить хотя бы одну Главу (Заголовок 1).");
+        }
+
+        // 3. Проверка минимального объема текста (считаем только обычные абзацы, без заголовков)
+        int totalTextLength = 0;
+        foreach (Paragraph p in document.Paragraphs)
+        {
+            if (p.Style == ParagraphStyle.Normal)
             {
-                errors.Add("Документ не содержит текста или изображений.");
+                totalTextLength += p.GetPlainText().Length;
             }
+        }
+
+        if (totalTextLength < 100)
+        {
+            errors.Add("Основной текст документа слишком короткий (менее 100 символов).");
         }
 
         return errors;
