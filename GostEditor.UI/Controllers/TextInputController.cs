@@ -108,7 +108,19 @@ public class TextInputController
                         _editor.ClearSelection();
                     });
                 }
-                else { _editor.MoveRight(); _editor.Backspace(); }
+                else if (_editor.HasSelection)
+                {
+                    _editor.DeleteSelection();
+                }
+                else
+                {
+                    DocumentPosition oldPosition = _editor.CaretPosition;
+                    _editor.MoveRight();
+                    if (_editor.CaretPosition.CompareTo(oldPosition) != 0)
+                    {
+                        _editor.Backspace();
+                    }
+                }
                 break;
             case Key.Enter: _editor.InsertNewLine(); break;
             case Key.Left:
@@ -138,7 +150,7 @@ public class TextInputController
         if (!string.IsNullOrEmpty(text))
         {
             _editor.SelectedImageParagraphIndex = null;
-            _editor.InsertText(text);
+            _editor.PasteText(text);
             _renderController.RefreshView();
         }
     }

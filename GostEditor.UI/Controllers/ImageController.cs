@@ -233,14 +233,8 @@ public class ImageController
             using MemoryStream ms = new MemoryStream();
             await stream.CopyToAsync(ms);
             byte[] bytes = ms.ToArray();
-            using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
 
-            Paragraph imgPara = new Paragraph { ImageData = bytes, ImageWidth = 450, ImageHeight = 300, Alignment = GostAlignment.Center };
-            int insertIdx = _editor.CaretPosition.ParagraphIndex + 1;
-
-            if (insertIdx >= _editor.Document.Paragraphs.Count) _editor.Document.Paragraphs.Add(imgPara);
-            else _editor.Document.Paragraphs.Insert(insertIdx, imgPara);
-
+            _editor.InsertImage(bytes, 450, 300);
             _renderController.RefreshView();
         }
     }

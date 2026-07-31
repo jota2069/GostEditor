@@ -98,7 +98,7 @@ public class RenderController
                     CurrentPages[i],
                     _editor.Document.PageWidth,
                     _editor.Document.PageHeight,
-                    1, // startPageNumber (пока захардкожено)
+                    Math.Max(1, _editor.Document.Modules.ContentStartPage),
                     _editor.SelectedImageParagraphIndex);
             }
         }

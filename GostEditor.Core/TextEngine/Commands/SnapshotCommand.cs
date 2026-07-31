@@ -86,7 +86,11 @@ public class SnapshotCommand : IEditorCommand
 
             foreach (TextRun run in p.Runs)
             {
-                newP.Runs.Add(new TextRun(run.Text, run.IsBold, run.IsItalic) { FontSize = run.FontSize });
+                newP.Runs.Add(new TextRun(run.Text, run.IsBold, run.IsItalic)
+                {
+                    FontSize = run.FontSize,
+                    Color = run.Color
+                });
             }
 
             list.Add(newP);

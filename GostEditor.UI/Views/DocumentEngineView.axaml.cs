@@ -13,6 +13,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using GostEditor.Core.Models;
+using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.Controllers;
@@ -232,7 +233,7 @@ public partial class DocumentEngineView : UserControl
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) await cb.SetTextAsync(_editor.GetSelectedText()); }
     private async void OnCutClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) { await cb.SetTextAsync(_editor.GetSelectedText()); _editor.DeleteSelection(); _renderController.RefreshView(); ContentChanged?.Invoke(); } }
-    private async void OnPasteClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb) { string? text = await cb.GetTextAsync(); if (!string.IsNullOrEmpty(text)) { _editor.InsertText(text); _renderController.RefreshView(); ContentChanged?.Invoke(); } } }
+    private async void OnPasteClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb) { string? text = await cb.GetTextAsync(); if (!string.IsNullOrEmpty(text)) { _editor.PasteText(text); _renderController.RefreshView(); ContentChanged?.Invoke(); } } }
     private void OnSelectAllClick(object? sender, RoutedEventArgs e) { _editor.SelectAll(); _renderController.RefreshView(); }
     private void OnUndoClick(object? sender, RoutedEventArgs e) => Undo();
 
@@ -243,6 +244,11 @@ public partial class DocumentEngineView : UserControl
     public void AlignCenter() { _editor.AlignCenter(); _renderController.RefreshView(); }
     public void AlignRight() { _editor.AlignRight(); _renderController.RefreshView(); }
     public void AlignJustify() { _editor.AlignJustify(); _renderController.RefreshView(); }
+    public void ClearFormatting() { _editor.ClearFormatting(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
+    public void InsertTextBlock() { _editor.InsertTextBlock(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
+    public void InsertTablePlaceholder() { _editor.InsertTablePlaceholder(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
+    public bool FindNext(string searchText) { bool found = _editor.FindNext(searchText); _renderController.RefreshView(); if (found) _renderController.ScrollToCaret(); Focus(); return found; }
+    public void PasteText(string text) { _editor.PasteText(text); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
     public void ApplyParagraphStyle(ParagraphStyle style) { _editor.SetParagraphStyle(style); _renderController.RefreshView(); Focus(); }
     public void Undo() { _editor.History.Undo(); _renderController.RefreshView(); }
     public void Redo() { _editor.History.Redo(); _renderController.RefreshView(); }
@@ -250,4 +256,21 @@ public partial class DocumentEngineView : UserControl
     public void InsertHeading(int level, string text) { _editor.InsertHeading(level, text); _renderController.RefreshView(); ContentChanged?.Invoke(); }
     public void ScrollToParagraph(int index) { _editor.ScrollToParagraph(index); _renderController.RefreshView(); _renderController.ScrollToCaret(); }
     public void SetStartPageNumber(int pageNumber) => _renderController.RefreshView();
+
+    public async Task PasteNormalizedFromClipboardAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard)
+        {
+            return;
+        }
+
+        string? text = await clipboard.GetTextAsync();
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        TextNormalizerService normalizer = new TextNormalizerService();
+        PasteText(normalizer.Normalize(text));
+    }
 }

@@ -2,14 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
-using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.ViewModels;
 using GostEditor.UI.Controllers;
@@ -47,6 +49,7 @@ public partial class MainWindow : Window
             viewModel.OnInsertParagraphsRequested -= InsertParagraphsToEditor;
             viewModel.OnScrollToParagraphRequested -= ScrollToParagraph;
             viewModel.OnInsertHeadingRequested -= InsertHeading;
+            viewModel.OnPasteNormalizedRequested -= PasteNormalizedToEditor;
             viewModel.GetEditorDocument -= GetDocumentFromEditor;
 
             if (MainEditor != null)
@@ -58,6 +61,7 @@ public partial class MainWindow : Window
             viewModel.OnInsertParagraphsRequested += InsertParagraphsToEditor;
             viewModel.OnScrollToParagraphRequested += ScrollToParagraph;
             viewModel.OnInsertHeadingRequested += InsertHeading;
+            viewModel.OnPasteNormalizedRequested += PasteNormalizedToEditor;
             viewModel.GetEditorDocument += GetDocumentFromEditor;
 
             if (MainEditor != null)
@@ -83,6 +87,60 @@ public partial class MainWindow : Window
         Debug.WriteLine($"[MAINWINDOW]   Изображений: {document.Images.Count}");
 
         return document;
+    }
+
+    private GostDocument SyncDocumentFromViewModel(MainWindowViewModel viewModel)
+    {
+        GostDocument document = MainEditor?.CurrentDocument ?? viewModel.CurrentDocument;
+
+        document.TitlePage.University = viewModel.University;
+        document.TitlePage.Department = viewModel.Department;
+        document.TitlePage.Discipline = viewModel.Discipline;
+        document.TitlePage.WorkType = viewModel.WorkType;
+        document.TitlePage.WorkTitle = viewModel.WorkTitle;
+        document.TitlePage.GroupNumber = viewModel.GroupNumber;
+        document.TitlePage.StudentName = viewModel.StudentName;
+        document.TitlePage.TeacherName = viewModel.TeacherName;
+        document.TitlePage.City = viewModel.City;
+        document.TitlePage.Year = viewModel.Year;
+
+        document.Modules.HasTitlePage = viewModel.HasTitlePage;
+        document.Modules.HasTableOfContents = viewModel.HasTableOfContents;
+        document.Modules.HasBibliography = viewModel.HasBibliography;
+        document.Modules.HasAppendix = viewModel.HasAppendix;
+        document.Modules.ContentStartPage = viewModel.ContentStartPage;
+
+        document.CodeListings.Clear();
+
+        foreach (CodeListingViewModel listingViewModel in viewModel.CodeListings)
+        {
+            listingViewModel.Listing.IsSelected = listingViewModel.IsSelected;
+            document.CodeListings.Add(listingViewModel.Listing);
+        }
+
+        document.BibliographySources.Clear();
+
+        for (int i = 0; i < viewModel.BibliographySources.Count; i++)
+        {
+            BibliographySourceViewModel sourceViewModel = viewModel.BibliographySources[i];
+            sourceViewModel.Source.Order = i;
+            sourceViewModel.Source.IsSelected = sourceViewModel.IsSelected;
+            document.BibliographySources.Add(sourceViewModel.Source);
+        }
+
+        document.Counters.SourcesCount = document.BibliographySources.Count(source => source.IsSelected);
+
+        return document;
+    }
+
+    private async void PasteNormalizedToEditor()
+    {
+        if (MainEditor == null)
+        {
+            return;
+        }
+
+        await MainEditor.PasteNormalizedFromClipboardAsync();
     }
 
     private void ScrollToParagraph(int index)
@@ -216,7 +274,37 @@ public partial class MainWindow : Window
 
     private void OnClearFormattingClick(object? sender, RoutedEventArgs e)
     {
-        MainEditor?.Focus();
+        MainEditor?.ClearFormatting();
+    }
+
+    private async void OnSearchClick(object? sender, RoutedEventArgs e)
+    {
+        if (MainEditor == null)
+        {
+            return;
+        }
+
+        string? query = await ShowInputDialogAsync("Поиск", "Введите текст для поиска:");
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return;
+        }
+
+        bool found = MainEditor.FindNext(query);
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.StatusMessage = found ? $"Найдено: {query}" : $"Не найдено: {query}";
+        }
+    }
+
+    private void OnInsertTextBlockClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.InsertTextBlock();
+    }
+
+    private void OnInsertTableClick(object? sender, RoutedEventArgs e)
+    {
+        MainEditor?.InsertTablePlaceholder();
     }
 
     private void OnUndoToolbarClick(object? sender, RoutedEventArgs e)
@@ -276,6 +364,11 @@ public partial class MainWindow : Window
             if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
             {
                 await SaveDocumentToFileAsync();
+                e.Handled = true;
+            }
+            else if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.F)
+            {
+                OnSearchClick(sender, e);
                 e.Handled = true;
             }
         }
@@ -373,8 +466,9 @@ public partial class MainWindow : Window
 
             if (file != null)
             {
+                GostDocument documentToSave = SyncDocumentFromViewModel(viewModel);
                 await using Stream stream = await file.OpenWriteAsync();
-                await viewModel.ArchiveService.SaveAsync(MainEditor.CurrentDocument, stream);
+                await viewModel.ArchiveService.SaveAsync(documentToSave, stream);
                 viewModel.StatusMessage = "Документ сохранен";
             }
             else
@@ -468,31 +562,7 @@ public partial class MainWindow : Window
             Debug.WriteLine($"[MAINWINDOW] Экспорт в: {outputPath}");
             Debug.WriteLine($"[MAINWINDOW] Параграфов в документе: {MainEditor.CurrentDocument.Paragraphs.Count}");
 
-            // Получаем документ из редактора
-            GostDocument documentToExport = MainEditor.CurrentDocument;
-
-            // Синхронизируем метаданные из ViewModel
-            documentToExport.TitlePage.University = viewModel.University;
-            documentToExport.TitlePage.Department = viewModel.Department;
-            documentToExport.TitlePage.Discipline = viewModel.Discipline;
-            documentToExport.TitlePage.WorkType = viewModel.WorkType;
-            documentToExport.TitlePage.WorkTitle = viewModel.WorkTitle;
-            documentToExport.TitlePage.GroupNumber = viewModel.GroupNumber;
-            documentToExport.TitlePage.StudentName = viewModel.StudentName;
-            documentToExport.TitlePage.TeacherName = viewModel.TeacherName;
-            documentToExport.TitlePage.City = viewModel.City;
-            documentToExport.TitlePage.Year = viewModel.Year;
-
-            // Синхронизируем листинги кода
-            documentToExport.CodeListings.Clear();
-
-            foreach (CodeListingViewModel listingViewModel in viewModel.CodeListings)
-            {
-                if (listingViewModel.IsSelected)
-                {
-                    documentToExport.CodeListings.Add(listingViewModel.Listing);
-                }
-            }
+            GostDocument documentToExport = SyncDocumentFromViewModel(viewModel);
 
             Debug.WriteLine($"[MAINWINDOW] Подготовлено листингов: {documentToExport.CodeListings.Count}");
 
@@ -541,10 +611,7 @@ public partial class MainWindow : Window
 
             viewModel.StatusMessage = "Парсинг файлов...";
 
-            // КРИТИЧНО: Используем сервис из DI через ViewModel
-            // Но пока создаём напрямую (можно улучшить через DI)
-            CodeParserService codeParserService = new CodeParserService();
-            IReadOnlyList<CodeListing> listings = await codeParserService.ParseDirectoryAsync(folderPath);
+            IReadOnlyList<CodeListing> listings = await viewModel.CodeParserService.ParseDirectoryAsync(folderPath);
 
             viewModel.CodeListings.Clear();
 
@@ -585,4 +652,60 @@ public partial class MainWindow : Window
         viewModel.IsBusy = false;
     }
 }
+
+    private async Task<string?> ShowInputDialogAsync(string title, string message, string defaultText = "")
+    {
+        TextBox textBox = new TextBox
+        {
+            Text = defaultText,
+            MinWidth = 360
+        };
+
+        Button okButton = new Button
+        {
+            Content = "Найти",
+            Padding = new Thickness(18, 6),
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+
+        Button cancelButton = new Button
+        {
+            Content = "Отмена",
+            Padding = new Thickness(18, 6),
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+
+        Window dialog = new Window
+        {
+            Title = title,
+            Width = 460,
+            Height = 180,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            CanResize = false,
+            Content = new StackPanel
+            {
+                Margin = new Thickness(20),
+                Spacing = 12,
+                Children =
+                {
+                    new TextBlock { Text = message, TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                    textBox,
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Spacing = 8,
+                        Children = { cancelButton, okButton }
+                    }
+                }
+            }
+        };
+
+        string? result = null;
+        okButton.Click += (_, _) => { result = textBox.Text; dialog.Close(); };
+        cancelButton.Click += (_, _) => dialog.Close();
+
+        await dialog.ShowDialog(this);
+        return result;
+    }
 }

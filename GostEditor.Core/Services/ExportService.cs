@@ -36,9 +36,14 @@ public class ExportService : IExportService
             AddPageNumbers(doc);
 
             if (document.Modules.HasTitlePage) AddTitlePage(doc, document.TitlePage);
-            if (document.Modules.HasTableOfContents) AddTableOfContents(doc);
+            if (document.Modules.HasTableOfContents) AddTableOfContents(doc, document.Modules.TOCMaxLevel);
 
             AddBody(doc, document.Paragraphs);
+
+            if (document.Modules.HasBibliography)
+            {
+                AddBibliography(doc, document.BibliographySources);
+            }
 
             if (document.Modules.HasAppendix && document.CodeListings.Any(listing => listing.IsSelected))
             {
@@ -108,17 +113,22 @@ public class ExportService : IExportService
         doc.InsertParagraph().InsertPageBreakAfterSelf();
     }
 
-    private void AddTableOfContents(DocX doc)
+    private void AddTableOfContents(DocX doc, int maxLevel)
     {
-        doc.InsertParagraph("СОДЕРЖАНИЕ").Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.center;
-        doc.InsertParagraph();
+        int normalizedMaxLevel = Math.Clamp(maxLevel, 1, 3);
+        Dictionary<TableOfContentsSwitches, string> switches = new Dictionary<TableOfContentsSwitches, string>
+        {
+            [TableOfContentsSwitches.O] = $"1-{normalizedMaxLevel}",
+            [TableOfContentsSwitches.H] = string.Empty,
+            [TableOfContentsSwitches.Z] = string.Empty,
+            [TableOfContentsSwitches.U] = string.Empty
+        };
 
-        doc.InsertParagraph("< Оглавление необходимо обновить или сгенерировать вручную в вашем редакторе >")
-           .Font(new Font(GlobalFontName))
-           .FontSize(12D)
-           .Italic()
-           .Alignment = Alignment.center;
-
+        doc.InsertTableOfContents(
+            "СОДЕРЖАНИЕ",
+            switches,
+            "Heading1",
+            null);
         doc.InsertParagraph().InsertPageBreakAfterSelf();
     }
 
@@ -227,6 +237,34 @@ public class ExportService : IExportService
         }
 
         Debug.WriteLine($"[EXPORT] Добавлено листингов: {selectedListings.Count}");
+    }
+
+    private void AddBibliography(DocX doc, List<BibliographySource> sources)
+    {
+        List<BibliographySource> selectedSources = sources
+            .Where(source => source.IsSelected && !string.IsNullOrWhiteSpace(source.Description))
+            .OrderBy(source => source.Order)
+            .ToList();
+
+        if (selectedSources.Count == 0)
+        {
+            return;
+        }
+
+        Paragraph heading = doc.InsertParagraph("СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ");
+        heading.Font(new Font(GlobalFontName)).FontSize(GlobalFontSize).Bold().Alignment = Alignment.center;
+        heading.InsertPageBreakBeforeSelf();
+        heading.Heading(HeadingType.Heading1);
+
+        doc.InsertParagraph();
+
+        for (int i = 0; i < selectedSources.Count; i++)
+        {
+            doc.InsertParagraph($"{i + 1}. {selectedSources[i].Description}")
+                .Font(new Font(GlobalFontName))
+                .FontSize(GlobalFontSize)
+                .Alignment = Alignment.both;
+        }
     }
 
     private void ApplyGostStyle(Paragraph wordPara, GostEditor.Core.TextEngine.DOM.Paragraph enginePara)

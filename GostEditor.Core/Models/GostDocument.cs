@@ -24,6 +24,7 @@ public class GostDocument
     public List<Paragraph> Paragraphs { get; set; } = new List<Paragraph>();
     public List<CodeListing> CodeListings { get; set; } = new List<CodeListing>();
     public List<ImageAttachment> Images { get; set; } = new List<ImageAttachment>();
+    public List<BibliographySource> BibliographySources { get; set; } = new List<BibliographySource>();
     public DocumentModules Modules { get; set; } = new DocumentModules();
     public DocumentCounters Counters { get; set; } = new DocumentCounters();
 
@@ -82,6 +83,14 @@ public class ImageAttachment
     public string FileName { get; set; } = string.Empty;
     public byte[] Data { get; set; } = Array.Empty<byte>();
     public string Caption { get; set; } = string.Empty;
+    public int Order { get; set; }
+}
+
+public class BibliographySource
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public string Description { get; set; } = string.Empty;
+    public bool IsSelected { get; set; } = true;
     public int Order { get; set; }
 }
 

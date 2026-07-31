@@ -89,6 +89,52 @@ public class DocumentEditor
         }
     }
 
+    public bool FindNext(string searchText)
+    {
+        if (string.IsNullOrWhiteSpace(searchText) || Document.Paragraphs.Count == 0)
+        {
+            return false;
+        }
+
+        int startParagraph = Math.Clamp(CaretPosition.ParagraphIndex, 0, Document.Paragraphs.Count - 1);
+        int startOffset = Math.Clamp(CaretPosition.Offset, 0, Document.Paragraphs[startParagraph].GetPlainText().Length);
+
+        if (HasSelection)
+        {
+            (_, DocumentPosition end) = GetNormalizedSelection();
+            startParagraph = end.ParagraphIndex;
+            startOffset = end.Offset;
+        }
+
+        for (int pass = 0; pass < Document.Paragraphs.Count; pass++)
+        {
+            int pIdx = (startParagraph + pass) % Document.Paragraphs.Count;
+            string text = Document.Paragraphs[pIdx].GetPlainText();
+            int searchStart = pIdx == startParagraph ? Math.Min(startOffset + 1, text.Length) : 0;
+            int index = text.IndexOf(searchText, searchStart, StringComparison.CurrentCultureIgnoreCase);
+
+            if (index >= 0)
+            {
+                SelectionAnchor = new DocumentPosition(pIdx, index);
+                CaretPosition = new DocumentPosition(pIdx, index + searchText.Length);
+                SelectedImageParagraphIndex = null;
+                return true;
+            }
+        }
+
+        string startText = Document.Paragraphs[startParagraph].GetPlainText();
+        int wrapIndex = startText.IndexOf(searchText, 0, StringComparison.CurrentCultureIgnoreCase);
+        if (wrapIndex >= 0 && wrapIndex <= startOffset)
+        {
+            SelectionAnchor = new DocumentPosition(startParagraph, wrapIndex);
+            CaretPosition = new DocumentPosition(startParagraph, wrapIndex + searchText.Length);
+            SelectedImageParagraphIndex = null;
+            return true;
+        }
+
+        return false;
+    }
+
     public void ExecuteWithSnapshot(Action action)
     {
         if (_isExecutingCommand)
@@ -525,6 +571,114 @@ public class DocumentEditor
                 if (!string.IsNullOrEmpty(line)) InsertText(line);
                 if (i < lines.Length - 1) InsertNewLine();
             }
+        });
+    }
+
+    public void ClearFormatting()
+    {
+        ExecuteWithSnapshot(() =>
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (new DocumentPosition(CaretPosition.ParagraphIndex, 0),
+                    new DocumentPosition(CaretPosition.ParagraphIndex, Document.Paragraphs[CaretPosition.ParagraphIndex].GetPlainText().Length));
+
+            for (int pIdx = start.ParagraphIndex; pIdx <= end.ParagraphIndex; pIdx++)
+            {
+                Paragraph paragraph = Document.Paragraphs[pIdx];
+                int pStartOffset = pIdx == start.ParagraphIndex ? start.Offset : 0;
+                int pEndOffset = pIdx == end.ParagraphIndex ? end.Offset : paragraph.GetPlainText().Length;
+
+                paragraph.Style = ParagraphStyle.Normal;
+                paragraph.Alignment = GostAlignment.Justify;
+                paragraph.FirstLineIndent = 47.0;
+                paragraph.PageBreakBefore = false;
+
+                SplitAt(pIdx, pEndOffset);
+                SplitAt(pIdx, pStartOffset);
+
+                int currentOffset = 0;
+                foreach (TextRun run in paragraph.Runs)
+                {
+                    int runStart = currentOffset;
+                    int runEnd = currentOffset + run.Text.Length;
+                    if (runStart >= pStartOffset && runEnd <= pEndOffset)
+                    {
+                        run.IsBold = false;
+                        run.IsItalic = false;
+                        run.FontSize = 14;
+                        run.Color = 0xFF000000;
+                    }
+
+                    currentOffset += run.Text.Length;
+                }
+            }
+
+            ClearSelection();
+        });
+    }
+
+    public void InsertTextBlock()
+    {
+        ExecuteWithSnapshot(() =>
+        {
+            Paragraph paragraph = new Paragraph
+            {
+                Alignment = GostAlignment.Justify,
+                FirstLineIndent = 47.0,
+                LineSpacing = 1.5,
+                Style = ParagraphStyle.Normal
+            };
+            paragraph.Runs.Add(new TextRun(string.Empty, false, false) { FontSize = 14 });
+
+            int insertIndex = Math.Min(CaretPosition.ParagraphIndex + 1, Document.Paragraphs.Count);
+            Document.Paragraphs.Insert(insertIndex, paragraph);
+            CaretPosition = new DocumentPosition(insertIndex, 0);
+            ClearSelection();
+        });
+    }
+
+    public void InsertTablePlaceholder(int rows = 3, int columns = 3)
+    {
+        rows = Math.Clamp(rows, 1, 20);
+        columns = Math.Clamp(columns, 1, 8);
+
+        ExecuteWithSnapshot(() =>
+        {
+            List<Paragraph> tableParagraphs = new List<Paragraph>();
+
+            Paragraph title = new Paragraph
+            {
+                Alignment = GostAlignment.Right,
+                FirstLineIndent = 0,
+                Style = ParagraphStyle.Normal
+            };
+            title.Runs.Add(new TextRun("Таблица 1 - Название таблицы") { FontSize = 14 });
+            tableParagraphs.Add(title);
+
+            for (int row = 0; row < rows; row++)
+            {
+                Paragraph line = new Paragraph
+                {
+                    Alignment = GostAlignment.Left,
+                    FirstLineIndent = 0,
+                    Style = ParagraphStyle.Code
+                };
+
+                string[] cells = new string[columns];
+                for (int column = 0; column < columns; column++)
+                {
+                    cells[column] = row == 0 ? $"Заголовок {column + 1}" : "Данные";
+                }
+
+                line.Runs.Add(new TextRun(string.Join(" | ", cells)) { FontSize = 12 });
+                tableParagraphs.Add(line);
+            }
+
+            int insertIndex = Math.Min(CaretPosition.ParagraphIndex + 1, Document.Paragraphs.Count);
+            Document.Paragraphs.InsertRange(insertIndex, tableParagraphs);
+            CaretPosition = new DocumentPosition(insertIndex, 0);
+            ClearSelection();
         });
     }
 

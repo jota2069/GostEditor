@@ -75,12 +75,20 @@ public class ArchiveService : IArchiveService
 
         GostDocument document = new GostDocument
         {
-            PageWidth = docModel.PageWidth,
-            PageHeight = docModel.PageHeight,
-            MarginLeft = docModel.MarginLeft,
-            MarginRight = docModel.MarginRight,
-            MarginTop = docModel.MarginTop,
-            MarginBottom = docModel.MarginBottom
+            TitlePage = docModel.TitlePage ?? new TitlePageInfo(),
+            CodeListings = docModel.CodeListings ?? new List<CodeListing>(),
+            Images = docModel.Images ?? new List<ImageAttachment>(),
+            BibliographySources = docModel.BibliographySources ?? new List<BibliographySource>(),
+            Modules = docModel.Modules ?? new DocumentModules(),
+            Counters = docModel.Counters ?? new DocumentCounters(),
+            CreatedAt = docModel.CreatedAt == default ? DateTime.UtcNow : docModel.CreatedAt,
+            ModifiedAt = docModel.ModifiedAt == default ? DateTime.UtcNow : docModel.ModifiedAt,
+            PageWidth = docModel.PageWidth > 0 ? docModel.PageWidth : 794.0,
+            PageHeight = docModel.PageHeight > 0 ? docModel.PageHeight : 1123.0,
+            MarginLeft = docModel.MarginLeft > 0 ? docModel.MarginLeft : 113.0,
+            MarginRight = docModel.MarginRight > 0 ? docModel.MarginRight : 57.0,
+            MarginTop = docModel.MarginTop > 0 ? docModel.MarginTop : 76.0,
+            MarginBottom = docModel.MarginBottom > 0 ? docModel.MarginBottom : 76.0
         };
 
         int paragraphIndex = 0;
@@ -91,6 +99,8 @@ public class ArchiveService : IArchiveService
             {
                 Alignment = (GostAlignment)paraModel.Alignment,
                 Style = (ParagraphStyle)paraModel.Style,
+                FirstLineIndent = paraModel.FirstLineIndent ?? GetDefaultFirstLineIndent((ParagraphStyle)paraModel.Style),
+                LineSpacing = paraModel.LineSpacing ?? new Paragraph().LineSpacing,
                 PageBreakBefore = paraModel.PageBreakBefore
             };
 
@@ -101,7 +111,8 @@ public class ArchiveService : IArchiveService
                     Text = runModel.Text,
                     IsBold = runModel.IsBold,
                     IsItalic = runModel.IsItalic,
-                    FontSize = runModel.FontSize
+                    FontSize = runModel.FontSize > 0 ? runModel.FontSize : 14.0,
+                    Color = runModel.Color ?? 0xFF000000
                 });
             }
 
@@ -137,9 +148,6 @@ public class ArchiveService : IArchiveService
             paragraphIndex++;
         }
 
-        // КРИТИЧНО: Загружаем настройки модулей
-        document.Modules = docModel.Modules ?? new DocumentModules();
-
         Debug.WriteLine($"[ARCHIVE] Модули: TitlePage={document.Modules.HasTitlePage}, TOC={document.Modules.HasTableOfContents}, Bibliography={document.Modules.HasBibliography}, Appendix={document.Modules.HasAppendix}");
         Debug.WriteLine($"[ARCHIVE] ✅ Загружен документ: {document.Paragraphs.Count} параграфов");
 
@@ -156,15 +164,24 @@ public class ArchiveService : IArchiveService
     {
         using ZipArchive archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
 
+        document.ModifiedAt = DateTime.UtcNow;
+
         DocModel docModel = new DocModel
         {
+            TitlePage = document.TitlePage,
+            CodeListings = document.CodeListings,
+            Images = document.Images,
+            BibliographySources = document.BibliographySources,
+            Counters = document.Counters,
+            CreatedAt = document.CreatedAt,
+            ModifiedAt = document.ModifiedAt,
             PageWidth = document.PageWidth,
             PageHeight = document.PageHeight,
             MarginLeft = document.MarginLeft,
             MarginRight = document.MarginRight,
             MarginTop = document.MarginTop,
             MarginBottom = document.MarginBottom,
-            Modules = document.Modules,  // КРИТИЧНО: Сохраняем настройки модулей
+            Modules = document.Modules,
             Paragraphs = new List<ParaModel>()
         };
 
@@ -176,6 +193,8 @@ public class ArchiveService : IArchiveService
             {
                 Alignment = (int)paragraph.Alignment,
                 Style = (int)paragraph.Style,
+                FirstLineIndent = paragraph.FirstLineIndent,
+                LineSpacing = paragraph.LineSpacing,
                 PageBreakBefore = paragraph.PageBreakBefore,
                 Runs = new List<RunModel>()
             };
@@ -187,7 +206,8 @@ public class ArchiveService : IArchiveService
                     Text = run.Text,
                     IsBold = run.IsBold,
                     IsItalic = run.IsItalic,
-                    FontSize = run.FontSize
+                    FontSize = run.FontSize,
+                    Color = run.Color
                 });
             }
 
@@ -227,12 +247,27 @@ public class ArchiveService : IArchiveService
         Debug.WriteLine($"[ARCHIVE] ✅ Сохранён документ: {document.Paragraphs.Count} параграфов, {imageCounter} изображений");
         Debug.WriteLine($"[ARCHIVE] Модули: TitlePage={document.Modules.HasTitlePage}, TOC={document.Modules.HasTableOfContents}");
     }
+
+    private static double GetDefaultFirstLineIndent(ParagraphStyle style)
+    {
+        return style is ParagraphStyle.Heading1 or ParagraphStyle.Heading2 or ParagraphStyle.Heading3 or ParagraphStyle.Code
+            ? 0
+            : new Paragraph().FirstLineIndent;
+    }
 }
 
 // ===== DTO МОДЕЛИ ДЛЯ JSON СЕРИАЛИЗАЦИИ =====
 
 internal class DocModel
 {
+    public TitlePageInfo? TitlePage { get; set; }
+    public List<CodeListing>? CodeListings { get; set; }
+    public List<ImageAttachment>? Images { get; set; }
+    public List<BibliographySource>? BibliographySources { get; set; }
+    public DocumentModules? Modules { get; set; }
+    public DocumentCounters? Counters { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime ModifiedAt { get; set; }
     public double PageWidth { get; set; }
     public double PageHeight { get; set; }
     public double MarginLeft { get; set; }
@@ -240,13 +275,14 @@ internal class DocModel
     public double MarginTop { get; set; }
     public double MarginBottom { get; set; }
     public List<ParaModel> Paragraphs { get; set; } = new List<ParaModel>();
-    public DocumentModules? Modules { get; set; }  // ← ДОБАВЛЕНО
 }
 
 internal class ParaModel
 {
     public int Alignment { get; set; }
     public int Style { get; set; }
+    public double? FirstLineIndent { get; set; }
+    public double? LineSpacing { get; set; }
     public bool PageBreakBefore { get; set; }
     public List<RunModel> Runs { get; set; } = new List<RunModel>();
     public string? ImageFileName { get; set; }
@@ -260,4 +296,5 @@ internal class RunModel
     public bool IsBold { get; set; }
     public bool IsItalic { get; set; }
     public double FontSize { get; set; }
+    public uint? Color { get; set; }
 }

@@ -245,7 +245,7 @@
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn" ToolTip.Tip="Поиск (Ctrl+F)">
+                    <Button Classes="iconBtn" ToolTip.Tip="Поиск (Ctrl+F)" Click="OnSearchClick">
                         <Canvas Width="24" Height="24">
                             <Ellipse Canvas.Left="3" Canvas.Top="3" Width="13" Height="13" Stroke="#1565C0" StrokeThickness="2" Fill="Transparent"/>
                             <Line StartPoint="14,14" EndPoint="21,21" Stroke="#1565C0" StrokeThickness="2.5" StrokeLineCap="Round"/>
@@ -271,7 +271,7 @@
                 <Rectangle Width="1" Height="60" Fill="{StaticResource DividerBrush}" Margin="6,0"/>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить текстовый блок">
+                    <Button Classes="iconBtnBlue" ToolTip.Tip="Вставить текстовый блок" Click="OnInsertTextBlockClick">
                         <TextBlock Text="T" FontSize="28" FontWeight="Black" Foreground="White" FontFamily="Times New Roman" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
                     <TextBlock Text="Текст" FontSize="9" HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}"/>
@@ -288,7 +288,7 @@
                 </StackPanel>
 
                 <StackPanel Spacing="3" VerticalAlignment="Center">
-                    <Button Classes="iconBtn" ToolTip.Tip="Вставить таблицу">
+                    <Button Classes="iconBtn" ToolTip.Tip="Вставить таблицу" Click="OnInsertTableClick">
                         <Canvas Width="24" Height="22">
                             <Rectangle Width="24" Height="22" Stroke="#1565C0" StrokeThickness="1.5" Fill="Transparent" RadiusX="2" RadiusY="2"/>
                             <Line StartPoint="0,8" EndPoint="24,8" Stroke="#1565C0" StrokeThickness="1.2"/>
@@ -654,21 +654,92 @@
                         </TabItem>
 
                         <TabItem>
-                            <Border Padding="60">
-                                <StackPanel Spacing="24" MaxWidth="700" HorizontalAlignment="Left">
-                                    <TextBlock Text="Список литературы по ГОСТ" FontSize="28" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
-                                    <TextBlock Text="Менеджер библиографии позволит добавлять источники (книги, статьи, ссылки) и автоматически формировать правильный список в конце документа, а также вставлять квадратные скобки [1] в текст."
-                                               FontSize="15" Foreground="{StaticResource TextMutedBrush}" TextWrapping="Wrap" LineHeight="24"/>
+                            <Grid ColumnDefinitions="420, *">
+                                <Border Grid.Column="0" Padding="40" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+                                    <StackPanel Spacing="18">
+                                        <TextBlock Text="Список литературы" FontSize="22" FontWeight="Bold" Foreground="{StaticResource TextMainBrush}"/>
 
-                                    <Border Background="#FFFBEB" BorderBrush="#FDE68A" BorderThickness="1" CornerRadius="8" Padding="20">
-                                        <StackPanel Orientation="Horizontal" Spacing="16">
-                                            <TextBlock Text="🚧" FontSize="24" VerticalAlignment="Center"/>
-                                            <TextBlock Text="Этот раздел находится в разработке. Мы реализуем его на Этапе 3."
-                                                       Foreground="#D97706" FontWeight="Medium" FontSize="14" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Border>
-                                </StackPanel>
-                            </Border>
+                                        <TextBox Text="{Binding NewBibliographySource}"
+                                                 Watermark="Иванов И. И. Название книги. - Москва: Издательство, 2024."
+                                                 AcceptsReturn="True"
+                                                 TextWrapping="Wrap"
+                                                 MinHeight="100"
+                                                 Background="#F9FAFB"
+                                                 CornerRadius="6"
+                                                 BorderThickness="1"/>
+
+                                        <Button Content="Добавить источник"
+                                                Classes="accentBtn"
+                                                Command="{Binding AddBibliographySourceCommand}"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Center"
+                                                Padding="12,12"/>
+
+                                        <Grid ColumnDefinitions="*, *">
+                                            <Button Grid.Column="0"
+                                                    Content="Удалить"
+                                                    Command="{Binding RemoveBibliographySourceCommand}"
+                                                    Classes="toolbarBtn"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Center"
+                                                    Background="#FEE2E2"
+                                                    Foreground="#DC2626"
+                                                    Margin="0,0,5,0"/>
+                                            <Button Grid.Column="1"
+                                                    Content="Очистить"
+                                                    Command="{Binding ClearBibliographySourcesCommand}"
+                                                    Classes="toolbarBtn"
+                                                    HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Center"
+                                                    Background="#F9FAFB"
+                                                    Margin="5,0,0,0"/>
+                                        </Grid>
+
+                                        <Border Background="#F9FAFB" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,16,0,0">
+                                            <TextBlock Text="При экспорте выбранные источники попадут в раздел «СПИСОК ИСПОЛЬЗОВАННЫХ ИСТОЧНИКОВ» перед приложениями."
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource TextMutedBrush}"
+                                                       TextWrapping="Wrap"
+                                                       LineHeight="19"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Grid.Column="1" Padding="40" Background="{StaticResource BackgroundBrush}">
+                                    <Grid RowDefinitions="Auto, *">
+                                        <TextBlock Grid.Row="0" Text="Источники:" FontWeight="Bold" FontSize="18" Margin="0,0,0,20" Foreground="{StaticResource TextMainBrush}"/>
+
+                                        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}" CornerRadius="8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                                            <ScrollViewer>
+                                                <ListBox ItemsSource="{Binding BibliographySources}"
+                                                         SelectedItem="{Binding SelectedBibliographySource}"
+                                                         Background="Transparent"
+                                                         Padding="8">
+                                                    <ListBox.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:BibliographySourceViewModel">
+                                                            <Border Background="#F9FAFB" CornerRadius="6" Padding="12,10" Margin="0,4">
+                                                                <Grid ColumnDefinitions="Auto, Auto, *">
+                                                                    <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected}" VerticalAlignment="Top"/>
+                                                                    <TextBlock Grid.Column="1" Text="{Binding DisplayNumber}" FontWeight="Bold" FontSize="13" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Top" Margin="10,0"/>
+                                                                    <TextBox Grid.Column="2"
+                                                                             Text="{Binding Description}"
+                                                                             AcceptsReturn="True"
+                                                                             TextWrapping="Wrap"
+                                                                             Background="Transparent"
+                                                                             BorderThickness="0"
+                                                                             Padding="0"
+                                                                             FontSize="13"
+                                                                             Foreground="{StaticResource TextMainBrush}"/>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ListBox.ItemTemplate>
+                                                </ListBox>
+                                            </ScrollViewer>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+                            </Grid>
                         </TabItem>
 
                         <TabItem>
