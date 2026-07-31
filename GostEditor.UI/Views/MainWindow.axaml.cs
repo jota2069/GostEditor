@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -348,23 +349,74 @@ public partial class MainWindow : Window
 
     private void OnWindowPointerWheelChanged(object? sender, PointerWheelEventArgs e)
     {
-        if ((e.KeyModifiers & KeyModifiers.Control) != 0)
+        if ((e.KeyModifiers & KeyModifiers.Control) == 0 ||
+            DataContext is not MainWindowViewModel viewModel)
         {
-            if (DataContext is MainWindowViewModel viewModel)
-            {
-                double delta = e.Delta.Y > 0 ? 0.1 : -0.1;
-                double newZoom = Math.Round(viewModel.ZoomLevel + delta, 1);
-
-                if (newZoom >= 0.5 && newZoom <= 2.0)
-                {
-                    viewModel.ZoomLevel = newZoom;
-                }
-
-                e.Handled = true;
-            }
+            return;
         }
-    }
 
+        ScrollViewer? scrollViewer =
+            this.FindControl<ScrollViewer>("EditorScrollViewer");
+
+        if (scrollViewer is null)
+        {
+            return;
+        }
+
+        Point pointerPosition = e.GetPosition(scrollViewer);
+
+        if (pointerPosition.X < 0 ||
+            pointerPosition.Y < 0 ||
+            pointerPosition.X > scrollViewer.Bounds.Width ||
+            pointerPosition.Y > scrollViewer.Bounds.Height)
+        {
+            return;
+        }
+
+        double oldZoom = viewModel.ZoomLevel;
+        double zoomStep = e.Delta.Y > 0 ? 0.1 : -0.1;
+
+        double newZoom = Math.Clamp(
+            Math.Round(oldZoom + zoomStep, 1),
+            0.5,
+            2.0);
+
+        if (Math.Abs(newZoom - oldZoom) < 0.001)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        Vector oldOffset = scrollViewer.Offset;
+        double ratio = newZoom / oldZoom;
+
+        double targetX =
+            (oldOffset.X + pointerPosition.X) * ratio - pointerPosition.X;
+
+        double targetY =
+            (oldOffset.Y + pointerPosition.Y) * ratio - pointerPosition.Y;
+
+        viewModel.ZoomLevel = newZoom;
+
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                double maxX = Math.Max(
+                    0,
+                    scrollViewer.Extent.Width - scrollViewer.Viewport.Width);
+
+                double maxY = Math.Max(
+                    0,
+                    scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+
+                scrollViewer.Offset = new Vector(
+                    Math.Clamp(targetX, 0, maxX),
+                    Math.Clamp(targetY, 0, maxY));
+            },
+            DispatcherPriority.Loaded);
+
+        e.Handled = true;
+    }
     private void OnContentStartPageValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (MainEditor == null || e.NewValue is not decimal value)
