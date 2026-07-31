@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -22,11 +24,16 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IExportService _exportService;
     private readonly ICodeParserService _codeParserService;
 
+    private readonly HashSet<CodeListingViewModel> _trackedCodeListings = new();
+    private readonly HashSet<BibliographySourceViewModel> _trackedBibliographySources = new();
+    private bool _isSynchronizingDocument;
+
     public IArchiveService ArchiveService => _archiveService;
     public IExportService ExportService => _exportService;
     public ICodeParserService CodeParserService => _codeParserService;
 
     public DocumentSessionState Session { get; }
+
     [ObservableProperty]
     private bool _isBusy;
 
@@ -155,6 +162,12 @@ public partial class MainWindowViewModel : ObservableObject
             ?? throw new ArgumentNullException(nameof(session));
 
         _currentDocument = new GostDocument();
+
+        CodeListings.CollectionChanged += OnCodeListingsCollectionChanged;
+        BibliographySources.CollectionChanged += OnBibliographySourcesCollectionChanged;
+
+        SynchronizeCodeListingSubscriptions();
+        SynchronizeBibliographySubscriptions();
 
         Debug.WriteLine("[VM] MainWindowViewModel инициализирован");
     }
@@ -477,6 +490,140 @@ public partial class MainWindowViewModel : ObservableObject
         }
     }
 
+    private void OnCodeListingsCollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs e)
+    {
+        SynchronizeCodeListingSubscriptions();
+
+        if (!_isSynchronizingDocument)
+        {
+            Session.MarkDirty();
+        }
+    }
+
+    private void OnBibliographySourcesCollectionChanged(
+        object? sender,
+        NotifyCollectionChangedEventArgs e)
+    {
+        SynchronizeBibliographySubscriptions();
+
+        if (!_isSynchronizingDocument)
+        {
+            Session.MarkDirty();
+        }
+    }
+
+    private void SynchronizeCodeListingSubscriptions()
+    {
+        foreach (CodeListingViewModel item in _trackedCodeListings.ToArray())
+        {
+            if (CodeListings.Contains(item))
+            {
+                continue;
+            }
+
+            item.PropertyChanged -= OnTrackedItemPropertyChanged;
+            _trackedCodeListings.Remove(item);
+        }
+
+        foreach (CodeListingViewModel item in CodeListings)
+        {
+            if (!_trackedCodeListings.Add(item))
+            {
+                continue;
+            }
+
+            item.PropertyChanged += OnTrackedItemPropertyChanged;
+        }
+    }
+
+    private void SynchronizeBibliographySubscriptions()
+    {
+        foreach (BibliographySourceViewModel item in _trackedBibliographySources.ToArray())
+        {
+            if (BibliographySources.Contains(item))
+            {
+                continue;
+            }
+
+            item.PropertyChanged -= OnTrackedItemPropertyChanged;
+            _trackedBibliographySources.Remove(item);
+        }
+
+        foreach (BibliographySourceViewModel item in BibliographySources)
+        {
+            if (!_trackedBibliographySources.Add(item))
+            {
+                continue;
+            }
+
+            item.PropertyChanged += OnTrackedItemPropertyChanged;
+        }
+    }
+
+    private void OnTrackedItemPropertyChanged(
+        object? sender,
+        PropertyChangedEventArgs e)
+    {
+        if (!_isSynchronizingDocument)
+        {
+            Session.MarkDirty();
+        }
+    }
+
+    // === ОТСЛЕЖИВАНИЕ ИЗМЕНЕНИЙ ДОКУМЕНТА ===
+
+    partial void OnUniversityChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnDepartmentChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnDisciplineChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnWorkTypeChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnWorkTitleChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnStudentNameChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnGroupNumberChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnTeacherNameChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnCityChanged(string value)
+    {
+        Session.MarkDirty();
+    }
+
+    partial void OnYearChanged(int value)
+    {
+        Session.MarkDirty();
+    }
+
     // === СИНХРОНИЗАЦИЯ МОДУЛЕЙ С ДОКУМЕНТОМ ===
 
     partial void OnHasTitlePageChanged(bool value)
@@ -530,8 +677,15 @@ public partial class MainWindowViewModel : ObservableObject
     /// </summary>
     partial void OnCurrentDocumentChanged(GostDocument value)
     {
-        if (value?.Modules != null)
+        _isSynchronizingDocument = true;
+
+        try
         {
+            if (value?.Modules == null)
+            {
+                return;
+            }
+
             _university = value.TitlePage.University;
             _department = value.TitlePage.Department;
             _discipline = value.TitlePage.Discipline;
@@ -594,6 +748,10 @@ public partial class MainWindowViewModel : ObservableObject
             Debug.WriteLine($"[VM]   Bibliography: {_hasBibliography}");
             Debug.WriteLine($"[VM]   Appendix: {_hasAppendix}");
             Debug.WriteLine($"[VM]   ContentStartPage: {_contentStartPage}");
+        }
+        finally
+        {
+            _isSynchronizingDocument = false;
         }
     }
 }
