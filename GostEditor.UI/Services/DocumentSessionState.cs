@@ -7,6 +7,9 @@ namespace GostEditor.UI.Services;
 public partial class DocumentSessionState : ObservableObject
 {
     [ObservableProperty]
+    private long _changeVersion;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(WindowTitle))]
     private bool _isDirty;
 
@@ -31,6 +34,7 @@ public partial class DocumentSessionState : ObservableObject
 
     public void StartNew()
     {
+        ChangeVersion = 0;
         CurrentFilePath = null;
         LastSavedAt = null;
         IsRecovered = false;
@@ -45,10 +49,12 @@ public partial class DocumentSessionState : ObservableObject
         LastSavedAt = null;
         IsRecovered = false;
         IsDirty = false;
+        ChangeVersion = 0;
     }
 
     public void MarkDirty()
     {
+        ChangeVersion++;
         IsDirty = true;
     }
 
@@ -71,5 +77,6 @@ public partial class DocumentSessionState : ObservableObject
         LastSavedAt = null;
         IsRecovered = true;
         IsDirty = true;
+        ChangeVersion = 1;
     }
 }

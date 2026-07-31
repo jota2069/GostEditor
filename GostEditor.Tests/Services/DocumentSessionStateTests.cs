@@ -13,6 +13,7 @@ public class DocumentSessionStateTests
         Assert.False(session.IsRecovered);
         Assert.Null(session.CurrentFilePath);
         Assert.Null(session.LastSavedAt);
+        Assert.Equal(0, session.ChangeVersion);
         Assert.Equal("Новый документ", session.DocumentName);
         Assert.Equal("GostEditor - Новый документ", session.WindowTitle);
     }
@@ -25,7 +26,21 @@ public class DocumentSessionStateTests
         session.MarkDirty();
 
         Assert.True(session.IsDirty);
+        Assert.Equal(1, session.ChangeVersion);
         Assert.Equal("GostEditor - Новый документ *", session.WindowTitle);
+    }
+
+    [Fact]
+    public void MarkDirty_IncrementsChangeVersionForEveryChange()
+    {
+        DocumentSessionState session = new DocumentSessionState();
+
+        session.MarkDirty();
+        session.MarkDirty();
+        session.MarkDirty();
+
+        Assert.True(session.IsDirty);
+        Assert.Equal(3, session.ChangeVersion);
     }
 
     [Fact]
@@ -35,10 +50,12 @@ public class DocumentSessionStateTests
         string path = Path.Combine(Path.GetTempPath(), "document.gost");
 
         session.MarkDirty();
+        session.MarkDirty();
         session.MarkOpened(path);
 
         Assert.False(session.IsDirty);
         Assert.False(session.IsRecovered);
+        Assert.Equal(0, session.ChangeVersion);
         Assert.Equal(Path.GetFullPath(path), session.CurrentFilePath);
         Assert.Null(session.LastSavedAt);
         Assert.Equal("document.gost", session.DocumentName);
@@ -46,7 +63,7 @@ public class DocumentSessionStateTests
     }
 
     [Fact]
-    public void MarkSaved_StoresPathAndSaveTime()
+    public void MarkSaved_StoresPathAndSaveTimeWithoutResettingVersion()
     {
         DocumentSessionState session = new DocumentSessionState();
         string path = Path.Combine(Path.GetTempPath(), "saved.gost");
@@ -60,10 +77,12 @@ public class DocumentSessionStateTests
             TimeSpan.Zero);
 
         session.MarkDirty();
+        session.MarkDirty();
         session.MarkSaved(path, savedAt);
 
         Assert.False(session.IsDirty);
         Assert.False(session.IsRecovered);
+        Assert.Equal(2, session.ChangeVersion);
         Assert.Equal(Path.GetFullPath(path), session.CurrentFilePath);
         Assert.Equal(savedAt, session.LastSavedAt);
         Assert.Equal("GostEditor - saved.gost", session.WindowTitle);
@@ -79,6 +98,7 @@ public class DocumentSessionStateTests
 
         Assert.True(session.IsDirty);
         Assert.True(session.IsRecovered);
+        Assert.Equal(1, session.ChangeVersion);
         Assert.Equal(Path.GetFullPath(path), session.CurrentFilePath);
         Assert.Null(session.LastSavedAt);
         Assert.Equal("GostEditor - original.gost *", session.WindowTitle);
@@ -91,10 +111,12 @@ public class DocumentSessionStateTests
         string path = Path.Combine(Path.GetTempPath(), "old.gost");
 
         session.MarkRecovered(path);
+        session.MarkDirty();
         session.StartNew();
 
         Assert.False(session.IsDirty);
         Assert.False(session.IsRecovered);
+        Assert.Equal(0, session.ChangeVersion);
         Assert.Null(session.CurrentFilePath);
         Assert.Null(session.LastSavedAt);
         Assert.Equal("GostEditor - Новый документ", session.WindowTitle);
@@ -113,5 +135,6 @@ public class DocumentSessionStateTests
 
         Assert.Contains(nameof(DocumentSessionState.IsDirty), changedProperties);
         Assert.Contains(nameof(DocumentSessionState.WindowTitle), changedProperties);
+        Assert.Contains(nameof(DocumentSessionState.ChangeVersion), changedProperties);
     }
 }
