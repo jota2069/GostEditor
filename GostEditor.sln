@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GostEditor.UI", "GostEditor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GostEditor.Core", "GostEditor.Core\GostEditor.Core.csproj", "{6606BCC9-3588-4746-AD7C-EA27E9D35422}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GostEditor.Tests", "GostEditor.Tests\GostEditor.Tests.csproj", "{08788E6A-4E46-48E1-AF6A-6BE36C8B3CBC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6606BCC9-3588-4746-AD7C-EA27E9D35422}.Release|Any CPU.Build.0 = Release|Any CPU
+		{08788E6A-4E46-48E1-AF6A-6BE36C8B3CBC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{08788E6A-4E46-48E1-AF6A-6BE36C8B3CBC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{08788E6A-4E46-48E1-AF6A-6BE36C8B3CBC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{08788E6A-4E46-48E1-AF6A-6BE36C8B3CBC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

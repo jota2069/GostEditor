@@ -179,7 +179,12 @@ public class ExportService : IExportService
             doc.InsertParagraph().AppendPicture(pic).Alignment = Alignment.center;
             doc.InsertParagraph($"Рисунок {counter++} — Подпись").Font(new Font(GlobalFontName)).FontSize(12D).Alignment = Alignment.center;
         }
-        catch { /* Игнорируем битые картинки */ }
+        catch (Exception ex)
+        {
+            throw new InvalidDataException(
+                $"Не удалось экспортировать изображение {counter}.",
+                ex);
+        }
     }
 
     private void AddCodeListings(DocX doc, List<CodeListing> listings)

@@ -65,19 +65,23 @@ public class DocumentEditor
 
     public void InsertHeading(int level, string text)
     {
-        Paragraph heading = new Paragraph();
-        heading.Runs.Add(new TextRun(text, isBold: true, isItalic: false)
+        ExecuteWithSnapshot(() =>
         {
-            FontSize = level == 1 ? 16 : 14
+            Paragraph heading = new Paragraph();
+            heading.Runs.Add(new TextRun(text, isBold: true, isItalic: false)
+            {
+                FontSize = level == 1 ? 16 : 14
+            });
+
+            heading.Style = level == 1 ? ParagraphStyle.Heading1 : ParagraphStyle.Heading2;
+            heading.Alignment = GostAlignment.Center;
+            heading.FirstLineIndent = 0;
+            heading.PageBreakBefore = level == 1;
+
+            Document.Paragraphs.Add(heading);
+            CaretPosition = new DocumentPosition(Document.Paragraphs.Count - 1, text.Length);
+            ClearSelection();
         });
-
-        heading.Style = level == 1 ? ParagraphStyle.Heading1 : ParagraphStyle.Heading2;
-        heading.Alignment = GostAlignment.Center;
-        heading.FirstLineIndent = 0;
-        heading.PageBreakBefore = (level == 1);
-
-        Document.Paragraphs.Add(heading);
-        CaretPosition = new DocumentPosition(Document.Paragraphs.Count - 1, text.Length);
     }
 
     public void ScrollToParagraph(int index)
@@ -110,7 +114,7 @@ public class DocumentEditor
         {
             int pIdx = (startParagraph + pass) % Document.Paragraphs.Count;
             string text = Document.Paragraphs[pIdx].GetPlainText();
-            int searchStart = pIdx == startParagraph ? Math.Min(startOffset + 1, text.Length) : 0;
+            int searchStart = pIdx == startParagraph ? Math.Min(startOffset, text.Length) : 0;
             int index = text.IndexOf(searchText, searchStart, StringComparison.CurrentCultureIgnoreCase);
 
             if (index >= 0)
@@ -241,13 +245,21 @@ public class DocumentEditor
             if (leftRuns.Count == 0 && rightRuns.Count > 0)
             {
                 TextRun firstRight = rightRuns[0];
-                TextRun emptyRun = new TextRun("", firstRight.IsBold, firstRight.IsItalic) { FontSize = firstRight.FontSize };
+                TextRun emptyRun = new TextRun("", firstRight.IsBold, firstRight.IsItalic)
+                {
+                    FontSize = firstRight.FontSize,
+                    Color = firstRight.Color
+                };
                 currentParagraph.Runs.Add(emptyRun);
             }
 
             if (rightRuns.Count == 0 && lastLeftRun != null)
             {
-                TextRun emptyRun = new TextRun("", lastLeftRun.IsBold, lastLeftRun.IsItalic) { FontSize = lastLeftRun.FontSize };
+                TextRun emptyRun = new TextRun("", lastLeftRun.IsBold, lastLeftRun.IsItalic)
+                {
+                    FontSize = lastLeftRun.FontSize,
+                    Color = lastLeftRun.Color
+                };
                 newParagraph.Runs.Add(emptyRun);
             }
 
@@ -352,7 +364,11 @@ public class DocumentEditor
             if (offset > currentOffset && offset < currentOffset + run.Text.Length)
             {
                 int splitIdx = offset - currentOffset;
-                TextRun nextRun = new TextRun(run.Text.Substring(splitIdx), run.IsBold, run.IsItalic);
+                TextRun nextRun = new TextRun(run.Text.Substring(splitIdx), run.IsBold, run.IsItalic)
+                {
+                    FontSize = run.FontSize,
+                    Color = run.Color
+                };
                 run.Text = run.Text.Substring(0, splitIdx);
                 p.Runs.Insert(i + 1, nextRun);
                 return;
@@ -405,8 +421,13 @@ public class DocumentEditor
         bool isBold = baseRun?.IsBold ?? false;
         bool isItalic = baseRun?.IsItalic ?? false;
         double fontSize = baseRun?.FontSize ?? 14.0;
+        uint color = baseRun?.Color ?? 0xFF000000;
 
-        TextRun emptyRun = new TextRun("", isBold, isItalic) { FontSize = fontSize };
+        TextRun emptyRun = new TextRun("", isBold, isItalic)
+        {
+            FontSize = fontSize,
+            Color = color
+        };
         styleAction(emptyRun);
         p.Runs.Insert(insertIndex, emptyRun);
     }
@@ -562,7 +583,7 @@ public class DocumentEditor
         {
             if (HasSelection) DeleteSelection();
 
-            string normalizedText = text.Replace("\r", "");
+            string normalizedText = text.Replace("\r\n", "\n").Replace('\r', '\n');
             string[] lines = normalizedText.Split('\n');
 
             for (int i = 0; i < lines.Length; i++)
