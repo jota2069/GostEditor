@@ -19,6 +19,8 @@ namespace GostEditor.Core.Serialization;
 /// </summary>
 public class ArchiveService : IArchiveService
 {
+    private const int CurrentFormatVersion = 1;
+
     public GostDocument CreateNew()
     {
         GostDocument document = new GostDocument();
@@ -71,6 +73,9 @@ public class ArchiveService : IArchiveService
             throw new InvalidDataException("Не удалось десериализовать document.json");
         }
 
+        docModel = MigrateToCurrentVersion(docModel);
+
+        Debug.WriteLine($"[ARCHIVE] Версия формата: {docModel.FormatVersion}");
         Debug.WriteLine($"[ARCHIVE] Десериализовано параграфов: {docModel.Paragraphs.Count}");
 
         GostDocument document = new GostDocument
@@ -168,6 +173,7 @@ public class ArchiveService : IArchiveService
 
         DocModel docModel = new DocModel
         {
+            FormatVersion = CurrentFormatVersion,
             TitlePage = document.TitlePage,
             CodeListings = document.CodeListings,
             Images = document.Images,
@@ -254,12 +260,22 @@ public class ArchiveService : IArchiveService
             ? 0
             : new Paragraph().FirstLineIndent;
     }
+
+    private static DocModel MigrateToCurrentVersion(DocModel docModel)
+    {
+        // FormatVersion == 0 means that the field was absent in a legacy
+        // document. Versions 0 and 1 currently share the same DTO shape, so
+        // no migration is required. Future migrations should be chained here
+        // before the DTO is mapped to the public GostDocument model.
+        return docModel;
+    }
 }
 
 // ===== DTO МОДЕЛИ ДЛЯ JSON СЕРИАЛИЗАЦИИ =====
 
 internal class DocModel
 {
+    public int FormatVersion { get; set; }
     public TitlePageInfo? TitlePage { get; set; }
     public List<CodeListing>? CodeListings { get; set; }
     public List<ImageAttachment>? Images { get; set; }

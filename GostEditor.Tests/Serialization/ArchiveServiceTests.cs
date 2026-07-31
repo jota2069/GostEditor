@@ -1,4 +1,6 @@
 using System.IO.Compression;
+using System.Text;
+using System.Text.Json;
 using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
@@ -7,6 +9,72 @@ namespace GostEditor.Tests.Serialization;
 
 public class ArchiveServiceTests
 {
+    [Fact]
+    public async Task Save_WritesCurrentFormatVersionToDocumentJson()
+    {
+        ArchiveService service = new ArchiveService();
+        await using MemoryStream archiveStream = new MemoryStream();
+
+        await service.SaveAsync(CreateDocument(), archiveStream);
+        archiveStream.Position = 0;
+        using ZipArchive archive = new ZipArchive(archiveStream, ZipArchiveMode.Read);
+        ZipArchiveEntry jsonEntry =
+            Assert.IsType<ZipArchiveEntry>(archive.GetEntry("document.json"));
+        await using Stream jsonStream = jsonEntry.Open();
+        using JsonDocument jsonDocument = await JsonDocument.ParseAsync(jsonStream);
+
+        Assert.Equal(
+            1,
+            jsonDocument.RootElement.GetProperty("FormatVersion").GetInt32());
+    }
+
+    [Fact]
+    public async Task Load_DocumentWithoutFormatVersion_TreatsItAsLegacyDocument()
+    {
+        ArchiveService service = new ArchiveService();
+        await using MemoryStream archiveStream = await CreateArchiveAsync(
+            """
+            {
+              "Paragraphs": [
+                {
+                  "Runs": [
+                    { "Text": "Legacy document", "FontSize": 14 }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        GostDocument document = await service.LoadAsync(archiveStream);
+
+        Paragraph paragraph = Assert.Single(document.Paragraphs);
+        Assert.Equal("Legacy document", paragraph.GetPlainText());
+    }
+
+    [Fact]
+    public async Task Load_DocumentWithFormatVersionOne_OpensDocument()
+    {
+        ArchiveService service = new ArchiveService();
+        await using MemoryStream archiveStream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 1,
+              "Paragraphs": [
+                {
+                  "Runs": [
+                    { "Text": "Version one", "FontSize": 14 }
+                  ]
+                }
+              ]
+            }
+            """);
+
+        GostDocument document = await service.LoadAsync(archiveStream);
+
+        Paragraph paragraph = Assert.Single(document.Paragraphs);
+        Assert.Equal("Version one", paragraph.GetPlainText());
+    }
+
     [Fact]
     public async Task SaveAndLoad_RoundTrip_PreservesCompleteDocumentModel()
     {
@@ -148,6 +216,27 @@ public class ArchiveServiceTests
         });
 
         return document;
+    }
+
+    private static async Task<MemoryStream> CreateArchiveAsync(string documentJson)
+    {
+        MemoryStream stream = new MemoryStream();
+
+        using (ZipArchive archive = new ZipArchive(
+                   stream,
+                   ZipArchiveMode.Create,
+                   leaveOpen: true))
+        {
+            ZipArchiveEntry jsonEntry = archive.CreateEntry("document.json");
+            await using Stream jsonStream = jsonEntry.Open();
+            await using StreamWriter writer = new StreamWriter(
+                jsonStream,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await writer.WriteAsync(documentJson);
+        }
+
+        stream.Position = 0;
+        return stream;
     }
 
     private static void AssertDocumentEqual(GostDocument expected, GostDocument actual)
