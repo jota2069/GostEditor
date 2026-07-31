@@ -63,7 +63,7 @@ public partial class MainWindow : Window
 
             if (MainEditor != null)
             {
-                MainEditor.ContentChanged -= viewModel.SyncNavigation;
+                MainEditor.ContentChanged -= OnEditorContentChanged;
             }
 
             // Подписка на новые события
@@ -75,9 +75,20 @@ public partial class MainWindow : Window
 
             if (MainEditor != null)
             {
-                MainEditor.ContentChanged += viewModel.SyncNavigation;
+                MainEditor.ContentChanged += OnEditorContentChanged;
             }
         }
+    }
+
+    private void OnEditorContentChanged()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.Session.MarkDirty();
+        viewModel.SyncNavigation();
     }
 
     private GostDocument GetDocumentFromEditor()
@@ -481,13 +492,25 @@ public partial class MainWindow : Window
 
             if (files.Count > 0)
             {
-                await using Stream stream = await files[0].OpenReadAsync();
-                GostDocument loadedDocument = await viewModel.ArchiveService.LoadAsync(stream);
+                IStorageFile selectedFile = files[0];
+
+                string? filePath = selectedFile.TryGetLocalPath();
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    throw new InvalidOperationException(
+                        "Не удалось определить путь открытого документа.");
+                }
+
+                await using Stream stream = await selectedFile.OpenReadAsync();
+
+                GostDocument loadedDocument =
+                    await viewModel.ArchiveService.LoadAsync(stream);
 
                 viewModel.CurrentDocument = loadedDocument;
                 MainEditor.LoadDocument(loadedDocument);
                 viewModel.SyncNavigation();
 
+                viewModel.Session.MarkOpened(filePath);
                 viewModel.StatusMessage = "Документ загружен";
             }
             else
@@ -509,8 +532,7 @@ public partial class MainWindow : Window
     private async Task SaveDocumentToFileAsync()
     {
         if (DataContext is not MainWindowViewModel viewModel ||
-            MainEditor == null ||
-            MainEditor.CurrentDocument == null)
+            MainEditor?.CurrentDocument is null)
         {
             return;
         }
@@ -520,31 +542,50 @@ public partial class MainWindow : Window
 
         try
         {
-            IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
-                new FilePickerSaveOptions
-                {
-                    Title = "Сохранить документ",
-                    DefaultExtension = ".gost",
-                    FileTypeChoices = new[]
-                    {
-                        new FilePickerFileType("GOST Document")
-                        {
-                            Patterns = new[] { "*.gost" }
-                        }
-                    }
-                });
+            string? filePath = viewModel.Session.CurrentFilePath;
 
-            if (file != null)
+            if (string.IsNullOrWhiteSpace(filePath))
             {
-                GostDocument documentToSave = SyncDocumentFromViewModel(viewModel);
-                await using Stream stream = await file.OpenWriteAsync();
-                await viewModel.ArchiveService.SaveAsync(documentToSave, stream);
-                viewModel.StatusMessage = "Документ сохранен";
+                IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
+                    new FilePickerSaveOptions
+                    {
+                        Title = "Сохранить документ",
+                        DefaultExtension = ".gost",
+                        FileTypeChoices =
+                        [
+                            new FilePickerFileType("GOST Document")
+                        {
+                            Patterns = ["*.gost"]
+                        }
+                        ]
+                    });
+
+                if (file is null)
+                {
+                    viewModel.StatusMessage = "Сохранение отменено";
+                    return;
+                }
+
+                filePath = file.TryGetLocalPath();
+
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    throw new InvalidOperationException(
+                        "Не удалось определить путь сохранённого документа.");
+                }
             }
-            else
-            {
-                viewModel.StatusMessage = "Сохранение отменено";
-            }
+
+            GostDocument documentToSave = SyncDocumentFromViewModel(viewModel);
+
+            await viewModel.ArchiveService.SaveAsync(
+                documentToSave,
+                filePath);
+
+            viewModel.Session.MarkSaved(
+                filePath,
+                DateTimeOffset.Now);
+
+            viewModel.StatusMessage = "Документ сохранён";
         }
         catch (Exception ex)
         {
@@ -559,13 +600,19 @@ public partial class MainWindow : Window
 
     private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is MainWindowViewModel viewModel && MainEditor != null)
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor is null)
         {
-            GostDocument newDocument = new GostDocument();
-            viewModel.CurrentDocument = newDocument;
-            MainEditor.LoadDocument(newDocument);
-            viewModel.SyncNavigation();
+            return;
         }
+
+        GostDocument newDocument = new GostDocument();
+
+        viewModel.CurrentDocument = newDocument;
+        MainEditor.LoadDocument(newDocument);
+        viewModel.SyncNavigation();
+        viewModel.Session.StartNew();
+        viewModel.StatusMessage = "Создан новый документ";
     }
 
     private async void OnInsertImageClick(object? sender, RoutedEventArgs e)
@@ -654,74 +701,74 @@ public partial class MainWindow : Window
     }
 
     private async void OnParseFolderClick(object? sender, RoutedEventArgs e)
-{
-    if (DataContext is not MainWindowViewModel viewModel)
     {
-        return;
-    }
-
-    viewModel.IsBusy = true;
-    viewModel.StatusMessage = "Выбор папки...";
-
-    try
-    {
-        IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
-            new FolderPickerOpenOptions
-            {
-                Title = "Выберите папку с исходным кодом проекта",
-                AllowMultiple = false
-            });
-
-        if (folders.Count > 0)
+        if (DataContext is not MainWindowViewModel viewModel)
         {
-            IStorageFolder selectedFolder = folders[0];
-            string folderPath = selectedFolder.Path.LocalPath;
+            return;
+        }
 
-            Debug.WriteLine($"[MAINWINDOW] Выбрана папка: {folderPath}");
+        viewModel.IsBusy = true;
+        viewModel.StatusMessage = "Выбор папки...";
 
-            viewModel.StatusMessage = "Парсинг файлов...";
-
-            IReadOnlyList<CodeListing> listings = await viewModel.CodeParserService.ParseDirectoryAsync(folderPath);
-
-            viewModel.CodeListings.Clear();
-
-            foreach (CodeListing listing in listings)
-            {
-                viewModel.CodeListings.Add(new CodeListingViewModel
+        try
+        {
+            IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
+                new FolderPickerOpenOptions
                 {
-                    Listing = listing,
-                    IsSelected = true
+                    Title = "Выберите папку с исходным кодом проекта",
+                    AllowMultiple = false
                 });
 
-                Debug.WriteLine($"[MAINWINDOW] Добавлен файл: {listing.RelativePath} ({listing.Language})");
-            }
-
-            viewModel.StatusMessage = $"Найдено файлов: {listings.Count}";
-            Debug.WriteLine($"[MAINWINDOW] Всего загружено: {listings.Count} файлов");
-
-            // Переключаемся на вкладку "Структура документа" -> "Приложения"
-            if (MainTabs != null)
+            if (folders.Count > 0)
             {
-                MainTabs.SelectedIndex = 1; // Вкладка "Структура документа"
-            }
+                IStorageFolder selectedFolder = folders[0];
+                string folderPath = selectedFolder.Path.LocalPath;
 
-            viewModel.SelectedModuleIndex = 3; // Подвкладка "Приложения (Код)"
+                Debug.WriteLine($"[MAINWINDOW] Выбрана папка: {folderPath}");
+
+                viewModel.StatusMessage = "Парсинг файлов...";
+
+                IReadOnlyList<CodeListing> listings = await viewModel.CodeParserService.ParseDirectoryAsync(folderPath);
+
+                viewModel.CodeListings.Clear();
+
+                foreach (CodeListing listing in listings)
+                {
+                    viewModel.CodeListings.Add(new CodeListingViewModel
+                    {
+                        Listing = listing,
+                        IsSelected = true
+                    });
+
+                    Debug.WriteLine($"[MAINWINDOW] Добавлен файл: {listing.RelativePath} ({listing.Language})");
+                }
+
+                viewModel.StatusMessage = $"Найдено файлов: {listings.Count}";
+                Debug.WriteLine($"[MAINWINDOW] Всего загружено: {listings.Count} файлов");
+
+                // Переключаемся на вкладку "Структура документа" -> "Приложения"
+                if (MainTabs != null)
+                {
+                    MainTabs.SelectedIndex = 1; // Вкладка "Структура документа"
+                }
+
+                viewModel.SelectedModuleIndex = 3; // Подвкладка "Приложения (Код)"
+            }
+            else
+            {
+                viewModel.StatusMessage = "Выбор папки отменён";
+            }
         }
-        else
+        catch (Exception ex)
         {
-            viewModel.StatusMessage = "Выбор папки отменён";
+            viewModel.StatusMessage = $"Ошибка парсинга: {ex.Message}";
+            Debug.WriteLine($"[MAINWINDOW] Ошибка парсинга: {ex}");
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
         }
     }
-    catch (Exception ex)
-    {
-        viewModel.StatusMessage = $"Ошибка парсинга: {ex.Message}";
-        Debug.WriteLine($"[MAINWINDOW] Ошибка парсинга: {ex}");
-    }
-    finally
-    {
-        viewModel.IsBusy = false;
-    }
-}
 
     private async Task<string?> ShowInputDialogAsync(string title, string message, string defaultText = "")
     {

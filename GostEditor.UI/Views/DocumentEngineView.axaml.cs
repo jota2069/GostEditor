@@ -179,7 +179,6 @@ public partial class DocumentEngineView : UserControl
         _renderController.ResetDocumentVisualState();
         _editor.LoadDocument(document);
         _renderController.RefreshView();
-        ContentChanged?.Invoke();
     }
 
     private async void OnTextInputAsync(object? sender, TextInputEventArgs e)
