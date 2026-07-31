@@ -365,6 +365,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnContentStartPageValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
+    {
+        if (MainEditor == null || e.NewValue is not decimal value)
+        {
+            return;
+        }
+
+        MainEditor.SetStartPageNumber(Math.Max(1, decimal.ToInt32(value)));
+    }
+
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
     {
         try

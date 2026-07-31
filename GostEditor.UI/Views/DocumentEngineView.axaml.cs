@@ -308,7 +308,11 @@ public partial class DocumentEngineView : UserControl
     public void AppendParagraphs(List<Paragraph> paragraphs) { _editor.AppendParagraphs(paragraphs); _renderController.RefreshView(); ContentChanged?.Invoke(); }
     public void InsertHeading(int level, string text) { _editor.InsertHeading(level, text); _renderController.RefreshView(); ContentChanged?.Invoke(); }
     public void ScrollToParagraph(int index) { _editor.ScrollToParagraph(index); _renderController.RefreshView(); _renderController.ScrollToCaret(); }
-    public void SetStartPageNumber(int pageNumber) => _renderController.RefreshView();
+    public void SetStartPageNumber(int pageNumber)
+    {
+        _editor.Document.Modules.ContentStartPage = Math.Max(1, pageNumber);
+        _renderController.RefreshView();
+    }
 
     public async Task PasteNormalizedFromClipboardAsync()
     {
