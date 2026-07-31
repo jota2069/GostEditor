@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.UI.Services;
 
 namespace GostEditor.UI.ViewModels;
 
@@ -25,9 +26,7 @@ public partial class MainWindowViewModel : ObservableObject
     public IExportService ExportService => _exportService;
     public ICodeParserService CodeParserService => _codeParserService;
 
-    [ObservableProperty]
-    private string _windowTitle = "GostEditor - Новый документ";
-
+    public DocumentSessionState Session { get; }
     [ObservableProperty]
     private bool _isBusy;
 
@@ -137,11 +136,24 @@ public partial class MainWindowViewModel : ObservableObject
 
     // === КОНСТРУКТОР ===
 
-    public MainWindowViewModel(IArchiveService archiveService, IExportService exportService, ICodeParserService codeParserService)
+    public MainWindowViewModel(
+        IArchiveService archiveService,
+        IExportService exportService,
+        ICodeParserService codeParserService,
+        DocumentSessionState session)
     {
-        _archiveService = archiveService ?? throw new ArgumentNullException(nameof(archiveService));
-        _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
-        _codeParserService = codeParserService ?? throw new ArgumentNullException(nameof(codeParserService));
+        _archiveService = archiveService
+            ?? throw new ArgumentNullException(nameof(archiveService));
+
+        _exportService = exportService
+            ?? throw new ArgumentNullException(nameof(exportService));
+
+        _codeParserService = codeParserService
+            ?? throw new ArgumentNullException(nameof(codeParserService));
+
+        Session = session
+            ?? throw new ArgumentNullException(nameof(session));
+
         _currentDocument = new GostDocument();
 
         Debug.WriteLine("[VM] MainWindowViewModel инициализирован");

@@ -31,6 +31,7 @@ public partial class App : Application
 
         // Регистрируем UI-специфичные сервисы.
         services.AddSingleton<DialogService>();
+        services.AddSingleton<DocumentSessionState>();
 
         services.AddTransient<MainWindowViewModel>();
 

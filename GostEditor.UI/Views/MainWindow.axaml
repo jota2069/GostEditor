@@ -8,7 +8,7 @@
         mc:Ignorable="d"
         x:Class="GostEditor.UI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="{Binding WindowTitle}"
+        Title="{Binding Session.WindowTitle}"
         MinWidth="1100" MinHeight="700"
         Background="#F0F2F5"
         WindowStartupLocation="CenterScreen">
@@ -450,7 +450,7 @@
 
             <TabItem Header="Редактор">
                 <Grid Background="{StaticResource BackgroundBrush}">
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer x:Name="EditorScrollViewer" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                         <LayoutTransformControl HorizontalAlignment="Center" Margin="40">
                             <LayoutTransformControl.LayoutTransform>
                                 <ScaleTransform ScaleX="{Binding ZoomLevel}" ScaleY="{Binding ZoomLevel}"/>
