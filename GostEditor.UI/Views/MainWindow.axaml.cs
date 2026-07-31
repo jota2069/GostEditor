@@ -4,25 +4,27 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
-using GostEditor.UI.ViewModels;
 using GostEditor.UI.Controllers;
+using GostEditor.UI.Services;
+using GostEditor.UI.ViewModels;
 
 namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
     private bool _isUpdatingUi;
+    private readonly AutoSaveService? _autoSaveService;
 
     public MainWindow()
         : this(new ImageService())
@@ -41,6 +43,18 @@ public partial class MainWindow : Window
         {
             MainEditor.CaretStyleChanged += MainEditor_CaretStyleChanged;
         }
+    }
+
+    public MainWindow(
+        IImageService imageService,
+        AutoSaveService autoSaveService)
+        : this(imageService)
+    {
+        _autoSaveService = autoSaveService
+            ?? throw new ArgumentNullException(nameof(autoSaveService));
+
+        _autoSaveService.Failed += OnAutoSaveFailed;
+        Closed += OnWindowClosed;
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -77,6 +91,9 @@ public partial class MainWindow : Window
             {
                 MainEditor.ContentChanged += OnEditorContentChanged;
             }
+
+            _autoSaveService?.Start(
+                () => SyncDocumentFromViewModel(viewModel));
         }
     }
 
@@ -89,6 +106,60 @@ public partial class MainWindow : Window
 
         viewModel.Session.MarkDirty();
         viewModel.SyncNavigation();
+    }
+
+    private void OnAutoSaveFailed(Exception exception)
+    {
+        Debug.WriteLine(
+            $"[AUTOSAVE] Ошибка автоматического сохранения: {exception}");
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        _autoSaveService.Stop();
+        _autoSaveService.Failed -= OnAutoSaveFailed;
+        Closed -= OnWindowClosed;
+    }
+
+    private async Task ClearAutoSaveRecoveryAsync()
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoSaveService.ClearRecoveryAsync();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[AUTOSAVE] Не удалось удалить аварийную копию: {exception}");
+        }
+    }
+
+    private async Task ResetAutoSaveRecoveryAsync()
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoSaveService.ResetAsync();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[AUTOSAVE] Не удалось сбросить аварийную копию: {exception}");
+        }
     }
 
     private GostDocument GetDocumentFromEditor()
@@ -428,6 +499,7 @@ public partial class MainWindow : Window
 
         e.Handled = true;
     }
+
     private void OnContentStartPageValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (MainEditor == null || e.NewValue is not decimal value)
@@ -511,6 +583,8 @@ public partial class MainWindow : Window
                 viewModel.SyncNavigation();
 
                 viewModel.Session.MarkOpened(filePath);
+                await ResetAutoSaveRecoveryAsync();
+
                 viewModel.StatusMessage = "Документ загружен";
             }
             else
@@ -585,6 +659,8 @@ public partial class MainWindow : Window
                 filePath,
                 DateTimeOffset.Now);
 
+            await ClearAutoSaveRecoveryAsync();
+
             viewModel.StatusMessage = "Документ сохранён";
         }
         catch (Exception ex)
@@ -598,7 +674,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
+    private async void OnNewDocumentClick(
+        object? sender,
+        RoutedEventArgs e)
     {
         if (DataContext is not MainWindowViewModel viewModel ||
             MainEditor is null)
@@ -612,6 +690,9 @@ public partial class MainWindow : Window
         MainEditor.LoadDocument(newDocument);
         viewModel.SyncNavigation();
         viewModel.Session.StartNew();
+
+        await ResetAutoSaveRecoveryAsync();
+
         viewModel.StatusMessage = "Создан новый документ";
     }
 

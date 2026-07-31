@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -7,13 +8,11 @@ using GostEditor.UI.Services;
 using GostEditor.UI.ViewModels;
 using GostEditor.UI.Views;
 using Microsoft.Extensions.DependencyInjection;
-using System;
 
 namespace GostEditor.UI;
 
 public partial class App : Application
 {
-    // Контейнер зависимостей для всего приложения.
     private ServiceProvider? _serviceProvider;
 
     public override void Initialize()
@@ -23,37 +22,52 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        // Собираем сервисы.
         ServiceCollection services = new ServiceCollection();
 
-        // Регистрируем всё из Core одной строкой (метод лида).
         services.AddGostEditorCore();
 
-        // Регистрируем UI-специфичные сервисы.
         services.AddSingleton<DialogService>();
         services.AddSingleton<DocumentSessionState>();
+        services.AddSingleton<RecoveryStorageService>();
+        services.AddSingleton<AutoSaveService>();
 
         services.AddTransient<MainWindowViewModel>();
 
-        _serviceProvider = services.BuildServiceProvider();
+        ServiceProvider serviceProvider =
+            services.BuildServiceProvider();
 
-        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        _serviceProvider = serviceProvider;
+
+        if (ApplicationLifetime is
+            IClassicDesktopStyleApplicationLifetime desktop)
         {
             MainWindow mainWindow = new MainWindow(
-                _serviceProvider.GetRequiredService<IImageService>())
+                serviceProvider.GetRequiredService<IImageService>(),
+                serviceProvider.GetRequiredService<AutoSaveService>())
             {
-                DataContext = _serviceProvider.GetRequiredService<MainWindowViewModel>()
+                DataContext =
+                    serviceProvider
+                        .GetRequiredService<MainWindowViewModel>()
             };
 
             desktop.MainWindow = mainWindow;
+            desktop.Exit += OnDesktopExit;
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    // Освобождаем ресурсы при закрытии.
-    public void Dispose()
+    private void OnDesktopExit(
+        object? sender,
+        ControlledApplicationLifetimeExitEventArgs e)
     {
+        if (sender is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Exit -= OnDesktopExit;
+        }
+
         _serviceProvider?.Dispose();
+        _serviceProvider = null;
     }
 }
+
