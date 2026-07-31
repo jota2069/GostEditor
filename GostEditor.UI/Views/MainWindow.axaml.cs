@@ -25,6 +25,7 @@ public partial class MainWindow : Window
 {
     private bool _isUpdatingUi;
     private readonly AutoSaveService? _autoSaveService;
+    private readonly RecoveryStorageService? _recoveryStorageService;
 
     public MainWindow()
         : this(new ImageService())
@@ -47,13 +48,18 @@ public partial class MainWindow : Window
 
     public MainWindow(
         IImageService imageService,
-        AutoSaveService autoSaveService)
+        AutoSaveService autoSaveService,
+        RecoveryStorageService recoveryStorageService)
         : this(imageService)
     {
         _autoSaveService = autoSaveService
             ?? throw new ArgumentNullException(nameof(autoSaveService));
 
+        _recoveryStorageService = recoveryStorageService
+            ?? throw new ArgumentNullException(nameof(recoveryStorageService));
+
         _autoSaveService.Failed += OnAutoSaveFailed;
+        Opened += OnWindowOpened;
         Closed += OnWindowClosed;
     }
 
@@ -92,9 +98,125 @@ public partial class MainWindow : Window
                 MainEditor.ContentChanged += OnEditorContentChanged;
             }
 
-            _autoSaveService?.Start(
-                () => SyncDocumentFromViewModel(viewModel));
         }
+    }
+
+    private async void OnWindowOpened(
+        object? sender,
+        EventArgs e)
+    {
+        Opened -= OnWindowOpened;
+        await HandleStartupRecoveryAsync();
+    }
+
+    private async Task HandleStartupRecoveryAsync()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        if (_autoSaveService is null ||
+            _recoveryStorageService is null)
+        {
+            return;
+        }
+
+        if (!_recoveryStorageService.HasRecovery)
+        {
+            StartAutoSave(viewModel);
+            return;
+        }
+
+        RecoveryMetadata? metadata = null;
+
+        try
+        {
+            metadata =
+                await _recoveryStorageService.LoadMetadataAsync();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[RECOVERY] Не удалось прочитать метаданные: {exception}");
+        }
+
+        RecoveryPromptDialog dialog = new(metadata);
+
+        RecoveryDecision decision =
+            await dialog.ShowDialog<RecoveryDecision>(this);
+
+        switch (decision)
+        {
+            case RecoveryDecision.Restore:
+                await RestoreRecoveryAsync(
+                    viewModel,
+                    metadata);
+                break;
+
+            case RecoveryDecision.Discard:
+                await ResetAutoSaveRecoveryAsync();
+                viewModel.Session.StartNew();
+                viewModel.StatusMessage =
+                    "Аварийная копия удалена";
+                StartAutoSave(viewModel);
+                break;
+
+            default:
+                Close();
+                break;
+        }
+    }
+
+    private async Task RestoreRecoveryAsync(
+        MainWindowViewModel viewModel,
+        RecoveryMetadata? metadata)
+    {
+        if (_recoveryStorageService is null ||
+            MainEditor is null)
+        {
+            return;
+        }
+
+        try
+        {
+            GostDocument recoveredDocument =
+                await _recoveryStorageService
+                    .LoadDocumentAsync();
+
+            viewModel.CurrentDocument =
+                recoveredDocument;
+
+            MainEditor.LoadDocument(
+                recoveredDocument);
+
+            viewModel.SyncNavigation();
+
+            viewModel.Session.MarkRecovered(
+                metadata?.OriginalFilePath);
+
+            viewModel.StatusMessage =
+                "Аварийная копия восстановлена";
+
+            StartAutoSave(viewModel);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[RECOVERY] Ошибка восстановления: {exception}");
+
+            viewModel.StatusMessage =
+                "Не удалось восстановить аварийную копию";
+
+            Close();
+        }
+    }
+
+    private void StartAutoSave(
+        MainWindowViewModel viewModel)
+    {
+        _autoSaveService?.Start(
+            () => SyncDocumentFromViewModel(viewModel));
     }
 
     private void OnEditorContentChanged()
@@ -123,6 +245,7 @@ public partial class MainWindow : Window
 
         _autoSaveService.Stop();
         _autoSaveService.Failed -= OnAutoSaveFailed;
+        Opened -= OnWindowOpened;
         Closed -= OnWindowClosed;
     }
 

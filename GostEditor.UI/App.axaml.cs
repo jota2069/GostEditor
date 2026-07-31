@@ -43,7 +43,8 @@ public partial class App : Application
         {
             MainWindow mainWindow = new MainWindow(
                 serviceProvider.GetRequiredService<IImageService>(),
-                serviceProvider.GetRequiredService<AutoSaveService>())
+                serviceProvider.GetRequiredService<AutoSaveService>(),
+                serviceProvider.GetRequiredService<RecoveryStorageService>())
             {
                 DataContext =
                     serviceProvider
@@ -70,4 +71,3 @@ public partial class App : Application
         _serviceProvider = null;
     }
 }
-
