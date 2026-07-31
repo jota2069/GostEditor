@@ -272,7 +272,17 @@ public partial class DocumentEngineView : UserControl
         menu.Open(target);
     }
 
-    public async Task InsertImageFromFileAsync() { if (TopLevel.GetTopLevel(this) is { } tl) { await _imageController.InsertImageFromFileAsync(tl); ContentChanged?.Invoke(); } }
+    public async Task InsertImageFromFileAsync()
+    {
+        if (TopLevel.GetTopLevel(this) is not { } topLevel)
+        {
+            return;
+        }
+
+        await _imageController.InsertImageFromFileAsync(topLevel);
+        ContentChanged?.Invoke();
+        Focus();
+    }
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) await cb.SetTextAsync(_editor.GetSelectedText()); }
     private async void OnCutClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) { await cb.SetTextAsync(_editor.GetSelectedText()); _editor.DeleteSelection(); _renderController.RefreshView(); ContentChanged?.Invoke(); } }

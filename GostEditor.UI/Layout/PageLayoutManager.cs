@@ -82,7 +82,7 @@ public class PageLayoutManager
             if (paragraph.IsImage)
             {
                 prefixString = hasImageCaption
-                    ? $"Рисунок {figureCounter} — "
+                    ? $"Рисунок {figureCounter} - "
                     : $"Рисунок {figureCounter}";
                 figureCounter++;
                 prefixCharsCount = prefixString.Length;
