@@ -17,10 +17,23 @@ public class CommandManager
     public void ExecuteCommand(IEditorCommand command)
     {
         command.Execute();
-        _undoStack.Push(command);
+        RecordExecutedCommand(command);
+    }
 
-        // Сбрасываем ветку повторов при новом действии
-        _redoStack.Clear();
+    /// <summary>
+    /// Executes a command and records it only when the completed operation
+    /// reports a meaningful state change.
+    /// </summary>
+    public bool TryExecuteCommand(IEditorCommand command, Func<bool> shouldRecord)
+    {
+        command.Execute();
+        if (!shouldRecord())
+        {
+            return false;
+        }
+
+        RecordExecutedCommand(command);
+        return true;
     }
 
     /// <summary>
@@ -55,6 +68,14 @@ public class CommandManager
     public void Clear()
     {
         _undoStack.Clear();
+        _redoStack.Clear();
+    }
+
+    private void RecordExecutedCommand(IEditorCommand command)
+    {
+        _undoStack.Push(command);
+
+        // Сбрасываем ветку повторов при новом действии
         _redoStack.Clear();
     }
 }

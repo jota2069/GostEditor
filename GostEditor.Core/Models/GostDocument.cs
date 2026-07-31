@@ -20,13 +20,17 @@ public class DocumentModules
 
 public class GostDocument
 {
+    private readonly List<ImageAttachment> _images = new List<ImageAttachment>();
+
     public TitlePageInfo TitlePage { get; set; } = new TitlePageInfo();
     public List<Paragraph> Paragraphs { get; set; } = new List<Paragraph>();
     public List<CodeListing> CodeListings { get; set; } = new List<CodeListing>();
-    public List<ImageAttachment> Images { get; set; } = new List<ImageAttachment>();
+    public IReadOnlyList<ImageAttachment> Images => _images;
     public List<BibliographySource> BibliographySources { get; set; } = new List<BibliographySource>();
     public DocumentModules Modules { get; set; } = new DocumentModules();
     public DocumentCounters Counters { get; set; } = new DocumentCounters();
+
+    internal List<ImageAttachment> MutableImages => _images;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedAt { get; set; } = DateTime.UtcNow;
@@ -75,15 +79,6 @@ public class CodeListing
     public bool IsSelected { get; set; } = true;
     public int Order { get; set; }
     public int ListingNumber { get; set; }
-}
-
-public class ImageAttachment
-{
-    public Guid Id { get; set; } = Guid.NewGuid();
-    public string FileName { get; set; } = string.Empty;
-    public byte[] Data { get; set; } = Array.Empty<byte>();
-    public string Caption { get; set; } = string.Empty;
-    public int Order { get; set; }
 }
 
 public class BibliographySource

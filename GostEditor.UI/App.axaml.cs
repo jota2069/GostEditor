@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using GostEditor.Core;
+using GostEditor.Core.Interfaces;
 using GostEditor.UI.Services;
 using GostEditor.UI.ViewModels;
 using GostEditor.UI.Views;
@@ -37,7 +38,8 @@ public partial class App : Application
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            MainWindow mainWindow = new MainWindow
+            MainWindow mainWindow = new MainWindow(
+                _serviceProvider.GetRequiredService<IImageService>())
             {
                 DataContext = _serviceProvider.GetRequiredService<MainWindowViewModel>()
             };

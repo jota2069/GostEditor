@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.Models;
 
 namespace GostEditor.Core.TextEngine.Commands;
 
@@ -10,13 +11,8 @@ public class SnapshotCommand : IEditorCommand
     private readonly DocumentEditor _editor;
     private readonly Action _action;
 
-    private List<Paragraph> _oldParagraphs = new List<Paragraph>();
-    private DocumentPosition _oldCaret;
-    private DocumentPosition? _oldSelection;
-
-    private List<Paragraph> _newParagraphs = new List<Paragraph>();
-    private DocumentPosition _newCaret;
-    private DocumentPosition? _newSelection;
+    private DocumentSnapshot _oldState = new DocumentSnapshot();
+    private DocumentSnapshot _newState = new DocumentSnapshot();
 
     private bool _isFirstExecution = true;
 
@@ -30,43 +26,56 @@ public class SnapshotCommand : IEditorCommand
     {
         if (_isFirstExecution)
         {
-            _oldParagraphs = CloneDocument(_editor.Document.Paragraphs);
-            _oldCaret = _editor.CaretPosition;
-            _oldSelection = _editor.SelectionAnchor;
+            _oldState = CaptureState();
 
             _action.Invoke();
 
-            _newParagraphs = CloneDocument(_editor.Document.Paragraphs);
-            _newCaret = _editor.CaretPosition;
-            _newSelection = _editor.SelectionAnchor;
+            _newState = CaptureState();
 
             _isFirstExecution = false;
         }
         else
         {
-            RestoreState(_newParagraphs, _newCaret, _newSelection);
+            RestoreState(_newState);
         }
     }
 
     public void Undo()
     {
-        RestoreState(_oldParagraphs, _oldCaret, _oldSelection);
+        RestoreState(_oldState);
     }
 
-    private void RestoreState(List<Paragraph> paragraphs, DocumentPosition caret, DocumentPosition? selection)
+    private DocumentSnapshot CaptureState()
+    {
+        return new DocumentSnapshot
+        {
+            Paragraphs = CloneParagraphs(_editor.Document.Paragraphs),
+            Images = new List<ImageAttachment>(_editor.Document.Images),
+            Caret = _editor.CaretPosition,
+            Selection = _editor.SelectionAnchor,
+            SelectedImageParagraphIndex = _editor.SelectedImageParagraphIndex,
+            ImagesCount = _editor.Document.Counters.ImagesCount
+        };
+    }
+
+    private void RestoreState(DocumentSnapshot state)
     {
         _editor.Document.Paragraphs.Clear();
 
-        foreach (Paragraph p in CloneDocument(paragraphs))
+        foreach (Paragraph p in CloneParagraphs(state.Paragraphs))
         {
             _editor.Document.Paragraphs.Add(p);
         }
 
-        _editor.CaretPosition = caret;
-        _editor.SelectionAnchor = selection;
+        _editor.Document.MutableImages.Clear();
+        _editor.Document.MutableImages.AddRange(state.Images);
+        _editor.Document.Counters.ImagesCount = state.ImagesCount;
+        _editor.CaretPosition = state.Caret;
+        _editor.SelectionAnchor = state.Selection;
+        _editor.SelectedImageParagraphIndex = state.SelectedImageParagraphIndex;
     }
 
-    private List<Paragraph> CloneDocument(List<Paragraph> source)
+    private static List<Paragraph> CloneParagraphs(List<Paragraph> source)
     {
         List<Paragraph> list = new List<Paragraph>(source.Count);
 
@@ -79,7 +88,7 @@ public class SnapshotCommand : IEditorCommand
                 LineSpacing = p.LineSpacing,
                 Style = p.Style,
                 PageBreakBefore = p.PageBreakBefore,
-                ImageData = p.ImageData,
+                ImageId = p.ImageId,
                 ImageWidth = p.ImageWidth,
                 ImageHeight = p.ImageHeight
             };
@@ -97,5 +106,15 @@ public class SnapshotCommand : IEditorCommand
         }
 
         return list;
+    }
+
+    private sealed class DocumentSnapshot
+    {
+        public List<Paragraph> Paragraphs { get; init; } = new List<Paragraph>();
+        public List<ImageAttachment> Images { get; init; } = new List<ImageAttachment>();
+        public DocumentPosition Caret { get; init; }
+        public DocumentPosition? Selection { get; init; }
+        public int? SelectedImageParagraphIndex { get; init; }
+        public int ImagesCount { get; init; }
     }
 }

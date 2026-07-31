@@ -6,8 +6,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using SkiaSharp;
 using Xceed.Document.NET;
 using Xceed.Words.NET;
+using XceedColor = Xceed.Drawing.Color;
 
 namespace GostEditor.Core.Services;
 
@@ -17,10 +19,26 @@ public class ExportService : IExportService
     private const double GlobalFontSize = 14D;
     private const float ParagraphIndentCm = 1.25f;
     private const float CmToPoints = 28.35f; // 1 см = 28.35 пунктов
+    private const double DipToPoints = 72D / 96D;
 
-    public async Task ExportToDocxAsync(GostDocument document, string outputPath)
+    private readonly IImageService _imageService;
+
+    public ExportService()
+        : this(new ImageService())
     {
-        await Task.Run(() => BuildDocument(document, outputPath));
+    }
+
+    public ExportService(IImageService imageService)
+    {
+        _imageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
+    }
+
+    public Task ExportToDocxAsync(GostDocument document, string outputPath)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+
+        return Task.Run(() => BuildDocument(document, outputPath));
     }
 
     private void BuildDocument(GostDocument document, string outputPath)
@@ -38,7 +56,7 @@ public class ExportService : IExportService
             if (document.Modules.HasTitlePage) AddTitlePage(doc, document.TitlePage);
             if (document.Modules.HasTableOfContents) AddTableOfContents(doc, document.Modules.TOCMaxLevel);
 
-            AddBody(doc, document.Paragraphs);
+            AddBody(doc, document);
 
             if (document.Modules.HasBibliography)
             {
@@ -132,15 +150,35 @@ public class ExportService : IExportService
         doc.InsertParagraph().InsertPageBreakAfterSelf();
     }
 
-    private void AddBody(DocX doc, List<GostEditor.Core.TextEngine.DOM.Paragraph> paragraphs)
+    private void AddBody(DocX doc, GostDocument document)
     {
         int figureCounter = 1;
 
-        foreach (GostEditor.Core.TextEngine.DOM.Paragraph engineParagraph in paragraphs)
+        for (int paragraphIndex = 0;
+             paragraphIndex < document.Paragraphs.Count;
+             paragraphIndex++)
         {
-            if (engineParagraph.ImageData is { Length: > 0 })
+            GostEditor.Core.TextEngine.DOM.Paragraph engineParagraph =
+                document.Paragraphs[paragraphIndex];
+
+            if (engineParagraph.ImageId.HasValue)
             {
-                InsertImage(doc, engineParagraph, ref figureCounter);
+                ImageResult<ResolvedImagePlacement> resolved =
+                    _imageService.ResolvePlacement(document, paragraphIndex);
+                if (!resolved.IsSuccess)
+                {
+                    throw CreateImageResolutionException(
+                        paragraphIndex,
+                        engineParagraph.ImageId.Value,
+                        resolved.Error);
+                }
+
+                InsertImage(
+                    doc,
+                    engineParagraph,
+                    resolved.Value!,
+                    figureCounter);
+                figureCounter++;
                 continue;
             }
 
@@ -166,25 +204,130 @@ public class ExportService : IExportService
         }
     }
 
-    private void InsertImage(DocX doc, GostEditor.Core.TextEngine.DOM.Paragraph enginePara, ref int counter)
+    private static void InsertImage(
+        DocX doc,
+        GostEditor.Core.TextEngine.DOM.Paragraph engineParagraph,
+        ResolvedImagePlacement image,
+        int figureNumber)
     {
+        int width = ConvertDipToDocxPoints(
+            image.Size.Width,
+            "ширина",
+            image,
+            figureNumber);
+        int height = ConvertDipToDocxPoints(
+            image.Size.Height,
+            "высота",
+            image,
+            figureNumber);
+
+        Picture picture;
         try
         {
-            using MemoryStream ms = new MemoryStream(enginePara.ImageData!);
+            using MemoryStream ms = new MemoryStream(image.Content.Data.ToArray());
             Image img = doc.AddImage(ms);
-            Picture pic = img.CreatePicture();
-            pic.Width = enginePara.ImageWidth > 0 ? (int)enginePara.ImageWidth : 450;
-            pic.Height = enginePara.ImageHeight > 0 ? (int)enginePara.ImageHeight : 300;
-
-            doc.InsertParagraph().AppendPicture(pic).Alignment = Alignment.center;
-            doc.InsertParagraph($"Рисунок {counter++} — Подпись").Font(new Font(GlobalFontName)).FontSize(12D).Alignment = Alignment.center;
+            picture = img.CreatePicture();
+            picture.Width = width;
+            picture.Height = height;
         }
         catch (Exception ex)
         {
             throw new InvalidDataException(
-                $"Не удалось экспортировать изображение {counter}.",
+                $"Не удалось экспортировать рисунок {figureNumber} " +
+                $"из абзаца {image.ParagraphIndex} " +
+                $"(ImageId={image.ImageId}): данные изображения повреждены " +
+                "или имеют неподдерживаемый формат.",
                 ex);
         }
+
+        doc.InsertParagraph()
+            .AppendPicture(picture)
+            .Alignment = Alignment.center;
+        Paragraph captionParagraph = doc.InsertParagraph();
+        captionParagraph.Alignment = Alignment.center;
+        captionParagraph
+            .Append($"Рисунок {figureNumber}")
+            .Font(new Font(GlobalFontName))
+            .FontSize(12D);
+
+        if (!string.IsNullOrWhiteSpace(engineParagraph.GetPlainText()))
+        {
+            captionParagraph
+                .Append(" — ")
+                .Font(new Font(GlobalFontName))
+                .FontSize(12D);
+
+            foreach (GostEditor.Core.TextEngine.DOM.TextRun run in engineParagraph.Runs)
+            {
+                if (string.IsNullOrEmpty(run.Text))
+                {
+                    continue;
+                }
+
+                Formatting formatting = new Formatting
+                {
+                    FontFamily = new Font(GlobalFontName),
+                    Size = run.FontSize > 0 ? run.FontSize : 12D,
+                    FontColor = ToDrawingColor(run.Color),
+                    Bold = run.IsBold,
+                    Italic = run.IsItalic
+                };
+                captionParagraph.Append(run.Text, formatting);
+            }
+        }
+    }
+
+    private static int ConvertDipToDocxPoints(
+        double value,
+        string dimensionName,
+        ResolvedImagePlacement image,
+        int figureNumber)
+    {
+        try
+        {
+            int points = checked((int)Math.Round(
+                value * DipToPoints,
+                MidpointRounding.AwayFromZero));
+            if (points <= 0)
+            {
+                throw new OverflowException();
+            }
+
+            return points;
+        }
+        catch (OverflowException ex)
+        {
+            throw new InvalidDataException(
+                $"Не удалось экспортировать рисунок {figureNumber} " +
+                $"из абзаца {image.ParagraphIndex} " +
+                $"(ImageId={image.ImageId}): {dimensionName} {value} DIP " +
+                "не может быть представлена в DOCX.",
+                ex);
+        }
+    }
+
+    private static InvalidDataException CreateImageResolutionException(
+        int paragraphIndex,
+        Guid imageId,
+        ImageError? error)
+    {
+        string details = error is null
+            ? "сервис изображений не вернул ни результат, ни описание ошибки"
+            : $"{error.Code}: {error.Message}";
+
+        return new InvalidDataException(
+            $"Не удалось получить изображение из абзаца {paragraphIndex} " +
+            $"(ImageId={imageId}) для экспорта: {details}.");
+    }
+
+    private static XceedColor ToDrawingColor(uint argb)
+    {
+        return new XceedColor(
+            new SKColor(
+                (byte)(argb >> 16),
+                (byte)(argb >> 8),
+                (byte)argb,
+                (byte)(argb >> 24)));
     }
 
     private void AddCodeListings(DocX doc, List<CodeListing> listings)

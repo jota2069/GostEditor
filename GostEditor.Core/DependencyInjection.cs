@@ -14,6 +14,7 @@ public static class DependencyInjection
         services.AddSingleton<IValidationService, ValidationService>();
         services.AddSingleton<ITextNormalizerService, TextNormalizerService>();
         services.AddSingleton<ICodeParserService, CodeParserService>(); // ← УБЕДИСЬ ЧТО ЕСТЬ
+        services.AddSingleton<IImageService, ImageService>();
 
         return services;
     }

@@ -101,12 +101,7 @@ public class TextInputController
             case Key.Delete:
                 if (_editor.SelectedImageParagraphIndex.HasValue)
                 {
-                    _editor.ExecuteWithSnapshot(() =>
-                    {
-                        if (_editor.Document != null && _editor.SelectedImageParagraphIndex.Value < _editor.Document.Paragraphs.Count)
-                            _editor.Document.Paragraphs.RemoveAt(_editor.SelectedImageParagraphIndex.Value);
-                        _editor.ClearSelection();
-                    });
+                    _editor.RemoveImage(_editor.SelectedImageParagraphIndex.Value);
                 }
                 else if (_editor.HasSelection)
                 {

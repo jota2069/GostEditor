@@ -8,6 +8,7 @@ using GostEditor.UI.Layout;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace GostEditor.UI.Controls;
 
@@ -26,8 +27,8 @@ public class GostPageControl : Control
     // Временные координаты рамки во время перетаскивания
     public Rect? TempResizeBounds { get; set; }
 
-    // ИСПРАВЛЕНИЕ: Используем кастомный компаратор для правильного кеширования байтов
-    private readonly Dictionary<byte[], Bitmap> _imageCache = new Dictionary<byte[], Bitmap>(new ByteArrayEqualityComparer());
+    private readonly Dictionary<Guid, Bitmap> _imageCache = new Dictionary<Guid, Bitmap>();
+    private readonly HashSet<Guid> _invalidImageIds = new HashSet<Guid>();
 
     public event EventHandler<Point>? PageClicked;
 
@@ -42,6 +43,32 @@ public class GostPageControl : Control
         _caretTimer.Start();
     }
 
+    public void ClearImageCache()
+    {
+        foreach (Bitmap bitmap in _imageCache.Values)
+        {
+            bitmap.Dispose();
+        }
+
+        _imageCache.Clear();
+        _invalidImageIds.Clear();
+    }
+
+    protected override void OnAttachedToVisualTree(
+        VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        _caretTimer.Start();
+    }
+
+    protected override void OnDetachedFromVisualTree(
+        VisualTreeAttachmentEventArgs e)
+    {
+        _caretTimer.Stop();
+        ClearImageCache();
+        base.OnDetachedFromVisualTree(e);
+    }
+
     public void SetPageData(RenderedPage page, double width, double height, int startPageNumber, int? selectedImageIndex = null)
     {
         _pageToRender = page;
@@ -49,6 +76,14 @@ public class GostPageControl : Control
         _pageHeight = height;
         _startPageNumber = startPageNumber;
         _selectedImageParagraphIndex = selectedImageIndex;
+
+        HashSet<Guid> activeImageIds = page.Images.Select(image => image.ImageId).ToHashSet();
+        foreach (Guid imageId in _imageCache.Keys.Where(imageId => !activeImageIds.Contains(imageId)).ToList())
+        {
+            _imageCache[imageId].Dispose();
+            _imageCache.Remove(imageId);
+            _invalidImageIds.Remove(imageId);
+        }
 
         // Сбрасываем призрачную рамку при пересчете документа
         TempResizeBounds = null;
@@ -84,58 +119,40 @@ public class GostPageControl : Control
         {
             foreach (ImagePlacement img in _pageToRender.Images)
             {
-                byte[] imageBytes = (byte[])img.ImageData;
-
-                if (!_imageCache.TryGetValue(imageBytes, out Bitmap? bmp))
+                Bitmap? bmp = null;
+                if (img.HasContent && !_invalidImageIds.Contains(img.ImageId) &&
+                    !_imageCache.TryGetValue(img.ImageId, out bmp))
                 {
-                    using MemoryStream ms = new MemoryStream(imageBytes);
-                    bmp = new Bitmap(ms);
-                    _imageCache[imageBytes] = bmp;
+                    try
+                    {
+                        using MemoryStream ms = new MemoryStream(img.ImageBytes.ToArray());
+                        bmp = new Bitmap(ms);
+                        _imageCache[img.ImageId] = bmp;
+                    }
+                    catch
+                    {
+                        _invalidImageIds.Add(img.ImageId);
+                    }
                 }
+
+                bool isResizingThisImage = _selectedImageParagraphIndex.HasValue &&
+                                           img.ParagraphIndex == _selectedImageParagraphIndex.Value &&
+                                           TempResizeBounds.HasValue;
+                Rect drawBounds = isResizingThisImage ? TempResizeBounds!.Value : img.Bounds;
 
                 if (bmp != null)
                 {
-                    // ЛОГИКА ПРИЗРАЧНОЙ РАМКИ:
-                    // Если картинка выделена и мы её тянем, рисуем её по временным координатам
-                    bool isResizingThisImage = _selectedImageParagraphIndex.HasValue &&
-                                               img.ParagraphIndex == _selectedImageParagraphIndex.Value &&
-                                               TempResizeBounds.HasValue;
-
-                    Rect drawBounds = isResizingThisImage ? TempResizeBounds!.Value : img.Bounds;
-
-                    // Отрисовка самой картинки (видеокарта сама мгновенно её растянет)
                     context.DrawImage(bmp, drawBounds);
+                }
+                else
+                {
+                    DrawMissingImagePlaceholder(context, drawBounds);
+                }
 
-                    // Отрисовка синей рамки выделения поверх картинки
-                    if (_selectedImageParagraphIndex.HasValue && img.ParagraphIndex == _selectedImageParagraphIndex.Value)
-                    {
-                        Pen borderPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1.5);
-                        context.DrawRectangle(null, borderPen, drawBounds);
-
-                        double markerSize = 8.0;
-                        double halfSize = markerSize / 2.0;
-                        ISolidColorBrush markerFill = Brushes.White;
-                        Pen markerPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1);
-
-                        Point[] markerCenters = new Point[]
-                        {
-                            new Point(drawBounds.Left, drawBounds.Top),
-                            new Point(drawBounds.Center.X, drawBounds.Top),
-                            new Point(drawBounds.Right, drawBounds.Top),
-                            new Point(drawBounds.Right, drawBounds.Center.Y),
-                            new Point(drawBounds.Right, drawBounds.Bottom),
-                            new Point(drawBounds.Center.X, drawBounds.Bottom),
-                            new Point(drawBounds.Left, drawBounds.Bottom),
-                            new Point(drawBounds.Left, drawBounds.Center.Y)
-                        };
-
-                        foreach (Point center in markerCenters)
-                        {
-                            Rect markerRect = new Rect(center.X - halfSize, center.Y - halfSize, markerSize, markerSize);
-                            context.FillRectangle(markerFill, markerRect);
-                            context.DrawRectangle(markerPen, markerRect);
-                        }
-                    }
+                if (_selectedImageParagraphIndex.HasValue &&
+                    img.ParagraphIndex == _selectedImageParagraphIndex.Value)
+                {
+                    DrawImageSelection(context, drawBounds);
                 }
             }
         }
@@ -178,45 +195,50 @@ public class GostPageControl : Control
         PageClicked?.Invoke(this, e.GetPosition(this));
     }
 
-    /// <summary>
-    /// Кастомный компаратор для сравнения массивов байт по их содержимому, а не по ссылке.
-    /// Используется для эффективного кеширования изображений.
-    /// </summary>
-    private sealed class ByteArrayEqualityComparer : IEqualityComparer<byte[]>
+    private static void DrawMissingImagePlaceholder(DrawingContext context, Rect bounds)
     {
-        public bool Equals(byte[]? x, byte[]? y)
+        Rect safeBounds = bounds.Width > 0 && bounds.Height > 0
+            ? bounds
+            : new Rect(bounds.X, bounds.Y, 450, 300);
+        Pen borderPen = new Pen(Brushes.Gray, 1.5);
+
+        context.FillRectangle(Brushes.LightGray, safeBounds);
+        context.DrawRectangle(null, borderPen, safeBounds);
+        context.DrawLine(borderPen, safeBounds.TopLeft, safeBounds.BottomRight);
+        context.DrawLine(borderPen, safeBounds.TopRight, safeBounds.BottomLeft);
+    }
+
+    private static void DrawImageSelection(DrawingContext context, Rect bounds)
+    {
+        Pen borderPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1.5);
+        context.DrawRectangle(null, borderPen, bounds);
+
+        const double markerSize = 8.0;
+        const double halfSize = markerSize / 2.0;
+        ISolidColorBrush markerFill = Brushes.White;
+        Pen markerPen = new Pen(new SolidColorBrush(Color.Parse("#1565C0")), 1);
+
+        Point[] markerCenters =
+        [
+            new Point(bounds.Left, bounds.Top),
+            new Point(bounds.Center.X, bounds.Top),
+            new Point(bounds.Right, bounds.Top),
+            new Point(bounds.Right, bounds.Center.Y),
+            new Point(bounds.Right, bounds.Bottom),
+            new Point(bounds.Center.X, bounds.Bottom),
+            new Point(bounds.Left, bounds.Bottom),
+            new Point(bounds.Left, bounds.Center.Y)
+        ];
+
+        foreach (Point center in markerCenters)
         {
-            if (ReferenceEquals(x, y)) return true;
-            if (x is null || y is null) return false;
-            if (x.Length != y.Length) return false;
-
-            for (int i = 0; i < x.Length; i++)
-            {
-                if (x[i] != y[i]) return false;
-            }
-
-            return true;
-        }
-
-        public int GetHashCode(byte[] obj)
-        {
-            if (obj is null || obj.Length == 0) return 0;
-
-            // FNV-1a hash для производительности
-            unchecked
-            {
-                const int p = 16777619;
-                int hash = (int)2166136261;
-
-                // Хешируем первые 8 байт для скорости (этого достаточно для уникальности начала файла)
-                int limit = Math.Min(8, obj.Length);
-                for (int i = 0; i < limit; i++)
-                {
-                    hash = (hash ^ obj[i]) * p;
-                }
-
-                return hash;
-            }
+            Rect markerRect = new Rect(
+                center.X - halfSize,
+                center.Y - halfSize,
+                markerSize,
+                markerSize);
+            context.FillRectangle(markerFill, markerRect);
+            context.DrawRectangle(markerPen, markerRect);
         }
     }
 }

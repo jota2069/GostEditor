@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GostEditor.Core\GostEditor.Core.csproj" />
+    <ProjectReference Include="..\GostEditor.UI\GostEditor.UI.csproj" />
   </ItemGroup>
 
 </Project>

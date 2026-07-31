@@ -12,6 +12,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
+using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine;
@@ -23,13 +24,15 @@ namespace GostEditor.UI.Views;
 
 public partial class DocumentEngineView : UserControl
 {
-    private readonly DocumentEditor _editor;
-    private readonly RenderController _renderController;
-    private readonly TextInputController _textInputController;
-    private readonly SelectionController _selectionController;
-    private readonly MouseController _mouseController;
-    private readonly ImageController _imageController;
-    private readonly PageLayoutManager _layoutManager;
+    private DocumentEditor _editor = null!;
+    private RenderController _renderController = null!;
+    private TextInputController _textInputController = null!;
+    private SelectionController _selectionController = null!;
+    private MouseController _mouseController = null!;
+    private ImageController _imageController = null!;
+    private PageLayoutManager _layoutManager = null!;
+    private IImageService _imageService = null!;
+    private bool _isConfigured;
 
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
     public event Action? ContentChanged;
@@ -39,9 +42,25 @@ public partial class DocumentEngineView : UserControl
     public DocumentEngineView()
     {
         InitializeComponent();
+    }
 
-        _editor = new DocumentEditor(new GostDocument());
-        _layoutManager = new PageLayoutManager();
+    public void ConfigureImageService(IImageService imageService)
+    {
+        ArgumentNullException.ThrowIfNull(imageService);
+        if (_isConfigured)
+        {
+            if (!ReferenceEquals(_imageService, imageService))
+            {
+                throw new InvalidOperationException(
+                    "DocumentEngineView уже настроен с другим IImageService.");
+            }
+
+            return;
+        }
+
+        _imageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
+        _editor = new DocumentEditor(new GostDocument(), _imageService);
+        _layoutManager = new PageLayoutManager(_imageService);
         Typeface defaultTypeface = new Typeface("Times New Roman");
 
         _renderController = new RenderController(_editor, _layoutManager, defaultTypeface);
@@ -51,6 +70,7 @@ public partial class DocumentEngineView : UserControl
         _imageController = new ImageController(_editor, _renderController, _layoutManager);
 
         _renderController.CaretStyleChanged += (s, e) => CaretStyleChanged?.Invoke(this, e);
+        _isConfigured = true;
 
         AddHandler(ContextRequestedEvent, (s, e) => e.Handled = true, RoutingStrategies.Tunnel);
         AddHandler(PointerPressedEvent, OnGlobalPointerPressed, RoutingStrategies.Tunnel);
@@ -58,12 +78,18 @@ public partial class DocumentEngineView : UserControl
         AddHandler(PointerReleasedEvent, OnGlobalPointerReleased, RoutingStrategies.Tunnel);
         AddHandler(TextInputEvent, OnTextInputAsync, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnKeyDownAsync, RoutingStrategies.Tunnel);
+
+        if (this.FindControl<StackPanel>("PagesStackPanel") is { } pagesPanel)
+        {
+            _renderController.AttachUi(pagesPanel);
+        }
     }
 
     protected override void OnApplyTemplate(TemplateAppliedEventArgs e)
     {
         base.OnApplyTemplate(e);
-        if (this.FindControl<StackPanel>("PagesStackPanel") is { } pagesPanel)
+        if (_isConfigured &&
+            this.FindControl<StackPanel>("PagesStackPanel") is { } pagesPanel)
             _renderController.AttachUi(pagesPanel);
     }
 
@@ -148,7 +174,13 @@ public partial class DocumentEngineView : UserControl
         e.Pointer.Capture(null);
     }
 
-    public void LoadDocument(GostDocument document) { _editor.LoadDocument(document); _renderController.RefreshView(); ContentChanged?.Invoke(); }
+    public void LoadDocument(GostDocument document)
+    {
+        _renderController.ResetDocumentVisualState();
+        _editor.LoadDocument(document);
+        _renderController.RefreshView();
+        ContentChanged?.Invoke();
+    }
 
     private async void OnTextInputAsync(object? sender, TextInputEventArgs e)
     {
@@ -194,23 +226,34 @@ public partial class DocumentEngineView : UserControl
             {
                 if (TopLevel.GetTopLevel(this) is not Window mainWindow) return;
 
-                Paragraph p = _editor.Document.Paragraphs[pIndex];
-                if (p.ImageData == null) return;
+                ImageResult<ResolvedImagePlacement> resolved =
+                    _imageService.ResolvePlacement(_editor.Document, pIndex);
+                if (!resolved.IsSuccess) return;
 
                 ImageEditorWindow editorWindow = new ImageEditorWindow();
-                byte[]? newImageBytes = await editorWindow.ShowDialogAsync(mainWindow, p.ImageData);
+                byte[]? newImageBytes = await editorWindow.ShowDialogAsync(
+                    mainWindow,
+                    resolved.Value!.Content.Data.ToArray());
 
                 if (newImageBytes != null)
                 {
                     using MemoryStream ms = new MemoryStream(newImageBytes);
                     using Bitmap bmp = new Bitmap(ms);
-                    _editor.ExecuteWithSnapshot(() => { p.ImageData = newImageBytes; p.ImageWidth = bmp.Size.Width; p.ImageHeight = bmp.Size.Height; });
+                    _editor.ReplaceImage(
+                        pIndex,
+                        new ReplaceImageRequest(
+                            newImageBytes,
+                            new ImageSize(bmp.Size.Width, bmp.Size.Height)));
                     _renderController.RefreshView();
                 }
             };
 
             MenuItem deleteItem = new MenuItem { Header = "Удалить" };
-            deleteItem.Click += (_, _) => { _editor.ExecuteWithSnapshot(() => _editor.Document.Paragraphs.RemoveAt(pIndex)); _editor.SelectedImageParagraphIndex = null; _renderController.RefreshView(); };
+            deleteItem.Click += (_, _) =>
+            {
+                _editor.RemoveImage(pIndex);
+                _renderController.RefreshView();
+            };
 
             items.Add(copyItem); items.Add(replaceItem); items.Add(cutItem); items.Add(editItem); items.Add(deleteItem);
         }

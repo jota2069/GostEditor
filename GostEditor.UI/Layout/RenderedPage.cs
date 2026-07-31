@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Media.TextFormatting;
@@ -30,13 +31,22 @@ public class DocumentHitResult
 // Класс для хранения данных о расположении картинки на листе
 public class ImagePlacement
 {
-    public byte[] ImageData { get; set; }
-    public Rect Bounds { get; set; }
-    public int ParagraphIndex { get; set; } // ИСПРАВЛЕНИЕ: Добавили индекс абзаца
+    public Guid ImageId { get; }
+    public ReadOnlyMemory<byte> ImageBytes { get; }
+    public bool HasContent { get; }
+    public Rect Bounds { get; }
+    public int ParagraphIndex { get; }
 
-    public ImagePlacement(byte[] data, Rect bounds, int paragraphIndex)
+    public ImagePlacement(
+        Guid imageId,
+        ReadOnlyMemory<byte> imageBytes,
+        bool hasContent,
+        Rect bounds,
+        int paragraphIndex)
     {
-        ImageData = data;
+        ImageId = imageId;
+        ImageBytes = imageBytes;
+        HasContent = hasContent;
         Bounds = bounds;
         ParagraphIndex = paragraphIndex;
     }

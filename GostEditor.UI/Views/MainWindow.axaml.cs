@@ -12,6 +12,7 @@ using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.ViewModels;
 using GostEditor.UI.Controllers;
@@ -23,8 +24,15 @@ public partial class MainWindow : Window
     private bool _isUpdatingUi;
 
     public MainWindow()
+        : this(new ImageService())
     {
+    }
+
+    public MainWindow(IImageService imageService)
+    {
+        ArgumentNullException.ThrowIfNull(imageService);
         InitializeComponent();
+        MainEditor?.ConfigureImageService(imageService);
         AddHandler(PointerWheelChangedEvent, OnWindowPointerWheelChanged, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, OnGlobalPreviewKeyDown, RoutingStrategies.Tunnel);
 

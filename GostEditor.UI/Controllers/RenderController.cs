@@ -69,6 +69,22 @@ public class RenderController
         NotifyCaretStyle();
     }
 
+    public void ResetDocumentVisualState()
+    {
+        if (_pagesPanel is null)
+        {
+            return;
+        }
+
+        foreach (Control child in _pagesPanel.Children)
+        {
+            if (child is GostPageControl pageControl)
+            {
+                pageControl.ClearImageCache();
+            }
+        }
+    }
+
     private void SyncPageControls()
     {
         if (_pagesPanel == null)

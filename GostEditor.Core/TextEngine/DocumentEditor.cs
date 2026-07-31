@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.Commands;
 using GostEditor.Core.TextEngine.DOM;
 using GostDocument = GostEditor.Core.Models.GostDocument;
@@ -10,6 +12,7 @@ namespace GostEditor.Core.TextEngine;
 public class DocumentEditor
 {
     public GostDocument Document { get; private set; }
+    public IImageService ImageService { get; }
     public DocumentPosition CaretPosition { get; set; }
     public DocumentPosition? SelectionAnchor { get; set; }
     public int? SelectedImageParagraphIndex { get; set; }
@@ -21,18 +24,19 @@ public class DocumentEditor
     private bool _isExecutingCommand = false;
 
     public DocumentEditor()
+        : this(new GostDocument(), new ImageService())
     {
-        Document = new GostDocument();
-        if (Document.Paragraphs.Count == 0)
-        {
-            Document.Paragraphs.Add(new Paragraph());
-        }
-        CaretPosition = new DocumentPosition(0, 0);
     }
 
     public DocumentEditor(GostDocument document)
+        : this(document, new ImageService())
+    {
+    }
+
+    public DocumentEditor(GostDocument document, IImageService imageService)
     {
         Document = document ?? new GostDocument();
+        ImageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
         if (Document.Paragraphs.Count == 0)
         {
             Document.Paragraphs.Add(new Paragraph());
@@ -150,8 +154,63 @@ public class DocumentEditor
         _isExecutingCommand = true;
         try
         {
-            SnapshotCommand command = new SnapshotCommand(this, action);
+            SnapshotCommand command = new SnapshotCommand(this, () =>
+            {
+                HashSet<Guid> previouslyReferencedImages = GetReferencedImageIds();
+                action();
+                CleanupLostImageReferences(previouslyReferencedImages);
+            });
             History.ExecuteCommand(command);
+        }
+        finally
+        {
+            _isExecutingCommand = false;
+        }
+    }
+
+    private HashSet<Guid> GetReferencedImageIds()
+    {
+        HashSet<Guid> ids = new HashSet<Guid>();
+        foreach (Paragraph paragraph in Document.Paragraphs)
+        {
+            if (paragraph.ImageId.HasValue)
+            {
+                ids.Add(paragraph.ImageId.Value);
+            }
+        }
+
+        return ids;
+    }
+
+    private void CleanupLostImageReferences(HashSet<Guid> previouslyReferencedImages)
+    {
+        HashSet<Guid> currentlyReferencedImages = GetReferencedImageIds();
+        foreach (Guid imageId in previouslyReferencedImages)
+        {
+            if (currentlyReferencedImages.Contains(imageId)
+                || !Document.Images.Any(attachment => attachment.Id == imageId))
+            {
+                continue;
+            }
+
+            ImageService.RemoveOrphans(Document, new[] { imageId });
+        }
+    }
+
+    private ImageResult<T> ExecuteImageCommand<T>(Func<ImageResult<T>> action)
+    {
+        if (_isExecutingCommand)
+        {
+            return action();
+        }
+
+        _isExecutingCommand = true;
+        try
+        {
+            ImageResult<T> result = default;
+            SnapshotCommand command = new SnapshotCommand(this, () => result = action());
+            History.TryExecuteCommand(command, () => result.IsSuccess);
+            return result;
         }
         finally
         {
@@ -294,6 +353,11 @@ public class DocumentEditor
                     int prevIndex = CaretPosition.ParagraphIndex - 1;
                     Paragraph prevP = Document.Paragraphs[prevIndex];
                     Paragraph currP = Document.Paragraphs[CaretPosition.ParagraphIndex];
+
+                    if (prevP.IsImage || currP.IsImage)
+                    {
+                        return;
+                    }
 
                     int newOffset = prevP.GetPlainText().Length;
                     prevP.Runs.AddRange(currP.Runs);
@@ -548,7 +612,15 @@ public class DocumentEditor
         {
             (DocumentPosition start, DocumentPosition end) = GetNormalizedSelection();
             DeleteRangeInternal(start, end);
-            CaretPosition = start;
+            int paragraphIndex = Math.Clamp(
+                start.ParagraphIndex,
+                0,
+                Document.Paragraphs.Count - 1);
+            int offset = Math.Clamp(
+                start.Offset,
+                0,
+                Document.Paragraphs[paragraphIndex].GetPlainText().Length);
+            CaretPosition = new DocumentPosition(paragraphIndex, offset);
             ClearSelection();
         });
     }
@@ -778,30 +850,100 @@ public class DocumentEditor
         {
             Paragraph startP = Document.Paragraphs[start.ParagraphIndex];
             Paragraph endP = Document.Paragraphs[end.ParagraphIndex];
+            int startTextLength = startP.GetPlainText().Length;
+            int endTextLength = endP.GetPlainText().Length;
+            bool removeStartImage = startP.IsImage && start.Offset == 0;
+            bool removeEndImage = endP.IsImage && end.Offset >= endTextLength;
 
-            int currentOffset = 0;
-            for (int i = 0; i < startP.Runs.Count; i++)
+            if (!removeStartImage)
             {
-                int runStart = currentOffset;
-                currentOffset += startP.Runs[i].Text.Length;
-                if (runStart >= start.Offset) { startP.Runs.RemoveAt(i); i--; }
+                RemoveRunsFromOffset(startP, Math.Min(start.Offset, startTextLength));
             }
 
-            currentOffset = 0;
-            for (int i = 0; i < endP.Runs.Count; i++)
+            if (!removeEndImage)
             {
-                int runEnd = currentOffset + endP.Runs[i].Text.Length;
-                currentOffset += endP.Runs[i].Text.Length;
-                if (runEnd <= end.Offset) { endP.Runs.RemoveAt(i); i--; }
+                RemoveRunsThroughOffset(endP, Math.Min(end.Offset, endTextLength));
             }
 
-            startP.Runs.AddRange(endP.Runs);
-
-            int paragraphsToRemove = end.ParagraphIndex - start.ParagraphIndex;
-            for (int i = 0; i < paragraphsToRemove; i++)
+            bool mergeTextEndpoints = !removeStartImage
+                && !removeEndImage
+                && !startP.IsImage
+                && !endP.IsImage;
+            if (mergeTextEndpoints)
             {
-                Document.Paragraphs.RemoveAt(start.ParagraphIndex + 1);
+                startP.Runs.AddRange(endP.Runs);
             }
+
+            List<Paragraph> rebuilt = new List<Paragraph>(Document.Paragraphs.Count);
+            for (int index = 0; index < start.ParagraphIndex; index++)
+            {
+                rebuilt.Add(Document.Paragraphs[index]);
+            }
+
+            if (!removeStartImage)
+            {
+                EnsureEditableRun(startP);
+                rebuilt.Add(startP);
+            }
+
+            if (!mergeTextEndpoints && !removeEndImage)
+            {
+                EnsureEditableRun(endP);
+                rebuilt.Add(endP);
+            }
+
+            for (int index = end.ParagraphIndex + 1;
+                 index < Document.Paragraphs.Count;
+                 index++)
+            {
+                rebuilt.Add(Document.Paragraphs[index]);
+            }
+
+            if (rebuilt.Count == 0)
+            {
+                rebuilt.Add(new Paragraph());
+            }
+
+            Document.Paragraphs.Clear();
+            Document.Paragraphs.AddRange(rebuilt);
+        }
+    }
+
+    private static void RemoveRunsFromOffset(Paragraph paragraph, int offset)
+    {
+        int currentOffset = 0;
+        for (int index = 0; index < paragraph.Runs.Count; index++)
+        {
+            int runStart = currentOffset;
+            currentOffset += paragraph.Runs[index].Text.Length;
+            if (runStart >= offset)
+            {
+                paragraph.Runs.RemoveAt(index);
+                index--;
+            }
+        }
+    }
+
+    private static void RemoveRunsThroughOffset(Paragraph paragraph, int offset)
+    {
+        int currentOffset = 0;
+        for (int index = 0; index < paragraph.Runs.Count; index++)
+        {
+            int runEnd = currentOffset + paragraph.Runs[index].Text.Length;
+            currentOffset += paragraph.Runs[index].Text.Length;
+            if (runEnd <= offset)
+            {
+                paragraph.Runs.RemoveAt(index);
+                index--;
+            }
+        }
+    }
+
+    private static void EnsureEditableRun(Paragraph paragraph)
+    {
+        if (paragraph.Runs.Count == 0)
+        {
+            paragraph.Runs.Add(new TextRun(string.Empty));
         }
     }
 
@@ -863,22 +1005,122 @@ public class DocumentEditor
 
     public void InsertImage(byte[] imageBytes, double width, double height)
     {
-        ExecuteWithSnapshot(() =>
+        ImageResult<ImagePlacementInfo> result = InsertImage(
+            new CreateImageRequest(
+                imageBytes,
+                new ImageSize(width, height)));
+
+        if (!result.IsSuccess)
         {
-            Paragraph imgPara = new Paragraph
+            throw new InvalidOperationException(result.Error?.Message);
+        }
+    }
+
+    public ImageResult<ImagePlacementInfo> InsertImage(CreateImageRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        int insertionIndex = Math.Min(
+            CaretPosition.ParagraphIndex + 1,
+            Document.Paragraphs.Count);
+
+        return ExecuteImageCommand(() =>
+        {
+            ImageResult<ImagePlacementInfo> result = ImageService.InsertPlacement(
+                Document,
+                insertionIndex,
+                request);
+            if (result.IsSuccess)
             {
-                Alignment = GostAlignment.Center,
-                ImageData = imageBytes,
-                ImageWidth = width,
-                ImageHeight = height
-            };
+                CaretPosition = new DocumentPosition(insertionIndex, 0);
+                ClearSelection();
+            }
 
-            imgPara.Runs.Add(new TextRun("", false, false) { FontSize = 14 });
-
-            Document.Paragraphs.Insert(CaretPosition.ParagraphIndex + 1, imgPara);
-
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
-            ClearSelection();
+            return result;
         });
+    }
+
+    public ImageResult<ImagePlacementInfo> InsertExistingImage(
+        Guid imageId,
+        ImagePlacementRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        int insertionIndex = Math.Min(
+            CaretPosition.ParagraphIndex + 1,
+            Document.Paragraphs.Count);
+
+        return ExecuteImageCommand(() =>
+        {
+            ImageResult<ImagePlacementInfo> result = ImageService.InsertExistingPlacement(
+                Document,
+                insertionIndex,
+                imageId,
+                request);
+            if (result.IsSuccess)
+            {
+                CaretPosition = new DocumentPosition(insertionIndex, 0);
+                ClearSelection();
+            }
+
+            return result;
+        });
+    }
+
+    public ImageResult<ImagePlacementInfo> ReplaceImage(
+        int paragraphIndex,
+        ReplaceImageRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return ExecuteImageCommand(
+            () => ImageService.ReplacePlacementContent(
+                Document,
+                paragraphIndex,
+                request));
+    }
+
+    public ImageResult<ImagePlacementInfo> ResizeImage(
+        int paragraphIndex,
+        ImageSize size)
+    {
+        return ExecuteImageCommand(
+            () => ImageService.ResizePlacement(
+                Document,
+                paragraphIndex,
+                size));
+    }
+
+    public ImageResult<ImageRemovalInfo> RemoveImage(int paragraphIndex)
+    {
+        return ExecuteImageCommand(() =>
+        {
+            ImageResult<ImageRemovalInfo> result = ImageService.RemovePlacement(
+                Document,
+                paragraphIndex);
+            if (result.IsSuccess)
+            {
+                int caretParagraph = Math.Clamp(
+                    paragraphIndex,
+                    0,
+                    Document.Paragraphs.Count - 1);
+                CaretPosition = new DocumentPosition(caretParagraph, 0);
+                ClearSelection();
+            }
+
+            return result;
+        });
+    }
+
+    public ImageResult<OrphanCleanupResult> RemoveOrphanImages(
+        IReadOnlyCollection<Guid> confirmedImageIds)
+    {
+        ArgumentNullException.ThrowIfNull(confirmedImageIds);
+        return ExecuteImageCommand(
+            () => ImageService.RemoveOrphans(
+                Document,
+                confirmedImageIds));
+    }
+
+    public ImageResult<ResolvedImagePlacement> ResolveImage(int paragraphIndex)
+    {
+        return ImageService.ResolvePlacement(Document, paragraphIndex);
     }
 }

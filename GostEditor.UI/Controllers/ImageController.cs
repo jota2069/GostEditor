@@ -7,8 +7,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
+using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine;
-using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.Controls;
 using GostEditor.UI.Layout;
 
@@ -29,7 +29,7 @@ public class ImageController
     private ResizeDirection _currentResizeDirection = ResizeDirection.None;
     private Point _resizeStartPoint;
     private double _initialImageWidth, _initialImageHeight, _initialImageX, _initialImageY;
-    private Paragraph? _resizingParagraph;
+    private int? _resizingParagraphIndex;
     private GostPageControl? _resizingPageControl;
     private double _finalResizeWidth, _finalResizeHeight;
 
@@ -63,22 +63,22 @@ public class ImageController
             {
                 _currentResizeDirection = hitDir;
                 _resizeStartPoint = e.GetPosition(stack);
-                _resizingParagraph = _editor.Document.Paragraphs[_editor.SelectedImageParagraphIndex.Value];
+                _resizingParagraphIndex = _editor.SelectedImageParagraphIndex.Value;
                 _resizingPageControl = pageControl;
 
                 ImagePlacement? imgPl = pageData.Images.Find(img => img.ParagraphIndex == _editor.SelectedImageParagraphIndex.Value);
-                if (imgPl != null)
+                if (imgPl == null)
                 {
-                    _initialImageWidth = imgPl.Bounds.Width;
-                    _initialImageHeight = imgPl.Bounds.Height;
-                    _initialImageX = imgPl.Bounds.X;
-                    _initialImageY = imgPl.Bounds.Y;
+                    _resizingParagraphIndex = null;
+                    _resizingPageControl = null;
+                    _currentResizeDirection = ResizeDirection.None;
+                    return false;
                 }
-                else
-                {
-                    _initialImageWidth = _resizingParagraph.ImageWidth;
-                    _initialImageHeight = _resizingParagraph.ImageHeight;
-                }
+
+                _initialImageWidth = imgPl.Bounds.Width;
+                _initialImageHeight = imgPl.Bounds.Height;
+                _initialImageX = imgPl.Bounds.X;
+                _initialImageY = imgPl.Bounds.Y;
 
                 _finalResizeWidth = _initialImageWidth;
                 _finalResizeHeight = _initialImageHeight;
@@ -154,19 +154,17 @@ public class ImageController
 
     public bool HandlePointerReleased(PointerReleasedEventArgs e)
     {
-        if (!_isDraggingImage || _resizingParagraph == null) return false;
+        if (!_isDraggingImage || !_resizingParagraphIndex.HasValue) return false;
 
-        _editor.ExecuteWithSnapshot(() =>
-        {
-            _resizingParagraph.ImageWidth = _finalResizeWidth;
-            _resizingParagraph.ImageHeight = _finalResizeHeight;
-        });
+        _editor.ResizeImage(
+            _resizingParagraphIndex.Value,
+            new ImageSize(_finalResizeWidth, _finalResizeHeight));
 
         if (_resizingPageControl != null) _resizingPageControl.TempResizeBounds = null;
 
         _isDraggingImage = false;
         _currentResizeDirection = ResizeDirection.None;
-        _resizingParagraph = null;
+        _resizingParagraphIndex = null;
         _resizingPageControl = null;
 
         _renderController.RefreshView();
@@ -234,7 +232,11 @@ public class ImageController
             await stream.CopyToAsync(ms);
             byte[] bytes = ms.ToArray();
 
-            _editor.InsertImage(bytes, 450, 300);
+            _editor.InsertImage(
+                new CreateImageRequest(
+                    bytes,
+                    new ImageSize(450, 300),
+                    files[0].Name));
             _renderController.RefreshView();
         }
     }
@@ -254,11 +256,12 @@ public class ImageController
             byte[] bytes = ms.ToArray();
             using Bitmap bmp = new Bitmap(new MemoryStream(bytes));
 
-            _editor.ExecuteWithSnapshot(() =>
-            {
-                Paragraph p = _editor.Document.Paragraphs[paragraphIndex];
-                p.ImageData = bytes; p.ImageWidth = bmp.Size.Width; p.ImageHeight = bmp.Size.Height;
-            });
+            _editor.ReplaceImage(
+                paragraphIndex,
+                new ReplaceImageRequest(
+                    bytes,
+                    new ImageSize(bmp.Size.Width, bmp.Size.Height),
+                    files[0].Name));
             _renderController.RefreshView();
         }
     }

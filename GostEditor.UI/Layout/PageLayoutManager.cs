@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
+using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
@@ -13,6 +14,13 @@ namespace GostEditor.UI.Layout;
 
 public class PageLayoutManager
 {
+    private readonly IImageService _imageService;
+
+    public PageLayoutManager(IImageService imageService)
+    {
+        _imageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
+    }
+
     public List<RenderedPage> BuildLayout(GostDocument document, DocumentEditor editor, Typeface typeface)
     {
         List<RenderedPage> pages = new List<RenderedPage>();
@@ -38,6 +46,8 @@ public class PageLayoutManager
             }
 
             string plainText = paragraph.GetPlainText();
+            bool hasImageCaption = paragraph.IsImage &&
+                                   !string.IsNullOrWhiteSpace(plainText);
             if (string.IsNullOrEmpty(plainText))
             {
                 plainText = "\u200B";
@@ -69,9 +79,11 @@ public class PageLayoutManager
             string prefixString = string.Empty;
             IBrush prefixBrush = Brushes.Black;
 
-            if (paragraph.ImageData != null)
+            if (paragraph.IsImage)
             {
-                prefixString = $"Рисунок {figureCounter} - ";
+                prefixString = hasImageCaption
+                    ? $"Рисунок {figureCounter} — "
+                    : $"Рисунок {figureCounter}";
                 figureCounter++;
                 prefixCharsCount = prefixString.Length;
             }
@@ -137,10 +149,33 @@ public class PageLayoutManager
                 maxWidth: contentWidth,
                 textStyleOverrides: styleOverrides);
 
-            if (paragraph.ImageData != null)
+            if (paragraph.ImageId is Guid imageId)
             {
-                double imgWidth = paragraph.ImageWidth;
-                double imgHeight = paragraph.ImageHeight;
+                ImageResult<ResolvedImagePlacement> resolved =
+                    _imageService.ResolvePlacement(document, pIndex);
+                bool hasContent = resolved.IsSuccess;
+                ReadOnlyMemory<byte> imageBytes = ReadOnlyMemory<byte>.Empty;
+                ImageSize imageSize = GetSafeImageSize(paragraph);
+
+                if (resolved.IsSuccess)
+                {
+                    ResolvedImagePlacement placement = resolved.Value!;
+                    imageBytes = placement.Content.Data;
+                    imageSize = placement.Size;
+                }
+                else
+                {
+                    ImageResult<ImageContentView> content =
+                        _imageService.ResolveContent(document, imageId);
+                    if (content.IsSuccess)
+                    {
+                        imageBytes = content.Value!.Data;
+                        hasContent = true;
+                    }
+                }
+
+                double imgWidth = imageSize.Width;
+                double imgHeight = imageSize.Height;
 
                 if (imgWidth > contentWidth)
                 {
@@ -158,7 +193,13 @@ public class PageLayoutManager
 
                 double imgX = document.MarginLeft + (contentWidth - imgWidth) / 2;
 
-                currentPage.Images.Add(new ImagePlacement(paragraph.ImageData, new Rect(imgX, currentY, imgWidth, imgHeight), pIndex));
+                currentPage.Images.Add(
+                    new ImagePlacement(
+                        imageId,
+                        imageBytes,
+                        hasContent,
+                        new Rect(imgX, currentY, imgWidth, imgHeight),
+                        pIndex));
 
                 currentY += imgHeight + 10;
             }
@@ -225,6 +266,19 @@ public class PageLayoutManager
         }
 
         return pages;
+    }
+
+    private static ImageSize GetSafeImageSize(Paragraph paragraph)
+    {
+        if (double.IsFinite(paragraph.ImageWidth) &&
+            double.IsFinite(paragraph.ImageHeight) &&
+            paragraph.ImageWidth > 0 &&
+            paragraph.ImageHeight > 0)
+        {
+            return new ImageSize(paragraph.ImageWidth, paragraph.ImageHeight);
+        }
+
+        return new ImageSize(450, 300);
     }
 
     public DocumentHitResult? GetPositionFromPoint(RenderedPage page, Point clickPoint)

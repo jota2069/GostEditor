@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace GostEditor.Core.TextEngine.DOM;
@@ -30,9 +31,14 @@ public class Paragraph
         return sb.ToString();
     }
 
+    public Guid? ImageId { get; internal set; }
+    public double ImageWidth { get; internal set; }
+    public double ImageHeight { get; internal set; }
+
+    public bool IsImage => ImageId.HasValue;
+
+    [Obsolete("Use ImageId and IImageService. Binary image data belongs to GostDocument.Images.")]
     public byte[]? ImageData { get; set; }
-    public double ImageWidth { get; set; }
-    public double ImageHeight { get; set; }
 
     public ParagraphStyle Style { get; set; } = ParagraphStyle.Normal;
 
