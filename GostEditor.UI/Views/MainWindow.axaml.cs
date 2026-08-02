@@ -24,6 +24,8 @@ namespace GostEditor.UI.Views;
 public partial class MainWindow : Window
 {
     private bool _isUpdatingUi;
+    private bool _isCloseConfirmed;
+    private bool _isClosePromptActive;
     private readonly AutoSaveService? _autoSaveService;
     private readonly RecoveryStorageService? _recoveryStorageService;
 
@@ -234,6 +236,68 @@ public partial class MainWindow : Window
     {
         Debug.WriteLine(
             $"[AUTOSAVE] Ошибка автоматического сохранения: {exception}");
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (_isCloseConfirmed)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        if (_isClosePromptActive)
+        {
+            e.Cancel = true;
+            base.OnClosing(e);
+            return;
+        }
+
+        if (DataContext is MainWindowViewModel viewModel &&
+            viewModel.Session.IsDirty)
+        {
+            e.Cancel = true;
+            _ = ConfirmWindowCloseAsync(viewModel);
+        }
+
+        base.OnClosing(e);
+    }
+
+    private async Task ConfirmWindowCloseAsync(
+        MainWindowViewModel viewModel)
+    {
+        _isClosePromptActive = true;
+
+        try
+        {
+            bool canClose =
+                await ConfirmUnsavedChangesAsync(viewModel);
+
+            if (!canClose)
+            {
+                return;
+            }
+
+            if (viewModel.Session.IsDirty)
+            {
+                await ClearAutoSaveRecoveryAsync();
+            }
+
+            _isCloseConfirmed = true;
+            Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[MAINWINDOW] Ошибка подтверждения закрытия: {exception}");
+
+            viewModel.StatusMessage =
+                $"Не удалось закрыть документ: {exception.Message}";
+        }
+        finally
+        {
+            _isClosePromptActive = false;
+        }
     }
 
     private void OnWindowClosed(object? sender, EventArgs e)
@@ -661,7 +725,16 @@ public partial class MainWindow : Window
 
     private async void OnOpenClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel viewModel || MainEditor == null)
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor is null)
+        {
+            return;
+        }
+
+        bool canContinue =
+            await ConfirmUnsavedChangesAsync(viewModel);
+
+        if (!canContinue)
         {
             return;
         }
@@ -726,12 +799,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task SaveDocumentToFileAsync()
+    private async Task<bool> SaveDocumentToFileAsync()
     {
         if (DataContext is not MainWindowViewModel viewModel ||
             MainEditor?.CurrentDocument is null)
         {
-            return;
+            return false;
         }
 
         viewModel.IsBusy = true;
@@ -760,7 +833,7 @@ public partial class MainWindow : Window
                 if (file is null)
                 {
                     viewModel.StatusMessage = "Сохранение отменено";
-                    return;
+                    return false;
                 }
 
                 filePath = file.TryGetLocalPath();
@@ -772,7 +845,8 @@ public partial class MainWindow : Window
                 }
             }
 
-            GostDocument documentToSave = SyncDocumentFromViewModel(viewModel);
+            GostDocument documentToSave =
+                SyncDocumentFromViewModel(viewModel);
 
             await viewModel.ArchiveService.SaveAsync(
                 documentToSave,
@@ -785,15 +859,48 @@ public partial class MainWindow : Window
             await ClearAutoSaveRecoveryAsync();
 
             viewModel.StatusMessage = "Документ сохранён";
+            return true;
         }
         catch (Exception ex)
         {
-            viewModel.StatusMessage = $"Ошибка сохранения: {ex.Message}";
-            Debug.WriteLine($"[MAINWINDOW] Ошибка сохранения: {ex}");
+            viewModel.StatusMessage =
+                $"Ошибка сохранения: {ex.Message}";
+
+            Debug.WriteLine(
+                $"[MAINWINDOW] Ошибка сохранения: {ex}");
+
+            return false;
         }
         finally
         {
             viewModel.IsBusy = false;
+        }
+    }
+
+    private async Task<bool> ConfirmUnsavedChangesAsync(
+        MainWindowViewModel viewModel)
+    {
+        if (!viewModel.Session.IsDirty)
+        {
+            return true;
+        }
+
+        UnsavedChangesPromptDialog dialog =
+            new(viewModel.Session.DocumentName);
+
+        UnsavedChangesDecision decision =
+            await dialog.ShowDialog<UnsavedChangesDecision>(this);
+
+        switch (decision)
+        {
+            case UnsavedChangesDecision.Save:
+                return await SaveDocumentToFileAsync();
+
+            case UnsavedChangesDecision.Discard:
+                return true;
+
+            default:
+                return false;
         }
     }
 
@@ -807,7 +914,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        GostDocument newDocument = new GostDocument();
+        bool canContinue =
+            await ConfirmUnsavedChangesAsync(viewModel);
+
+        if (!canContinue)
+        {
+            return;
+        }
+
+        GostDocument newDocument = new();
 
         viewModel.CurrentDocument = newDocument;
         MainEditor.LoadDocument(newDocument);
