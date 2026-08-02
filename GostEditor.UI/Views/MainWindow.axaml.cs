@@ -130,7 +130,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        RecoveryMetadata? metadata = null;
+        RecoveryMetadata? metadata;
 
         try
         {
@@ -139,8 +139,30 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
-            Debug.WriteLine(
-                $"[RECOVERY] Не удалось прочитать метаданные: {exception}");
+            await HandleCorruptedRecoveryAsync(
+                viewModel,
+                "Не удалось прочитать session.json. " +
+                "Метаданные аварийной копии повреждены или недоступны.",
+                exception);
+            return;
+        }
+
+        GostDocument recoveredDocument;
+
+        try
+        {
+            recoveredDocument =
+                await _recoveryStorageService.LoadDocumentAsync();
+        }
+        catch (Exception exception)
+        {
+            await HandleCorruptedRecoveryAsync(
+                viewModel,
+                "Не удалось прочитать autosave.gost. " +
+                "Аварийная копия повреждена или имеет " +
+                "неподдерживаемый формат.",
+                exception);
+            return;
         }
 
         RecoveryPromptDialog dialog = new(metadata);
@@ -151,9 +173,10 @@ public partial class MainWindow : Window
         switch (decision)
         {
             case RecoveryDecision.Restore:
-                await RestoreRecoveryAsync(
+                RestoreRecovery(
                     viewModel,
-                    metadata);
+                    metadata,
+                    recoveredDocument);
                 break;
 
             case RecoveryDecision.Discard:
@@ -165,27 +188,23 @@ public partial class MainWindow : Window
                 break;
 
             default:
-                Close();
+                CloseApplicationFromStartup();
                 break;
         }
     }
 
-    private async Task RestoreRecoveryAsync(
+    private void RestoreRecovery(
         MainWindowViewModel viewModel,
-        RecoveryMetadata? metadata)
+        RecoveryMetadata? metadata,
+        GostDocument recoveredDocument)
     {
-        if (_recoveryStorageService is null ||
-            MainEditor is null)
+        if (MainEditor is null)
         {
             return;
         }
 
         try
         {
-            GostDocument recoveredDocument =
-                await _recoveryStorageService
-                    .LoadDocumentAsync();
-
             viewModel.CurrentDocument =
                 recoveredDocument;
 
@@ -210,8 +229,63 @@ public partial class MainWindow : Window
             viewModel.StatusMessage =
                 "Не удалось восстановить аварийную копию";
 
-            Close();
+            CloseApplicationFromStartup();
         }
+    }
+
+    private async Task HandleCorruptedRecoveryAsync(
+        MainWindowViewModel viewModel,
+        string problemDescription,
+        Exception exception)
+    {
+        Debug.WriteLine(
+            $"[RECOVERY] Повреждённая аварийная копия: {exception}");
+
+        string currentDescription = problemDescription;
+
+        while (true)
+        {
+            CorruptedRecoveryPromptDialog dialog =
+                new(currentDescription);
+
+            CorruptedRecoveryDecision decision =
+                await dialog.ShowDialog<CorruptedRecoveryDecision>(this);
+
+            if (decision != CorruptedRecoveryDecision.Delete)
+            {
+                CloseApplicationFromStartup();
+                return;
+            }
+
+            try
+            {
+                await _autoSaveService!.ResetAsync();
+
+                viewModel.Session.StartNew();
+                viewModel.StatusMessage =
+                    "Повреждённая аварийная копия удалена";
+
+                StartAutoSave(viewModel);
+                return;
+            }
+            catch (Exception deleteException)
+            {
+                Debug.WriteLine(
+                    $"[RECOVERY] Не удалось удалить повреждённую копию: " +
+                    $"{deleteException}");
+
+                currentDescription =
+                    "Не удалось удалить повреждённую аварийную копию. " +
+                    "Проверьте права доступа к каталогу Recovery и " +
+                    "повторите попытку либо закройте программу.";
+            }
+        }
+    }
+
+    private void CloseApplicationFromStartup()
+    {
+        _isCloseConfirmed = true;
+        Close();
     }
 
     private void StartAutoSave(

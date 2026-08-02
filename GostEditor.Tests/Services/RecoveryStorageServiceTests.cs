@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
@@ -148,6 +149,32 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         Assert.Equal(
             _service.RecoveryFilePath,
             exception.FileName);
+    }
+
+    [Fact]
+    public async Task LoadMetadataAsync_WhenMetadataIsCorrupted_ThrowsJsonException()
+    {
+        Directory.CreateDirectory(_temporaryDirectory);
+
+        await File.WriteAllTextAsync(
+            _service.MetadataFilePath,
+            "{ invalid json");
+
+        await Assert.ThrowsAsync<JsonException>(
+            () => _service.LoadMetadataAsync());
+    }
+
+    [Fact]
+    public async Task LoadDocumentAsync_WhenRecoveryIsCorrupted_ThrowsInvalidDataException()
+    {
+        Directory.CreateDirectory(_temporaryDirectory);
+
+        await File.WriteAllTextAsync(
+            _service.RecoveryFilePath,
+            "this is not a gost archive");
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _service.LoadDocumentAsync());
     }
 
     [Fact]
