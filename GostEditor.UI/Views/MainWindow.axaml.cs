@@ -4,25 +4,30 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
-using GostEditor.UI.ViewModels;
 using GostEditor.UI.Controllers;
+using GostEditor.UI.Services;
+using GostEditor.UI.ViewModels;
 
 namespace GostEditor.UI.Views;
 
 public partial class MainWindow : Window
 {
     private bool _isUpdatingUi;
+    private bool _isCloseConfirmed;
+    private bool _isClosePromptActive;
+    private readonly AutoSaveService? _autoSaveService;
+    private readonly RecoveryStorageService? _recoveryStorageService;
 
     public MainWindow()
         : this(new ImageService())
@@ -41,6 +46,23 @@ public partial class MainWindow : Window
         {
             MainEditor.CaretStyleChanged += MainEditor_CaretStyleChanged;
         }
+    }
+
+    public MainWindow(
+        IImageService imageService,
+        AutoSaveService autoSaveService,
+        RecoveryStorageService recoveryStorageService)
+        : this(imageService)
+    {
+        _autoSaveService = autoSaveService
+            ?? throw new ArgumentNullException(nameof(autoSaveService));
+
+        _recoveryStorageService = recoveryStorageService
+            ?? throw new ArgumentNullException(nameof(recoveryStorageService));
+
+        _autoSaveService.Failed += OnAutoSaveFailed;
+        Opened += OnWindowOpened;
+        Closed += OnWindowClosed;
     }
 
     protected override void OnDataContextChanged(EventArgs e)
@@ -63,7 +85,7 @@ public partial class MainWindow : Window
 
             if (MainEditor != null)
             {
-                MainEditor.ContentChanged -= viewModel.SyncNavigation;
+                MainEditor.ContentChanged -= OnEditorContentChanged;
             }
 
             // Подписка на новые события
@@ -75,8 +97,329 @@ public partial class MainWindow : Window
 
             if (MainEditor != null)
             {
-                MainEditor.ContentChanged += viewModel.SyncNavigation;
+                MainEditor.ContentChanged += OnEditorContentChanged;
             }
+
+        }
+    }
+
+    private async void OnWindowOpened(
+        object? sender,
+        EventArgs e)
+    {
+        Opened -= OnWindowOpened;
+        await HandleStartupRecoveryAsync();
+    }
+
+    private async Task HandleStartupRecoveryAsync()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        if (_autoSaveService is null ||
+            _recoveryStorageService is null)
+        {
+            return;
+        }
+
+        if (!_recoveryStorageService.HasRecovery)
+        {
+            StartAutoSave(viewModel);
+            return;
+        }
+
+        RecoveryMetadata? metadata;
+
+        try
+        {
+            metadata =
+                await _recoveryStorageService.LoadMetadataAsync();
+        }
+        catch (Exception exception)
+        {
+            await HandleCorruptedRecoveryAsync(
+                viewModel,
+                "Не удалось прочитать session.json. " +
+                "Метаданные аварийной копии повреждены или недоступны.",
+                exception);
+            return;
+        }
+
+        GostDocument recoveredDocument;
+
+        try
+        {
+            recoveredDocument =
+                await _recoveryStorageService.LoadDocumentAsync();
+        }
+        catch (Exception exception)
+        {
+            await HandleCorruptedRecoveryAsync(
+                viewModel,
+                "Не удалось прочитать autosave.gost. " +
+                "Аварийная копия повреждена или имеет " +
+                "неподдерживаемый формат.",
+                exception);
+            return;
+        }
+
+        RecoveryPromptDialog dialog = new(metadata);
+
+        RecoveryDecision decision =
+            await dialog.ShowDialog<RecoveryDecision>(this);
+
+        switch (decision)
+        {
+            case RecoveryDecision.Restore:
+                RestoreRecovery(
+                    viewModel,
+                    metadata,
+                    recoveredDocument);
+                break;
+
+            case RecoveryDecision.Discard:
+                await ResetAutoSaveRecoveryAsync();
+                viewModel.Session.StartNew();
+                viewModel.StatusMessage =
+                    "Аварийная копия удалена";
+                StartAutoSave(viewModel);
+                break;
+
+            default:
+                CloseApplicationFromStartup();
+                break;
+        }
+    }
+
+    private void RestoreRecovery(
+        MainWindowViewModel viewModel,
+        RecoveryMetadata? metadata,
+        GostDocument recoveredDocument)
+    {
+        if (MainEditor is null)
+        {
+            return;
+        }
+
+        try
+        {
+            viewModel.CurrentDocument =
+                recoveredDocument;
+
+            MainEditor.LoadDocument(
+                recoveredDocument);
+
+            viewModel.SyncNavigation();
+
+            viewModel.Session.MarkRecovered(
+                metadata?.OriginalFilePath);
+
+            viewModel.StatusMessage =
+                "Аварийная копия восстановлена";
+
+            StartAutoSave(viewModel);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[RECOVERY] Ошибка восстановления: {exception}");
+
+            viewModel.StatusMessage =
+                "Не удалось восстановить аварийную копию";
+
+            CloseApplicationFromStartup();
+        }
+    }
+
+    private async Task HandleCorruptedRecoveryAsync(
+        MainWindowViewModel viewModel,
+        string problemDescription,
+        Exception exception)
+    {
+        Debug.WriteLine(
+            $"[RECOVERY] Повреждённая аварийная копия: {exception}");
+
+        string currentDescription = problemDescription;
+
+        while (true)
+        {
+            CorruptedRecoveryPromptDialog dialog =
+                new(currentDescription);
+
+            CorruptedRecoveryDecision decision =
+                await dialog.ShowDialog<CorruptedRecoveryDecision>(this);
+
+            if (decision != CorruptedRecoveryDecision.Delete)
+            {
+                CloseApplicationFromStartup();
+                return;
+            }
+
+            try
+            {
+                await _autoSaveService!.ResetAsync();
+
+                viewModel.Session.StartNew();
+                viewModel.StatusMessage =
+                    "Повреждённая аварийная копия удалена";
+
+                StartAutoSave(viewModel);
+                return;
+            }
+            catch (Exception deleteException)
+            {
+                Debug.WriteLine(
+                    $"[RECOVERY] Не удалось удалить повреждённую копию: " +
+                    $"{deleteException}");
+
+                currentDescription =
+                    "Не удалось удалить повреждённую аварийную копию. " +
+                    "Проверьте права доступа к каталогу Recovery и " +
+                    "повторите попытку либо закройте программу.";
+            }
+        }
+    }
+
+    private void CloseApplicationFromStartup()
+    {
+        _isCloseConfirmed = true;
+        Close();
+    }
+
+    private void StartAutoSave(
+        MainWindowViewModel viewModel)
+    {
+        _autoSaveService?.Start(
+            () => SyncDocumentFromViewModel(viewModel));
+    }
+
+    private void OnEditorContentChanged()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.Session.MarkDirty();
+        viewModel.SyncNavigation();
+    }
+
+    private void OnAutoSaveFailed(Exception exception)
+    {
+        Debug.WriteLine(
+            $"[AUTOSAVE] Ошибка автоматического сохранения: {exception}");
+    }
+
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (_isCloseConfirmed)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        if (_isClosePromptActive)
+        {
+            e.Cancel = true;
+            base.OnClosing(e);
+            return;
+        }
+
+        if (DataContext is MainWindowViewModel viewModel &&
+            viewModel.Session.IsDirty)
+        {
+            e.Cancel = true;
+            _ = ConfirmWindowCloseAsync(viewModel);
+        }
+
+        base.OnClosing(e);
+    }
+
+    private async Task ConfirmWindowCloseAsync(
+        MainWindowViewModel viewModel)
+    {
+        _isClosePromptActive = true;
+
+        try
+        {
+            bool canClose =
+                await ConfirmUnsavedChangesAsync(viewModel);
+
+            if (!canClose)
+            {
+                return;
+            }
+
+            if (viewModel.Session.IsDirty)
+            {
+                await ClearAutoSaveRecoveryAsync();
+            }
+
+            _isCloseConfirmed = true;
+            Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[MAINWINDOW] Ошибка подтверждения закрытия: {exception}");
+
+            viewModel.StatusMessage =
+                $"Не удалось закрыть документ: {exception.Message}";
+        }
+        finally
+        {
+            _isClosePromptActive = false;
+        }
+    }
+
+    private void OnWindowClosed(object? sender, EventArgs e)
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        _autoSaveService.Stop();
+        _autoSaveService.Failed -= OnAutoSaveFailed;
+        Opened -= OnWindowOpened;
+        Closed -= OnWindowClosed;
+    }
+
+    private async Task ClearAutoSaveRecoveryAsync()
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoSaveService.ClearRecoveryAsync();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[AUTOSAVE] Не удалось удалить аварийную копию: {exception}");
+        }
+    }
+
+    private async Task ResetAutoSaveRecoveryAsync()
+    {
+        if (_autoSaveService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _autoSaveService.ResetAsync();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                $"[AUTOSAVE] Не удалось сбросить аварийную копию: {exception}");
         }
     }
 
@@ -417,6 +760,7 @@ public partial class MainWindow : Window
 
         e.Handled = true;
     }
+
     private void OnContentStartPageValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
         if (MainEditor == null || e.NewValue is not decimal value)
@@ -455,7 +799,16 @@ public partial class MainWindow : Window
 
     private async void OnOpenClick(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is not MainWindowViewModel viewModel || MainEditor == null)
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor is null)
+        {
+            return;
+        }
+
+        bool canContinue =
+            await ConfirmUnsavedChangesAsync(viewModel);
+
+        if (!canContinue)
         {
             return;
         }
@@ -481,12 +834,26 @@ public partial class MainWindow : Window
 
             if (files.Count > 0)
             {
-                await using Stream stream = await files[0].OpenReadAsync();
-                GostDocument loadedDocument = await viewModel.ArchiveService.LoadAsync(stream);
+                IStorageFile selectedFile = files[0];
+
+                string? filePath = selectedFile.TryGetLocalPath();
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    throw new InvalidOperationException(
+                        "Не удалось определить путь открытого документа.");
+                }
+
+                await using Stream stream = await selectedFile.OpenReadAsync();
+
+                GostDocument loadedDocument =
+                    await viewModel.ArchiveService.LoadAsync(stream);
 
                 viewModel.CurrentDocument = loadedDocument;
                 MainEditor.LoadDocument(loadedDocument);
                 viewModel.SyncNavigation();
+
+                viewModel.Session.MarkOpened(filePath);
+                await ResetAutoSaveRecoveryAsync();
 
                 viewModel.StatusMessage = "Документ загружен";
             }
@@ -506,13 +873,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task SaveDocumentToFileAsync()
+    private async Task<bool> SaveDocumentToFileAsync()
     {
         if (DataContext is not MainWindowViewModel viewModel ||
-            MainEditor == null ||
-            MainEditor.CurrentDocument == null)
+            MainEditor?.CurrentDocument is null)
         {
-            return;
+            return false;
         }
 
         viewModel.IsBusy = true;
@@ -520,36 +886,64 @@ public partial class MainWindow : Window
 
         try
         {
-            IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
-                new FilePickerSaveOptions
-                {
-                    Title = "Сохранить документ",
-                    DefaultExtension = ".gost",
-                    FileTypeChoices = new[]
-                    {
-                        new FilePickerFileType("GOST Document")
-                        {
-                            Patterns = new[] { "*.gost" }
-                        }
-                    }
-                });
+            string? filePath = viewModel.Session.CurrentFilePath;
 
-            if (file != null)
+            if (string.IsNullOrWhiteSpace(filePath))
             {
-                GostDocument documentToSave = SyncDocumentFromViewModel(viewModel);
-                await using Stream stream = await file.OpenWriteAsync();
-                await viewModel.ArchiveService.SaveAsync(documentToSave, stream);
-                viewModel.StatusMessage = "Документ сохранен";
+                IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
+                    new FilePickerSaveOptions
+                    {
+                        Title = "Сохранить документ",
+                        DefaultExtension = ".gost",
+                        FileTypeChoices =
+                        [
+                            new FilePickerFileType("GOST Document")
+                        {
+                            Patterns = ["*.gost"]
+                        }
+                        ]
+                    });
+
+                if (file is null)
+                {
+                    viewModel.StatusMessage = "Сохранение отменено";
+                    return false;
+                }
+
+                filePath = file.TryGetLocalPath();
+
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    throw new InvalidOperationException(
+                        "Не удалось определить путь сохранённого документа.");
+                }
             }
-            else
-            {
-                viewModel.StatusMessage = "Сохранение отменено";
-            }
+
+            GostDocument documentToSave =
+                SyncDocumentFromViewModel(viewModel);
+
+            await viewModel.ArchiveService.SaveAsync(
+                documentToSave,
+                filePath);
+
+            viewModel.Session.MarkSaved(
+                filePath,
+                DateTimeOffset.Now);
+
+            await ClearAutoSaveRecoveryAsync();
+
+            viewModel.StatusMessage = "Документ сохранён";
+            return true;
         }
         catch (Exception ex)
         {
-            viewModel.StatusMessage = $"Ошибка сохранения: {ex.Message}";
-            Debug.WriteLine($"[MAINWINDOW] Ошибка сохранения: {ex}");
+            viewModel.StatusMessage =
+                $"Ошибка сохранения: {ex.Message}";
+
+            Debug.WriteLine(
+                $"[MAINWINDOW] Ошибка сохранения: {ex}");
+
+            return false;
         }
         finally
         {
@@ -557,15 +951,61 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OnNewDocumentClick(object? sender, RoutedEventArgs e)
+    private async Task<bool> ConfirmUnsavedChangesAsync(
+        MainWindowViewModel viewModel)
     {
-        if (DataContext is MainWindowViewModel viewModel && MainEditor != null)
+        if (!viewModel.Session.IsDirty)
         {
-            GostDocument newDocument = new GostDocument();
-            viewModel.CurrentDocument = newDocument;
-            MainEditor.LoadDocument(newDocument);
-            viewModel.SyncNavigation();
+            return true;
         }
+
+        UnsavedChangesPromptDialog dialog =
+            new(viewModel.Session.DocumentName);
+
+        UnsavedChangesDecision decision =
+            await dialog.ShowDialog<UnsavedChangesDecision>(this);
+
+        switch (decision)
+        {
+            case UnsavedChangesDecision.Save:
+                return await SaveDocumentToFileAsync();
+
+            case UnsavedChangesDecision.Discard:
+                return true;
+
+            default:
+                return false;
+        }
+    }
+
+    private async void OnNewDocumentClick(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel viewModel ||
+            MainEditor is null)
+        {
+            return;
+        }
+
+        bool canContinue =
+            await ConfirmUnsavedChangesAsync(viewModel);
+
+        if (!canContinue)
+        {
+            return;
+        }
+
+        GostDocument newDocument = new();
+
+        viewModel.CurrentDocument = newDocument;
+        MainEditor.LoadDocument(newDocument);
+        viewModel.SyncNavigation();
+        viewModel.Session.StartNew();
+
+        await ResetAutoSaveRecoveryAsync();
+
+        viewModel.StatusMessage = "Создан новый документ";
     }
 
     private async void OnInsertImageClick(object? sender, RoutedEventArgs e)
@@ -654,74 +1094,74 @@ public partial class MainWindow : Window
     }
 
     private async void OnParseFolderClick(object? sender, RoutedEventArgs e)
-{
-    if (DataContext is not MainWindowViewModel viewModel)
     {
-        return;
-    }
-
-    viewModel.IsBusy = true;
-    viewModel.StatusMessage = "Выбор папки...";
-
-    try
-    {
-        IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
-            new FolderPickerOpenOptions
-            {
-                Title = "Выберите папку с исходным кодом проекта",
-                AllowMultiple = false
-            });
-
-        if (folders.Count > 0)
+        if (DataContext is not MainWindowViewModel viewModel)
         {
-            IStorageFolder selectedFolder = folders[0];
-            string folderPath = selectedFolder.Path.LocalPath;
+            return;
+        }
 
-            Debug.WriteLine($"[MAINWINDOW] Выбрана папка: {folderPath}");
+        viewModel.IsBusy = true;
+        viewModel.StatusMessage = "Выбор папки...";
 
-            viewModel.StatusMessage = "Парсинг файлов...";
-
-            IReadOnlyList<CodeListing> listings = await viewModel.CodeParserService.ParseDirectoryAsync(folderPath);
-
-            viewModel.CodeListings.Clear();
-
-            foreach (CodeListing listing in listings)
-            {
-                viewModel.CodeListings.Add(new CodeListingViewModel
+        try
+        {
+            IReadOnlyList<IStorageFolder> folders = await StorageProvider.OpenFolderPickerAsync(
+                new FolderPickerOpenOptions
                 {
-                    Listing = listing,
-                    IsSelected = true
+                    Title = "Выберите папку с исходным кодом проекта",
+                    AllowMultiple = false
                 });
 
-                Debug.WriteLine($"[MAINWINDOW] Добавлен файл: {listing.RelativePath} ({listing.Language})");
-            }
-
-            viewModel.StatusMessage = $"Найдено файлов: {listings.Count}";
-            Debug.WriteLine($"[MAINWINDOW] Всего загружено: {listings.Count} файлов");
-
-            // Переключаемся на вкладку "Структура документа" -> "Приложения"
-            if (MainTabs != null)
+            if (folders.Count > 0)
             {
-                MainTabs.SelectedIndex = 1; // Вкладка "Структура документа"
-            }
+                IStorageFolder selectedFolder = folders[0];
+                string folderPath = selectedFolder.Path.LocalPath;
 
-            viewModel.SelectedModuleIndex = 3; // Подвкладка "Приложения (Код)"
+                Debug.WriteLine($"[MAINWINDOW] Выбрана папка: {folderPath}");
+
+                viewModel.StatusMessage = "Парсинг файлов...";
+
+                IReadOnlyList<CodeListing> listings = await viewModel.CodeParserService.ParseDirectoryAsync(folderPath);
+
+                viewModel.CodeListings.Clear();
+
+                foreach (CodeListing listing in listings)
+                {
+                    viewModel.CodeListings.Add(new CodeListingViewModel
+                    {
+                        Listing = listing,
+                        IsSelected = true
+                    });
+
+                    Debug.WriteLine($"[MAINWINDOW] Добавлен файл: {listing.RelativePath} ({listing.Language})");
+                }
+
+                viewModel.StatusMessage = $"Найдено файлов: {listings.Count}";
+                Debug.WriteLine($"[MAINWINDOW] Всего загружено: {listings.Count} файлов");
+
+                // Переключаемся на вкладку "Структура документа" -> "Приложения"
+                if (MainTabs != null)
+                {
+                    MainTabs.SelectedIndex = 1; // Вкладка "Структура документа"
+                }
+
+                viewModel.SelectedModuleIndex = 3; // Подвкладка "Приложения (Код)"
+            }
+            else
+            {
+                viewModel.StatusMessage = "Выбор папки отменён";
+            }
         }
-        else
+        catch (Exception ex)
         {
-            viewModel.StatusMessage = "Выбор папки отменён";
+            viewModel.StatusMessage = $"Ошибка парсинга: {ex.Message}";
+            Debug.WriteLine($"[MAINWINDOW] Ошибка парсинга: {ex}");
+        }
+        finally
+        {
+            viewModel.IsBusy = false;
         }
     }
-    catch (Exception ex)
-    {
-        viewModel.StatusMessage = $"Ошибка парсинга: {ex.Message}";
-        Debug.WriteLine($"[MAINWINDOW] Ошибка парсинга: {ex}");
-    }
-    finally
-    {
-        viewModel.IsBusy = false;
-    }
-}
 
     private async Task<string?> ShowInputDialogAsync(string title, string message, string defaultText = "")
     {
