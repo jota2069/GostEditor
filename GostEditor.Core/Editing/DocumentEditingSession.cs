@@ -43,6 +43,18 @@ public sealed class DocumentEditingSession
     public void Execute(IEditOperation operation) =>
         History.Execute(operation);
 
+    internal void ExecuteWithSelection(
+        IEditOperation operation,
+        Action updateSelection)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(updateSelection);
+        History.Execute(new SelectionAwareOperation(
+            operation,
+            Selection,
+            updateSelection));
+    }
+
     public void Execute(EditTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);

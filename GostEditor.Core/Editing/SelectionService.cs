@@ -66,6 +66,19 @@ public sealed class SelectionService
 
     public void ClearSelection() => Anchor = null;
 
+    internal SelectionState CaptureState() => new(Caret, Anchor);
+
+    internal void RestoreState(SelectionState state)
+    {
+        if (state.Anchor.HasValue)
+        {
+            SetSelection(state.Anchor.Value, state.Caret);
+            return;
+        }
+
+        MoveCaret(state.Caret);
+    }
+
     public DocumentRange GetRange()
     {
         if (!Anchor.HasValue)
@@ -95,3 +108,7 @@ public sealed class SelectionService
         return location.Clamp(paragraph.TextLength);
     }
 }
+
+internal readonly record struct SelectionState(
+    DocumentLocation Caret,
+    DocumentLocation? Anchor);

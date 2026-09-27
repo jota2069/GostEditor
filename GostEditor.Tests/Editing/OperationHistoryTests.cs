@@ -236,6 +236,44 @@ public sealed class StructuredEditingIntegrationTests
     }
 
     [Fact]
+    public void InsertParagraphBreak_UndoAndRedoRestoreValidCaret()
+    {
+        (DocumentEditingSession session, ParagraphBlock paragraph) =
+            CreateSession("abcdef");
+        session.Selection.MoveCaret(new DocumentLocation(paragraph.Id, 3));
+
+        session.Text.InsertParagraphBreakAtCaret();
+        DocumentNodeId secondId = session.Selection.Caret.BlockId;
+        Assert.NotEqual(paragraph.Id, secondId);
+        Assert.Equal(0, session.Selection.Caret.Offset);
+
+        Assert.True(session.History.Undo());
+        Assert.Equal(new DocumentLocation(paragraph.Id, 3), session.Selection.Caret);
+
+        Assert.True(session.History.Redo());
+        Assert.Equal(new DocumentLocation(secondId, 0), session.Selection.Caret);
+
+        Assert.True(session.History.Undo());
+        session.Text.InsertText(session.Selection.Caret, "X");
+        Assert.Equal("abcXdef", paragraph.GetPlainText());
+    }
+
+    [Fact]
+    public void DeleteText_AtParagraphEnd_DoesNotCreateHistoryEntry()
+    {
+        (DocumentEditingSession session, ParagraphBlock paragraph) =
+            CreateSession("abc");
+
+        session.Text.DeleteText(
+            new DocumentLocation(paragraph.Id, paragraph.TextLength),
+            1);
+
+        Assert.Equal("abc", paragraph.GetPlainText());
+        Assert.Equal(0, session.History.UndoCount);
+        Assert.Equal(0, session.ChangeVersion);
+    }
+
+    [Fact]
     public void FormattingAcrossParagraphs_IsOneTransaction()
     {
         (DocumentEditingSession session, ParagraphBlock first, ParagraphBlock second) =

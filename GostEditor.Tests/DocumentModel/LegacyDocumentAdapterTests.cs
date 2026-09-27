@@ -1,6 +1,7 @@
 using GostEditor.Core.DocumentModel;
 using GostEditor.Core.DocumentModel.Blocks;
 using GostEditor.Core.DocumentModel.Legacy;
+using GostEditor.Core.DocumentModel.Inlines;
 using GostEditor.Core.Editing;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
@@ -159,6 +160,24 @@ public sealed class LegacyDocumentAdapterTests
         DocumentRoot model = new();
         DocumentSection section = new();
         section.Blocks.Add(new TableBlock());
+        model.Sections.Add(section);
+
+        Assert.Throws<NotSupportedException>(
+            () => _adapter.ToLegacyDocument(model));
+    }
+
+    [Fact]
+    public void ToLegacyDocument_WhenModelContainsLink_ThrowsInsteadOfLosingTarget()
+    {
+        DocumentRoot model = new();
+        DocumentSection section = new();
+        ParagraphBlock paragraph = new();
+        paragraph.Inlines.Add(new LinkInline
+        {
+            Text = "OpenAI",
+            Target = "https://openai.com"
+        });
+        section.Blocks.Add(paragraph);
         model.Sections.Add(section);
 
         Assert.Throws<NotSupportedException>(

@@ -1,4 +1,5 @@
 using GostEditor.Core.DocumentModel;
+using GostEditor.Core.DocumentModel.Blocks;
 using GostEditor.Core.DocumentModel.Inlines;
 using GostEditor.Core.Editing.Operations;
 
@@ -25,15 +26,16 @@ public sealed class TextEditingService
 
         DocumentLocation normalized =
             _session.Selection.NormalizeLocation(location);
-        _session.Execute(new InsertTextOperation(
+        InsertTextOperation operation = new(
             normalized.BlockId,
             normalized.Offset,
             text,
-            style));
-
-        _session.Selection.MoveCaret(new DocumentLocation(
-            normalized.BlockId,
-            normalized.Offset + text.Length));
+            style);
+        _session.ExecuteWithSelection(
+            operation,
+            () => _session.Selection.MoveCaret(new DocumentLocation(
+                normalized.BlockId,
+                normalized.Offset + text.Length)));
     }
 
     public void DeleteText(
@@ -47,12 +49,23 @@ public sealed class TextEditingService
 
         DocumentLocation normalized =
             _session.Selection.NormalizeLocation(location);
-        _session.Execute(new DeleteTextOperation(
+        ParagraphBlock paragraph = (ParagraphBlock)_session.Document.FindBlock(
+            normalized.BlockId)!;
+        int actualLength = Math.Min(
+            length,
+            paragraph.TextLength - normalized.Offset);
+        if (actualLength <= 0)
+        {
+            return;
+        }
+
+        DeleteTextOperation operation = new(
             normalized.BlockId,
             normalized.Offset,
-            length));
-
-        _session.Selection.MoveCaret(normalized);
+            actualLength);
+        _session.ExecuteWithSelection(
+            operation,
+            () => _session.Selection.MoveCaret(normalized));
     }
 
     public void ReplaceRange(
@@ -70,8 +83,9 @@ public sealed class TextEditingService
             return;
         }
 
-        _session.Execute(operation);
-        _session.Selection.MoveCaret(operation.ResultLocation);
+        _session.ExecuteWithSelection(
+            operation,
+            () => _session.Selection.MoveCaret(operation.ResultLocation));
     }
 
     public void ReplaceSelection(
@@ -99,10 +113,11 @@ public sealed class TextEditingService
         SplitParagraphOperation operation = new(
             normalized.BlockId,
             normalized.Offset);
-        _session.Execute(operation);
-        _session.Selection.MoveCaret(new DocumentLocation(
-            operation.NewParagraphId,
-            0));
+        _session.ExecuteWithSelection(
+            operation,
+            () => _session.Selection.MoveCaret(new DocumentLocation(
+                operation.NewParagraphId,
+                0)));
     }
 
     public void InsertParagraphBreakAtCaret()

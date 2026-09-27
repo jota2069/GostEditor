@@ -231,16 +231,10 @@ public sealed class LegacyDocumentAdapter
                     });
                     break;
 
-                case LinkInline link:
-                    paragraph.Runs.Add(new TextRun
-                    {
-                        Text = link.Text,
-                        IsBold = link.Style.IsBold,
-                        IsItalic = link.Style.IsItalic,
-                        Color = link.Style.Color,
-                        FontSize = link.Style.FontSize
-                    });
-                    break;
+                case LinkInline:
+                    throw new NotSupportedException(
+                        "Ссылки нельзя без потерь сохранить в текущую " +
+                        "модель .gost v2.");
 
                 case LineBreakInline:
                     paragraph.Runs.Add(new TextRun("\n"));
