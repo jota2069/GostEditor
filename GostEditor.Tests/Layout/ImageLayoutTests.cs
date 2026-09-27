@@ -1,7 +1,6 @@
 using System.Reflection;
 using Avalonia;
 using Avalonia.Media;
-using Avalonia.Skia;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine;
@@ -10,15 +9,11 @@ using GostEditor.UI.Layout;
 
 namespace GostEditor.Tests.Layout;
 
+[Collection(TestCollections.AvaloniaLayout)]
 public class ImageLayoutTests
 {
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
-
-    static ImageLayoutTests()
-    {
-        SkiaPlatform.Initialize();
-    }
 
     [Fact]
     public void BuildLayout_ResolvedImage_UsesAttachmentContentAndPlacementBounds()
