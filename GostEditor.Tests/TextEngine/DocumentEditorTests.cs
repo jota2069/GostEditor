@@ -476,3 +476,78 @@ public class DocumentEditorTests
         Assert.Equal(orphanId, Assert.Single(editor.Document.Images).Id);
     }
 }
+
+public sealed class DocumentEditorFoundationIntegrationTests
+{
+    [Fact]
+    public void InsertText_UndoDoesNotReplaceUnchangedParagraphs()
+    {
+        GostDocument document = new();
+        document.Paragraphs.Clear();
+        for (int index = 0; index < 1000; index++)
+        {
+            document.Paragraphs.Add(new Paragraph
+            {
+                Runs = { new TextRun($"P{index}") }
+            });
+        }
+
+        DocumentEditor editor = new(document);
+        Paragraph firstReference = document.Paragraphs[0];
+        Paragraph lastReference = document.Paragraphs[^1];
+        editor.CaretPosition = new DocumentPosition(500, 4);
+
+        editor.InsertText("X");
+        editor.History.Undo();
+        editor.History.Redo();
+
+        Assert.Same(firstReference, document.Paragraphs[0]);
+        Assert.Same(lastReference, document.Paragraphs[^1]);
+        Assert.Equal("P500X", document.Paragraphs[500].GetPlainText());
+    }
+
+    [Fact]
+    public void DocumentChanged_ReportsLocalizedMutationAndMonotonicVersion()
+    {
+        DocumentEditor editor = new();
+        editor.PasteText("A\nB\nC");
+        List<DocumentChangedEventArgs> events = new();
+        editor.DocumentChanged += (_, args) => events.Add(args);
+        editor.CaretPosition = new DocumentPosition(1, 1);
+
+        editor.InsertText("X");
+        editor.History.Undo();
+        editor.History.Redo();
+
+        Assert.Equal(3, events.Count);
+        Assert.All(events, item => Assert.Equal(1, item.StartParagraphIndex));
+        Assert.Equal(
+            events.Select(item => item.Version).OrderBy(item => item),
+            events.Select(item => item.Version));
+        Assert.All(
+            events,
+            item => Assert.True(
+                item.Kind.HasFlag(DocumentChangeKind.Metrics)));
+    }
+
+    [Fact]
+    public void StructuredSession_CanBeProjectedBackIntoActiveEditor()
+    {
+        DocumentEditor editor = new();
+        editor.InsertText("A");
+        var session = editor.CreateStructuredEditingSession();
+        var paragraph = Assert.IsType<
+            GostEditor.Core.DocumentModel.Blocks.ParagraphBlock>(
+            session.Document.Sections[0].Blocks[0]);
+        session.Text.InsertText(
+            new GostEditor.Core.DocumentModel.DocumentLocation(
+                paragraph.Id,
+                1),
+            "B");
+
+        editor.ApplyStructuredDocument(session.Document);
+
+        Assert.Equal("AB", editor.Document.Paragraphs[0].GetPlainText());
+        Assert.False(editor.History.CanUndo);
+    }
+}

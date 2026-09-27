@@ -1,33 +1,52 @@
 using System.Collections.Generic;
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.TextEngine.Commands;
 
 namespace GostEditor.Core.TextEngine;
 
 /// <summary>
-/// Управляет историей команд редактора для реализации Undo/Redo (Ctrl+Z / Ctrl+Y).
+/// Управляет историей обратимых операций редактора.
 /// </summary>
 public class CommandManager
 {
-    private readonly Stack<IEditorCommand> _undoStack = new Stack<IEditorCommand>();
-    private readonly Stack<IEditorCommand> _redoStack = new Stack<IEditorCommand>();
+    private readonly Stack<IEditorCommand> _undoStack = new();
+    private readonly Stack<IEditorCommand> _redoStack = new();
 
-    /// <summary>
-    /// Выполняет новую команду и сохраняет её в историю отмен.
-    /// </summary>
+    public bool CanUndo => _undoStack.Count > 0;
+
+    public bool CanRedo => _redoStack.Count > 0;
+
+    public int UndoCount => _undoStack.Count;
+
+    public int RedoCount => _redoStack.Count;
+
+    public event EventHandler? Changed;
+
     public void ExecuteCommand(IEditorCommand command)
     {
+        ArgumentNullException.ThrowIfNull(command);
         command.Execute();
+
+        if (command is DocumentMutationCommand mutation &&
+            !mutation.IsCommitted)
+        {
+            return;
+        }
+
         RecordExecutedCommand(command);
     }
 
-    /// <summary>
-    /// Executes a command and records it only when the completed operation
-    /// reports a meaningful state change.
-    /// </summary>
-    public bool TryExecuteCommand(IEditorCommand command, Func<bool> shouldRecord)
+    public bool TryExecuteCommand(
+        IEditorCommand command,
+        Func<bool> shouldRecord)
     {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(shouldRecord);
+
         command.Execute();
-        if (!shouldRecord())
+        bool isCommitted = command is not DocumentMutationCommand mutation ||
+                           mutation.IsCommitted;
+        if (!isCommitted || !shouldRecord())
         {
             return false;
         }
@@ -36,46 +55,43 @@ public class CommandManager
         return true;
     }
 
-    /// <summary>
-    /// Отменяет последнее выполненное действие (Ctrl+Z).
-    /// </summary>
     public void Undo()
     {
-        if (_undoStack.Count > 0)
+        if (_undoStack.Count == 0)
         {
-            IEditorCommand command = _undoStack.Pop();
-            command.Undo();
-            _redoStack.Push(command);
+            return;
         }
+
+        IEditorCommand command = _undoStack.Pop();
+        command.Undo();
+        _redoStack.Push(command);
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Повторяет последнее отмененное действие (Ctrl+Y).
-    /// </summary>
     public void Redo()
     {
-        if (_redoStack.Count > 0)
+        if (_redoStack.Count == 0)
         {
-            IEditorCommand command = _redoStack.Pop();
-            command.Execute();
-            _undoStack.Push(command);
+            return;
         }
+
+        IEditorCommand command = _redoStack.Pop();
+        command.Execute();
+        _undoStack.Push(command);
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>
-    /// Очищает историю (используется при переключении разделов или загрузке документа).
-    /// </summary>
     public void Clear()
     {
         _undoStack.Clear();
         _redoStack.Clear();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 
     private void RecordExecutedCommand(IEditorCommand command)
     {
         _undoStack.Push(command);
-
-        // Сбрасываем ветку повторов при новом действии
         _redoStack.Clear();
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 }

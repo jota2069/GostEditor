@@ -34,13 +34,18 @@ public class RenderController
 
     public List<RenderedPage> CurrentPages { get; private set; } = new List<RenderedPage>();
 
+    public LayoutBuildStatistics LastLayoutStatistics =>
+        _layoutManager.LastStatistics;
+
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
 
     public RenderController(DocumentEditor editor, PageLayoutManager layoutManager, Typeface defaultTypeface)
     {
-        _editor = editor;
-        _layoutManager = layoutManager;
+        _editor = editor ?? throw new ArgumentNullException(nameof(editor));
+        _layoutManager = layoutManager
+            ?? throw new ArgumentNullException(nameof(layoutManager));
         _defaultTypeface = defaultTypeface;
+        _editor.DocumentChanged += OnDocumentChanged;
     }
 
     public void AttachUi(StackPanel pagesPanel)
@@ -71,6 +76,8 @@ public class RenderController
 
     public void ResetDocumentVisualState()
     {
+        _layoutManager.ResetCache();
+
         if (_pagesPanel is null)
         {
             return;
@@ -83,6 +90,16 @@ public class RenderController
                 pageControl.ClearImageCache();
             }
         }
+    }
+
+
+    private void OnDocumentChanged(
+        object? sender,
+        DocumentChangedEventArgs e)
+    {
+        _layoutManager.InvalidateFrom(
+            e.StartParagraphIndex,
+            e.Kind);
     }
 
     private void SyncPageControls()
