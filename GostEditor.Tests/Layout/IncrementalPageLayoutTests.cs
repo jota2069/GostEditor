@@ -1,5 +1,4 @@
 using Avalonia.Media;
-using Avalonia.Skia;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine;
@@ -9,13 +8,9 @@ using GostEditor.UI.Layout;
 
 namespace GostEditor.Tests.Layout;
 
+[Collection(TestCollections.AvaloniaLayout)]
 public sealed class IncrementalPageLayoutTests
 {
-    static IncrementalPageLayoutTests()
-    {
-        SkiaPlatform.Initialize();
-    }
-
     [Fact]
     public void SecondBuild_ReusesAllParagraphLayouts()
     {
