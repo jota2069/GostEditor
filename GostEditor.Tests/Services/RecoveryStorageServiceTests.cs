@@ -2,25 +2,31 @@ using System.Text.Json;
 using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Tests.Infrastructure;
 using GostEditor.UI.Services;
 
 namespace GostEditor.Tests.Services;
 
 public sealed class RecoveryStorageServiceTests : IDisposable
 {
-    private readonly string _temporaryDirectory;
+    private static readonly DateTimeOffset SavedAtUtc = new(
+        2026,
+        9,
+        28,
+        12,
+        0,
+        0,
+        TimeSpan.Zero);
+
+    private readonly TestTemporaryDirectory _temporaryDirectory = new();
     private readonly RecoveryStorageService _service;
 
     public RecoveryStorageServiceTests()
     {
-        _temporaryDirectory = Path.Combine(
-            Path.GetTempPath(),
-            "GostEditor.Tests",
-            Guid.NewGuid().ToString("N"));
-
         _service = new RecoveryStorageService(
             new ArchiveService(),
-            _temporaryDirectory);
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
     }
 
     [Fact]
@@ -28,7 +34,7 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     {
         GostDocument document = CreateDocument("Черновик");
         string originalPath = Path.Combine(
-            _temporaryDirectory,
+            _temporaryDirectory.DirectoryPath,
             "..",
             "original.gost");
 
@@ -43,7 +49,7 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         Assert.Equal(
             Path.GetFullPath(originalPath),
             metadata.OriginalFilePath);
-        Assert.True(metadata.SavedAtUtc <= DateTimeOffset.UtcNow);
+        Assert.Equal(SavedAtUtc, metadata.SavedAtUtc);
     }
 
     [Fact]
@@ -68,9 +74,8 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     [Fact]
     public async Task LoadMetadataAsync_ReturnsSavedMetadata()
     {
-        string originalPath = Path.Combine(
-            _temporaryDirectory,
-            "document.gost");
+        string originalPath =
+            _temporaryDirectory.GetPath("document.gost");
 
         RecoveryMetadata saved = await _service.SaveAsync(
             CreateDocument("Метаданные"),
@@ -131,8 +136,6 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     [Fact]
     public async Task LoadMetadataAsync_WhenMetadataIsMissing_ReturnsNull()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-
         RecoveryMetadata? metadata =
             await _service.LoadMetadataAsync();
 
@@ -154,8 +157,6 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     [Fact]
     public async Task LoadMetadataAsync_WhenMetadataIsCorrupted_ThrowsJsonException()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-
         await File.WriteAllTextAsync(
             _service.MetadataFilePath,
             "{ invalid json");
@@ -167,8 +168,6 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     [Fact]
     public async Task LoadDocumentAsync_WhenRecoveryIsCorrupted_ThrowsInvalidDataException()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-
         await File.WriteAllTextAsync(
             _service.RecoveryFilePath,
             "this is not a gost archive");
@@ -184,9 +183,8 @@ public sealed class RecoveryStorageServiceTests : IDisposable
             CreateDocument("Удаление"),
             null);
 
-        string temporaryFile = Path.Combine(
-            _temporaryDirectory,
-            "orphan.tmp");
+        string temporaryFile =
+            _temporaryDirectory.GetPath("orphan.tmp");
 
         await File.WriteAllTextAsync(
             temporaryFile,
@@ -202,12 +200,7 @@ public sealed class RecoveryStorageServiceTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_temporaryDirectory))
-        {
-            Directory.Delete(
-                _temporaryDirectory,
-                recursive: true);
-        }
+        _temporaryDirectory.Dispose();
     }
 
     private static GostDocument CreateDocument(string text)

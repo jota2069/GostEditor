@@ -13,6 +13,7 @@ public sealed class RecoveryStorageService
     private const string MetadataFileName = "session.json";
 
     private readonly IArchiveService _archiveService;
+    private readonly TimeProvider _timeProvider;
     private readonly JsonSerializerOptions _jsonOptions =
         new(JsonSerializerDefaults.Web)
         {
@@ -20,16 +21,32 @@ public sealed class RecoveryStorageService
         };
 
     public RecoveryStorageService(IArchiveService archiveService)
-        : this(archiveService, GetDefaultRecoveryDirectory())
+        : this(
+            archiveService,
+            GetDefaultRecoveryDirectory(),
+            TimeProvider.System)
     {
     }
 
     public RecoveryStorageService(
         IArchiveService archiveService,
         string recoveryDirectoryPath)
+        : this(
+            archiveService,
+            recoveryDirectoryPath,
+            TimeProvider.System)
+    {
+    }
+
+    internal RecoveryStorageService(
+        IArchiveService archiveService,
+        string recoveryDirectoryPath,
+        TimeProvider timeProvider)
     {
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
+        _timeProvider = timeProvider
+            ?? throw new ArgumentNullException(nameof(timeProvider));
 
         ArgumentException.ThrowIfNullOrWhiteSpace(recoveryDirectoryPath);
 
@@ -61,7 +78,7 @@ public sealed class RecoveryStorageService
         {
             SessionId = Guid.NewGuid(),
             OriginalFilePath = NormalizeOptionalPath(originalFilePath),
-            SavedAtUtc = DateTimeOffset.UtcNow
+            SavedAtUtc = _timeProvider.GetUtcNow()
         };
 
         try

@@ -5,6 +5,7 @@ using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Tests.Infrastructure;
 
 namespace GostEditor.Tests.Serialization;
 
@@ -407,30 +408,20 @@ public class ArchiveServiceTests
 
         current.Position = 0;
         GostDocument reloaded = await _service.LoadAsync(current);
-        string outputPath = Path.Combine(
-            Path.GetTempPath(),
-            $"gosteditor-migrated-{Guid.NewGuid():N}.docx");
+        using TestTemporaryDirectory temporaryDirectory = new();
+        string outputPath =
+            temporaryDirectory.GetPath("migrated.docx");
 
-        try
-        {
-            await new ExportService(new ImageService())
-                .ExportToDocxAsync(reloaded, outputPath);
+        await new ExportService(new ImageService())
+            .ExportToDocxAsync(reloaded, outputPath);
 
-            Assert.True(File.Exists(outputPath));
-            using ZipArchive docx = ZipFile.OpenRead(outputPath);
-            Assert.Contains(
-                docx.Entries,
-                entry => entry.FullName.StartsWith(
-                    "word/media/",
-                    StringComparison.Ordinal));
-        }
-        finally
-        {
-            if (File.Exists(outputPath))
-            {
-                File.Delete(outputPath);
-            }
-        }
+        Assert.True(File.Exists(outputPath));
+        using ZipArchive docx = ZipFile.OpenRead(outputPath);
+        Assert.Contains(
+            docx.Entries,
+            entry => entry.FullName.StartsWith(
+                "word/media/",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -590,12 +581,8 @@ public class ArchiveServiceTests
     [Fact]
     public async Task SavePath_WhenSerializationFails_PreservesExistingFile()
     {
-        string directoryPath = Path.Combine(
-            Path.GetTempPath(),
-            "GostEditor.Tests",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directoryPath);
-        string filePath = Path.Combine(directoryPath, "document.gost");
+        using TestTemporaryDirectory temporaryDirectory = new();
+        string filePath = temporaryDirectory.GetPath("document.gost");
         byte[] originalBytes = "existing user document"u8.ToArray();
         await File.WriteAllBytesAsync(filePath, originalBytes);
 
@@ -607,56 +594,38 @@ public class ArchiveServiceTests
             ImageHeight = 50
         });
 
-        try
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(
-                () => _service.SaveAsync(invalidDocument, filePath));
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _service.SaveAsync(invalidDocument, filePath));
 
-            Assert.Equal(
-                originalBytes,
-                await File.ReadAllBytesAsync(filePath));
-            Assert.Empty(Directory.GetFiles(
-                directoryPath,
-                "document.gost.*.tmp"));
-            Assert.Empty(Directory.GetFiles(
-                directoryPath,
-                "document.gost.*.rollback"));
-        }
-        finally
-        {
-            Directory.Delete(directoryPath, recursive: true);
-        }
+        Assert.Equal(
+            originalBytes,
+            await File.ReadAllBytesAsync(filePath));
+        Assert.Empty(Directory.GetFiles(
+            temporaryDirectory.DirectoryPath,
+            "document.gost.*.tmp"));
+        Assert.Empty(Directory.GetFiles(
+            temporaryDirectory.DirectoryPath,
+            "document.gost.*.rollback"));
     }
 
     [Fact]
     public async Task SavePath_WhenSuccessful_ReplacesExistingFileWithLoadableArchive()
     {
-        string directoryPath = Path.Combine(
-            Path.GetTempPath(),
-            "GostEditor.Tests",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directoryPath);
-        string filePath = Path.Combine(directoryPath, "document.gost");
+        using TestTemporaryDirectory temporaryDirectory = new();
+        string filePath = temporaryDirectory.GetPath("document.gost");
         await File.WriteAllTextAsync(filePath, "old content");
         GostDocument expected = CreateDocument();
 
-        try
-        {
-            await _service.SaveAsync(expected, filePath);
-            GostDocument actual = await _service.LoadAsync(filePath);
+        await _service.SaveAsync(expected, filePath);
+        GostDocument actual = await _service.LoadAsync(filePath);
 
-            AssertDocumentEqual(expected, actual);
-            Assert.Empty(Directory.GetFiles(
-                directoryPath,
-                "document.gost.*.tmp"));
-            Assert.Empty(Directory.GetFiles(
-                directoryPath,
-                "document.gost.*.rollback"));
-        }
-        finally
-        {
-            Directory.Delete(directoryPath, recursive: true);
-        }
+        AssertDocumentEqual(expected, actual);
+        Assert.Empty(Directory.GetFiles(
+            temporaryDirectory.DirectoryPath,
+            "document.gost.*.tmp"));
+        Assert.Empty(Directory.GetFiles(
+            temporaryDirectory.DirectoryPath,
+            "document.gost.*.rollback"));
     }
 
     private static GostDocument CreateDocument()
