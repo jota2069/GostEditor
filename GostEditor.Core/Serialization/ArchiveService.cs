@@ -1,4 +1,5 @@
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.IO;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
 
@@ -11,20 +12,25 @@ public class ArchiveService : IArchiveService
 {
     private readonly GostArchivePackageReader _reader;
     private readonly GostArchivePackageWriter _writer;
+    private readonly IAtomicFileCommitter _fileCommitter;
 
     public ArchiveService()
         : this(
             new GostArchivePackageReader(),
-            new GostArchivePackageWriter())
+            new GostArchivePackageWriter(),
+            new AtomicFileCommitter())
     {
     }
 
     internal ArchiveService(
         GostArchivePackageReader reader,
-        GostArchivePackageWriter writer)
+        GostArchivePackageWriter writer,
+        IAtomicFileCommitter fileCommitter)
     {
         _reader = reader ?? throw new ArgumentNullException(nameof(reader));
         _writer = writer ?? throw new ArgumentNullException(nameof(writer));
+        _fileCommitter = fileCommitter
+            ?? throw new ArgumentNullException(nameof(fileCommitter));
     }
 
     public GostDocument CreateNew()
@@ -58,13 +64,15 @@ public class ArchiveService : IArchiveService
         return GostDocumentMaterializer.Materialize(result.Document);
     }
 
-    public async Task SaveAsync(GostDocument document, string filePath)
+    public Task SaveAsync(GostDocument document, string filePath)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        await using FileStream fileStream = File.Create(filePath);
-        await SaveAsync(document, fileStream);
+        return _fileCommitter.WriteAsync(
+            filePath,
+            (stream, cancellationToken) =>
+                _writer.WriteAsync(document, stream, cancellationToken));
     }
 
     public Task SaveAsync(GostDocument document, Stream stream)
