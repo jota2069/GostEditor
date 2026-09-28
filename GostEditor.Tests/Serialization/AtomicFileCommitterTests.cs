@@ -1,4 +1,5 @@
 using GostEditor.Core.IO;
+using GostEditor.Tests.Infrastructure;
 
 namespace GostEditor.Tests.Serialization;
 
@@ -7,18 +8,15 @@ public sealed class AtomicFileCommitterTests : IDisposable
     private const int ErrorUnableToMoveReplacement = 1176;
     private const int ErrorUnableToMoveReplacement2 = 1177;
 
-    private readonly string _temporaryDirectory = Path.Combine(
-        Path.GetTempPath(),
-        "GostEditor.Tests",
-        Guid.NewGuid().ToString("N"));
+    private readonly TestTemporaryDirectory _temporaryDirectory = new();
 
     [Fact]
     public async Task WriteAsync_WhenTemporaryCreateFails_PreservesExistingDestination()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.Create);
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.Create);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(destinationPath, WriteReplacementAsync));
 
         await AssertOriginalDestinationAndNoArtifactsAsync(destinationPath);
@@ -28,17 +26,18 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_WhenWriterFailsAfterPartialWrite_PreservesExistingDestinationAndCleansTemp()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.None);
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.None);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(
                 destinationPath,
                 async (stream, cancellationToken) =>
                 {
-                    await stream.WriteAsync(
+                    await StreamFaultInjector.WriteThenThrowAsync(
+                        stream,
                         "partial"u8.ToArray(),
+                        new InjectedFileSystemIOException("write"),
                         cancellationToken);
-                    throw new InjectedIOException("write");
                 }));
 
         await AssertOriginalDestinationAndNoArtifactsAsync(destinationPath);
@@ -48,9 +47,9 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_WhenDurableFlushFails_PreservesExistingDestinationAndCleansTemp()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.Flush);
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.Flush);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(destinationPath, WriteReplacementAsync));
 
         await AssertOriginalDestinationAndNoArtifactsAsync(destinationPath);
@@ -60,10 +59,10 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_WhenCloseInitiallyFails_RetriesCloseAndCleansTemp()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        FaultInjectingFileSystem fileSystem = new(FailurePoint.Close);
+        FaultInjectingAtomicFileSystem fileSystem = new(AtomicFileFailurePoint.Close);
         AtomicFileCommitter committer = new(fileSystem);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(destinationPath, WriteReplacementAsync));
 
         Assert.Equal(2, fileSystem.CloseAttempts);
@@ -74,10 +73,10 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_WhenCommitFailsBeforeMutation_PreservesDestinationAndReplacementArtifact()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        FaultInjectingFileSystem fileSystem = new(FailurePoint.CommitBeforeMutation);
+        FaultInjectingAtomicFileSystem fileSystem = new(AtomicFileFailurePoint.CommitBeforeMutation);
         AtomicFileCommitter committer = new(fileSystem);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(destinationPath, WriteReplacementAsync));
 
         Assert.Equal(
@@ -95,8 +94,8 @@ public sealed class AtomicFileCommitterTests : IDisposable
         string destinationPath = await CreateExistingDestinationAsync();
         using CancellationTokenSource cancellation = new();
         AtomicFileCommitter committer = new(
-            new FaultInjectingFileSystem(
-                FailurePoint.CancelAfterFlush,
+            new FaultInjectingAtomicFileSystem(
+                AtomicFileFailurePoint.CancelAfterFlush,
                 cancellation.Cancel));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
@@ -113,8 +112,8 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         using CancellationTokenSource cancellation = new();
-        FaultInjectingFileSystem fileSystem = new(
-            FailurePoint.CancelAfterClose,
+        FaultInjectingAtomicFileSystem fileSystem = new(
+            AtomicFileFailurePoint.CancelAfterClose,
             cancellation.Cancel);
         AtomicFileCommitter committer = new(fileSystem);
 
@@ -133,8 +132,8 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         using CancellationTokenSource cancellation = new();
-        FaultInjectingFileSystem fileSystem = new(
-            FailurePoint.CancelDuringCommit,
+        FaultInjectingAtomicFileSystem fileSystem = new(
+            AtomicFileFailurePoint.CancelDuringCommit,
             cancellation.Cancel);
         AtomicFileCommitter committer = new(fileSystem);
 
@@ -156,19 +155,20 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.DeleteUnexpected);
-        InjectedIOException primary = new("write");
+            AtomicFileFailurePoint.DeleteUnexpected);
+        InjectedFileSystemIOException primary = new("write");
 
-        InjectedIOException actual =
-            await Assert.ThrowsAsync<InjectedIOException>(() =>
+        InjectedFileSystemIOException actual =
+            await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
                 committer.WriteAsync(
                     destinationPath,
                     async (stream, cancellationToken) =>
                     {
-                        await stream.WriteAsync(
+                        await StreamFaultInjector.WriteThenThrowAsync(
+                            stream,
                             "partial"u8.ToArray(),
+                            primary,
                             cancellationToken);
-                        throw primary;
                     }));
 
         Assert.Same(primary, actual);
@@ -187,7 +187,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.DeleteUnexpected);
+            AtomicFileFailurePoint.DeleteUnexpected);
 
         await committer.WriteAsync(destinationPath, WriteReplacementAsync);
 
@@ -205,7 +205,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.Windows1176);
+            AtomicFileFailurePoint.Windows1176);
 
         InjectedWin32IOException exception =
             await Assert.ThrowsAsync<InjectedWin32IOException>(() =>
@@ -232,7 +232,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.Windows1177);
+            AtomicFileFailurePoint.Windows1177);
 
         InjectedWin32IOException exception =
             await Assert.ThrowsAsync<InjectedWin32IOException>(() =>
@@ -259,7 +259,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.FailAfterReplacement);
+            AtomicFileFailurePoint.FailAfterReplacement);
 
         await Assert.ThrowsAsync<InjectedWin32IOException>(() =>
             committer.WriteAsync(destinationPath, WriteReplacementAsync));
@@ -278,7 +278,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     {
         string destinationPath = await CreateExistingDestinationAsync();
         AtomicFileCommitter committer = CreateCommitter(
-            FailurePoint.Windows1177AndRestoreUnexpected);
+            AtomicFileFailurePoint.Windows1177AndRestoreUnexpected);
 
         InjectedWin32IOException exception =
             await Assert.ThrowsAsync<InjectedWin32IOException>(() =>
@@ -299,25 +299,24 @@ public sealed class AtomicFileCommitterTests : IDisposable
     }
 
     [Theory]
-    [InlineData(FailurePoint.Create, 0)]
-    [InlineData(FailurePoint.Write, 0)]
-    [InlineData(FailurePoint.Flush, 0)]
-    [InlineData(FailurePoint.Close, 0)]
-    [InlineData(FailurePoint.CommitBeforeMutation, 1)]
+    [InlineData(AtomicFileFailurePoint.Create, false, 0)]
+    [InlineData(AtomicFileFailurePoint.None, true, 0)]
+    [InlineData(AtomicFileFailurePoint.Flush, false, 0)]
+    [InlineData(AtomicFileFailurePoint.Close, false, 0)]
+    [InlineData(AtomicFileFailurePoint.CommitBeforeMutation, false, 1)]
     public async Task WriteAsync_WhenNewDestinationStageFails_DoesNotPublishPartialFile(
-        FailurePoint failurePoint,
+        AtomicFileFailurePoint failurePoint,
+        bool writerFails,
         int expectedTemporaryArtifacts)
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        string destinationPath = Path.Combine(
-            _temporaryDirectory,
-            "new-document.gost");
+        string destinationPath =
+            _temporaryDirectory.GetPath("new-document.gost");
         AtomicFileCommitter committer = CreateCommitter(failurePoint);
 
-        await Assert.ThrowsAsync<InjectedIOException>(() =>
+        await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
             committer.WriteAsync(
                 destinationPath,
-                failurePoint == FailurePoint.Write
+                writerFails
                     ? WriteThenFailAsync
                     : WriteReplacementAsync));
 
@@ -332,7 +331,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_WhenSuccessful_AtomicallyReplacesDestination()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.None);
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.None);
 
         await committer.WriteAsync(destinationPath, WriteReplacementAsync);
 
@@ -347,7 +346,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
     public async Task WriteAsync_CreatesTransactionArtifactsInDestinationDirectory()
     {
         string destinationPath = await CreateExistingDestinationAsync();
-        FaultInjectingFileSystem fileSystem = new(FailurePoint.None);
+        FaultInjectingAtomicFileSystem fileSystem = new(AtomicFileFailurePoint.None);
         AtomicFileCommitter committer = new(fileSystem);
 
         await committer.WriteAsync(destinationPath, WriteReplacementAsync);
@@ -375,11 +374,9 @@ public sealed class AtomicFileCommitterTests : IDisposable
     [Fact]
     public async Task WriteAsync_WhenDestinationDoesNotExist_CreatesCommittedFile()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        string destinationPath = Path.Combine(
-            _temporaryDirectory,
-            "new-document.gost");
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.None);
+        string destinationPath =
+            _temporaryDirectory.GetPath("new-document.gost");
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.None);
 
         await committer.WriteAsync(destinationPath, WriteReplacementAsync);
 
@@ -404,7 +401,7 @@ public sealed class AtomicFileCommitterTests : IDisposable
             UnixFileMode.UserWrite |
             UnixFileMode.GroupRead;
         File.SetUnixFileMode(destinationPath, expectedMode);
-        AtomicFileCommitter committer = CreateCommitter(FailurePoint.None);
+        AtomicFileCommitter committer = CreateCommitter(AtomicFileFailurePoint.None);
 
         await committer.WriteAsync(destinationPath, WriteReplacementAsync);
 
@@ -433,21 +430,16 @@ public sealed class AtomicFileCommitterTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_temporaryDirectory))
-        {
-            Directory.Delete(_temporaryDirectory, recursive: true);
-        }
+        _temporaryDirectory.Dispose();
     }
 
-    private AtomicFileCommitter CreateCommitter(FailurePoint failurePoint) =>
-        new(new FaultInjectingFileSystem(failurePoint));
+    private AtomicFileCommitter CreateCommitter(AtomicFileFailurePoint failurePoint) =>
+        new(new FaultInjectingAtomicFileSystem(failurePoint));
 
     private async Task<string> CreateExistingDestinationAsync()
     {
-        Directory.CreateDirectory(_temporaryDirectory);
-        string destinationPath = Path.Combine(
-            _temporaryDirectory,
-            "document.gost");
+        string destinationPath =
+            _temporaryDirectory.GetPath("document.gost");
         await File.WriteAllBytesAsync(
             destinationPath,
             "original"u8.ToArray());
@@ -467,10 +459,11 @@ public sealed class AtomicFileCommitterTests : IDisposable
         Stream stream,
         CancellationToken cancellationToken)
     {
-        await stream.WriteAsync(
+        await StreamFaultInjector.WriteThenThrowAsync(
+            stream,
             "partial"u8.ToArray(),
+            new InjectedFileSystemIOException("Write"),
             cancellationToken);
-        throw new InjectedIOException("Write");
     }
 
     private static async Task AssertOriginalDestinationAndNoArtifactsAsync(
@@ -520,187 +513,4 @@ public sealed class AtomicFileCommitterTests : IDisposable
             exception.Data[
                 AtomicFileCommitter.SecondaryDiagnosticsDataKey]);
 
-    public enum FailurePoint
-    {
-        None,
-        Create,
-        Write,
-        Flush,
-        Close,
-        CommitBeforeMutation,
-        CancelAfterFlush,
-        CancelAfterClose,
-        CancelDuringCommit,
-        DeleteUnexpected,
-        Windows1176,
-        Windows1177,
-        Windows1177AndRestoreUnexpected,
-        FailAfterReplacement
-    }
-
-    private sealed class FaultInjectingFileSystem : IAtomicFileSystem
-    {
-        private readonly PhysicalAtomicFileSystem _inner = new();
-        private readonly FailurePoint _failurePoint;
-        private readonly Action? _callback;
-
-        public FaultInjectingFileSystem(
-            FailurePoint failurePoint,
-            Action? callback = null)
-        {
-            _failurePoint = failurePoint;
-            _callback = callback;
-        }
-
-        public string? LastTemporaryPath { get; private set; }
-
-        public string? LastRollbackPath { get; private set; }
-
-        public int CloseAttempts { get; private set; }
-
-        public int CommitAttempts { get; private set; }
-
-        public Stream CreateTemporaryFile(string path)
-        {
-            ThrowIf(FailurePoint.Create);
-            LastTemporaryPath = path;
-            return _inner.CreateTemporaryFile(path);
-        }
-
-        public async Task FlushToDiskAsync(
-            Stream stream,
-            CancellationToken cancellationToken)
-        {
-            ThrowIf(FailurePoint.Flush);
-            await _inner.FlushToDiskAsync(stream, cancellationToken);
-            if (_failurePoint == FailurePoint.CancelAfterFlush)
-            {
-                _callback?.Invoke();
-            }
-        }
-
-        public async Task CloseTemporaryFileAsync(Stream stream)
-        {
-            CloseAttempts++;
-            if (_failurePoint == FailurePoint.Close && CloseAttempts == 1)
-            {
-                throw new InjectedIOException("Close");
-            }
-
-            await _inner.CloseTemporaryFileAsync(stream);
-            if (_failurePoint == FailurePoint.CancelAfterClose)
-            {
-                _callback?.Invoke();
-            }
-        }
-
-        public void Commit(
-            string temporaryPath,
-            string destinationPath,
-            string rollbackPath)
-        {
-            CommitAttempts++;
-            LastRollbackPath = rollbackPath;
-
-            switch (_failurePoint)
-            {
-                case FailurePoint.CommitBeforeMutation:
-                    throw new InjectedIOException("Commit");
-
-                case FailurePoint.CancelDuringCommit:
-                    _callback?.Invoke();
-                    _inner.Commit(
-                        temporaryPath,
-                        destinationPath,
-                        rollbackPath);
-                    return;
-
-                case FailurePoint.Windows1176:
-                    throw new InjectedWin32IOException(
-                        "ERROR_UNABLE_TO_MOVE_REPLACEMENT",
-                        ErrorUnableToMoveReplacement);
-
-                case FailurePoint.Windows1177:
-                case FailurePoint.Windows1177AndRestoreUnexpected:
-                    File.Move(destinationPath, rollbackPath);
-                    throw new InjectedWin32IOException(
-                        "ERROR_UNABLE_TO_MOVE_REPLACEMENT_2",
-                        ErrorUnableToMoveReplacement2);
-
-                case FailurePoint.FailAfterReplacement:
-                    _inner.Commit(
-                        temporaryPath,
-                        destinationPath,
-                        rollbackPath);
-                    throw new InjectedWin32IOException(
-                        "failure after replacement",
-                        ErrorUnableToMoveReplacement2);
-
-                default:
-                    _inner.Commit(
-                        temporaryPath,
-                        destinationPath,
-                        rollbackPath);
-                    return;
-            }
-        }
-
-        public AtomicFileEntryState GetEntryState(string path) =>
-            _inner.GetEntryState(path);
-
-        public void RestoreRollback(
-            string rollbackPath,
-            string destinationPath)
-        {
-            if (_failurePoint ==
-                FailurePoint.Windows1177AndRestoreUnexpected)
-            {
-                throw new InvalidOperationException(
-                    "unexpected rollback restoration failure");
-            }
-
-            _inner.RestoreRollback(rollbackPath, destinationPath);
-        }
-
-        public void Delete(string path)
-        {
-            if (_failurePoint == FailurePoint.DeleteUnexpected)
-            {
-                throw new InvalidOperationException(
-                    "unexpected cleanup failure");
-            }
-
-            _inner.Delete(path);
-        }
-
-        private void ThrowIf(FailurePoint point)
-        {
-            if (_failurePoint == point)
-            {
-                throw new InjectedIOException(point.ToString());
-            }
-        }
-    }
-
-    private sealed class InjectedIOException : IOException
-    {
-        public InjectedIOException(string message)
-            : base(message)
-        {
-        }
-    }
-
-    private sealed class InjectedWin32IOException : IOException
-    {
-        public InjectedWin32IOException(
-            string message,
-            int win32ErrorCode)
-            : base(message)
-        {
-            Win32ErrorCode = win32ErrorCode;
-            HResult = unchecked((int)(0x80070000u | (uint)win32ErrorCode));
-        }
-
-        public int Win32ErrorCode { get; }
-    }
 }
