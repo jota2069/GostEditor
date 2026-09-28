@@ -1,25 +1,28 @@
-name: .NET CI
+name: CI
 
 on:
   push:
-    branches:
-      - develop
-      - "feature/**"
+    branches: [master]
   pull_request:
-    branches:
-      - develop
-      - "feature/**"
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  verify:
+    name: Restore, format, build and test
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -29,8 +32,45 @@ jobs:
       - name: Restore
         run: dotnet restore GostEditor.sln
 
+      - name: Verify formatting of changed C# files
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            BASE_SHA="$(git rev-list --max-parents=0 HEAD)"
+          fi
+
+          mapfile -d '' changed_files < <(
+            git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$GITHUB_SHA" -- '*.cs'
+          )
+
+          if (( ${#changed_files[@]} == 0 )); then
+            echo "No added or changed C# files to format-check."
+            exit 0
+          fi
+
+          dotnet format GostEditor.sln \
+            --verify-no-changes \
+            --no-restore \
+            --include "${changed_files[@]}"
+
       - name: Build
         run: dotnet build GostEditor.sln --configuration Release --no-restore
 
       - name: Test
-        run: dotnet test GostEditor.sln --configuration Release --no-build
+        run: >-
+          dotnet test GostEditor.sln
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --results-directory TestResults
+
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ runner.os }}
+          path: TestResults/**/*.trx
+          if-no-files-found: ignore
+          retention-days: 14
