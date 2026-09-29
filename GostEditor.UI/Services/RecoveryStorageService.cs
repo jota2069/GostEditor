@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -101,7 +102,116 @@ public sealed class RecoveryStorageService
 
     public bool HasRecovery =>
         _fileSystem.FileExists(PointerFilePath) ||
-        _fileSystem.FileExists(LegacyRecoveryFilePath);
+        _fileSystem.FileExists(LegacyRecoveryFilePath) ||
+        HasGenerationDirectory();
+
+    public async Task<RecoveryStartupResult> InspectStartupAsync()
+    {
+        List<RecoveryStartupIssue> issues = new();
+        List<RecoveryStartupCandidate> candidates = new();
+        HashSet<Guid> inspectedGenerations = new();
+        bool hasArtifacts = false;
+
+        RecoveryGenerationPointer? currentPointer = null;
+        if (_fileSystem.FileExists(PointerFilePath))
+        {
+            hasArtifacts = true;
+            try
+            {
+                await using Stream pointerStream =
+                    _fileSystem.OpenRead(PointerFilePath);
+                RecoveryGenerationPointer? pointer =
+                    await JsonSerializer.DeserializeAsync<
+                        RecoveryGenerationPointer>(
+                        pointerStream,
+                        _jsonOptions);
+                currentPointer = new RecoveryGenerationPointer
+                {
+                    GenerationId = ValidatePointer(pointer)
+                };
+            }
+            catch (Exception exception)
+            {
+                issues.Add(new RecoveryStartupIssue(
+                    PointerFilePath,
+                    exception));
+            }
+        }
+
+        if (currentPointer is not null)
+        {
+            inspectedGenerations.Add(currentPointer.GenerationId);
+            await InspectGenerationAsync(
+                currentPointer.GenerationId,
+                RecoveryCandidateKind.CurrentGeneration,
+                candidates,
+                issues);
+        }
+
+        try
+        {
+            if (_fileSystem.DirectoryExists(RecoveryDirectoryPath))
+            {
+                foreach (string directory in
+                         _fileSystem.EnumerateDirectories(
+                             RecoveryDirectoryPath))
+                {
+                    string name = Path.GetFileName(directory);
+                    if (!TryParseGenerationId(name, out Guid generationId) ||
+                        !inspectedGenerations.Add(generationId))
+                    {
+                        continue;
+                    }
+
+                    hasArtifacts = true;
+                    await InspectGenerationAsync(
+                        generationId,
+                        RecoveryCandidateKind.OtherGeneration,
+                        candidates,
+                        issues);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            hasArtifacts = true;
+            issues.Add(new RecoveryStartupIssue(
+                RecoveryDirectoryPath,
+                exception));
+        }
+
+        if (_fileSystem.FileExists(LegacyRecoveryFilePath))
+        {
+            hasArtifacts = true;
+            await InspectLegacyAsync(candidates, issues);
+        }
+
+        RecoveryStartupCandidate? selected = candidates
+            .OrderByDescending(candidate => candidate.Metadata?.SavedAtUtc)
+            .ThenBy(candidate => candidate.Kind)
+            .FirstOrDefault();
+
+        if (selected is not null)
+        {
+            return new RecoveryStartupResult
+            {
+                State = RecoveryStartupState.Recoverable,
+                Document = selected.Document,
+                Metadata = selected.Metadata,
+                CandidateKind = selected.Kind,
+                RecoverableCandidateCount = candidates.Count,
+                Issues = issues
+            };
+        }
+
+        return new RecoveryStartupResult
+        {
+            State = hasArtifacts
+                ? RecoveryStartupState.Corrupted
+                : RecoveryStartupState.None,
+            Issues = issues
+        };
+    }
 
     private string LegacyRecoveryFilePath =>
         Path.Combine(RecoveryDirectoryPath, RecoveryFileName);
@@ -241,38 +351,55 @@ public sealed class RecoveryStorageService
 
     public void DeleteRecovery()
     {
-        _fileSystem.DeleteFile(PointerFilePath);
+        RecoveryGenerationPointer? currentPointer =
+            TryReadCurrentPointer();
+        string? currentDirectory = currentPointer is null
+            ? null
+            : GetGenerationDirectory(currentPointer.GenerationId);
+
+        if (_fileSystem.DirectoryExists(RecoveryDirectoryPath))
+        {
+            foreach (string file in _fileSystem.EnumerateFiles(
+                         RecoveryDirectoryPath,
+                         "*.tmp"))
+            {
+                _fileSystem.DeleteFile(file);
+            }
+
+            foreach (string file in _fileSystem.EnumerateFiles(
+                         RecoveryDirectoryPath,
+                         "*.rollback"))
+            {
+                _fileSystem.DeleteFile(file);
+            }
+
+            foreach (string directory in
+                     _fileSystem.EnumerateDirectories(RecoveryDirectoryPath))
+            {
+                string name = Path.GetFileName(directory);
+                if ((name.StartsWith(
+                         GenerationPrefix,
+                         StringComparison.Ordinal) ||
+                     name.StartsWith(
+                         StagingPrefix,
+                         StringComparison.Ordinal)) &&
+                    !string.Equals(
+                        directory,
+                        currentDirectory,
+                        StringComparison.Ordinal))
+                {
+                    _fileSystem.DeleteDirectory(directory);
+                }
+            }
+        }
+
         _fileSystem.DeleteFile(LegacyRecoveryFilePath);
         _fileSystem.DeleteFile(LegacyMetadataFilePath);
+        _fileSystem.DeleteFile(PointerFilePath);
 
-        if (!_fileSystem.DirectoryExists(RecoveryDirectoryPath))
+        if (currentDirectory is not null)
         {
-            return;
-        }
-
-        foreach (string file in _fileSystem.EnumerateFiles(
-                     RecoveryDirectoryPath,
-                     "*.tmp"))
-        {
-            TryCleanupFile(file, "temporary file cleanup");
-        }
-
-        foreach (string file in _fileSystem.EnumerateFiles(
-                     RecoveryDirectoryPath,
-                     "*.rollback"))
-        {
-            TryCleanupFile(file, "rollback cleanup");
-        }
-
-        foreach (string directory in
-                 _fileSystem.EnumerateDirectories(RecoveryDirectoryPath))
-        {
-            string name = Path.GetFileName(directory);
-            if (name.StartsWith(GenerationPrefix, StringComparison.Ordinal) ||
-                name.StartsWith(StagingPrefix, StringComparison.Ordinal))
-            {
-                TryCleanupDirectory(directory, "generation cleanup");
-            }
+            _fileSystem.DeleteDirectory(currentDirectory);
         }
     }
 
@@ -289,6 +416,86 @@ public sealed class RecoveryStorageService
             _jsonOptions,
             cancellationToken);
         await _fileSystem.FlushToDiskAsync(stream, cancellationToken);
+    }
+
+    private async Task InspectGenerationAsync(
+        Guid generationId,
+        RecoveryCandidateKind kind,
+        ICollection<RecoveryStartupCandidate> candidates,
+        ICollection<RecoveryStartupIssue> issues)
+    {
+        RecoveryGenerationPaths paths =
+            CreateGenerationPaths(generationId);
+
+        try
+        {
+            if (!_fileSystem.FileExists(paths.PackagePath) ||
+                !_fileSystem.FileExists(paths.MetadataPath))
+            {
+                throw new InvalidDataException(
+                    "Поколение recovery содержит неполный набор файлов.");
+            }
+
+            await using Stream metadataStream =
+                _fileSystem.OpenRead(paths.MetadataPath);
+            RecoveryMetadata? metadata =
+                await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
+                    metadataStream,
+                    _jsonOptions);
+
+            if (metadata is null ||
+                metadata.Version != RecoveryMetadata.CurrentVersion ||
+                metadata.SessionId != generationId)
+            {
+                throw new InvalidDataException(
+                    "Метаданные recovery не соответствуют поколению.");
+            }
+
+            GostDocument document =
+                await _archiveService.LoadAsync(paths.PackagePath);
+            candidates.Add(new RecoveryStartupCandidate(
+                kind,
+                document,
+                metadata));
+        }
+        catch (Exception exception)
+        {
+            issues.Add(new RecoveryStartupIssue(
+                Path.GetDirectoryName(paths.PackagePath)!,
+                exception));
+        }
+    }
+
+    private async Task InspectLegacyAsync(
+        ICollection<RecoveryStartupCandidate> candidates,
+        ICollection<RecoveryStartupIssue> issues)
+    {
+        try
+        {
+            RecoveryMetadata? metadata = null;
+            if (_fileSystem.FileExists(LegacyMetadataFilePath))
+            {
+                await using Stream metadataStream =
+                    _fileSystem.OpenRead(LegacyMetadataFilePath);
+                metadata =
+                    await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
+                        metadataStream,
+                        _jsonOptions);
+            }
+
+            GostDocument document =
+                await _archiveService.LoadAsync(LegacyRecoveryFilePath);
+            candidates.Add(new RecoveryStartupCandidate(
+                RecoveryCandidateKind.Legacy,
+                document,
+                metadata));
+        }
+        catch (Exception exception)
+        {
+            issues.Add(new RecoveryStartupIssue(
+                LegacyRecoveryFilePath,
+                exception));
+        }
     }
 
     private async Task<RecoveryGenerationPaths> ResolveCurrentGenerationAsync()
@@ -431,6 +638,19 @@ public sealed class RecoveryStorageService
                    out generationId);
     }
 
+    private bool HasGenerationDirectory()
+    {
+        if (!_fileSystem.DirectoryExists(RecoveryDirectoryPath))
+        {
+            return false;
+        }
+
+        return _fileSystem.EnumerateDirectories(RecoveryDirectoryPath)
+            .Select(Path.GetFileName)
+            .Any(name => name is not null &&
+                         TryParseGenerationId(name, out _));
+    }
+
     private static string GetDefaultRecoveryDirectory()
     {
         string localApplicationData = Environment.GetFolderPath(
@@ -512,4 +732,9 @@ public sealed class RecoveryStorageService
             string metadataPath) =>
             new(null, packagePath, metadataPath);
     }
+
+    private sealed record RecoveryStartupCandidate(
+        RecoveryCandidateKind Kind,
+        GostDocument Document,
+        RecoveryMetadata? Metadata);
 }

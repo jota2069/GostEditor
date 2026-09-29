@@ -202,7 +202,7 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         await Assert.ThrowsAsync<InjectedRecoveryIOException>(() =>
             service.SaveAsync(CreateDocument("Осиротевшая версия"), null));
 
-        Assert.False(service.HasRecovery);
+        Assert.True(service.HasRecovery);
         string generation = Assert.Single(GetGenerationDirectories());
         Assert.True(File.Exists(Path.Combine(generation, "autosave.gost")));
         Assert.True(File.Exists(Path.Combine(generation, "session.json")));
@@ -251,6 +251,100 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         Assert.Equal(
             "Третья",
             Assert.Single(loaded.Paragraphs).GetPlainText());
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WithoutArtifacts_ReturnsNone()
+    {
+        RecoveryStartupResult result =
+            await _service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.None, result.State);
+        Assert.Null(result.Document);
+        Assert.Empty(result.Issues);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenCurrentIsCorrupted_UsesPreviousGeneration()
+    {
+        ManualUtcTimeProvider clock = new(SavedAtUtc);
+        RecoveryStorageService service = new(
+            new ArchiveService(),
+            _temporaryDirectory.DirectoryPath,
+            clock);
+        await service.SaveAsync(CreateDocument("Предыдущее"), null);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await service.SaveAsync(CreateDocument("Текущее"), null);
+        await File.WriteAllTextAsync(
+            service.RecoveryFilePath,
+            "corrupted package");
+
+        RecoveryStartupResult result =
+            await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Recoverable, result.State);
+        Assert.Equal(
+            "Предыдущее",
+            Assert.Single(result.Document!.Paragraphs).GetPlainText());
+        Assert.Equal(RecoveryCandidateKind.OtherGeneration, result.CandidateKind);
+        Assert.Single(result.Issues);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenNewerOrphanIsValid_SelectsOrphan()
+    {
+        ManualUtcTimeProvider clock = new(SavedAtUtc);
+        FailOnCallAtomicCommitter committer = new(failOnCall: 2);
+        RecoveryStorageService service = new(
+            new ArchiveService(),
+            _temporaryDirectory.DirectoryPath,
+            clock,
+            committer);
+        await service.SaveAsync(CreateDocument("Опубликованное"), null);
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await Assert.ThrowsAsync<InjectedRecoveryIOException>(() =>
+            service.SaveAsync(CreateDocument("Более новое"), null));
+
+        RecoveryStartupResult result =
+            await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Recoverable, result.State);
+        Assert.Equal(
+            "Более новое",
+            Assert.Single(result.Document!.Paragraphs).GetPlainText());
+        Assert.Equal(RecoveryCandidateKind.OtherGeneration, result.CandidateKind);
+        Assert.Equal(2, result.RecoverableCandidateCount);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenPointerIsCorrupted_ScansValidGenerations()
+    {
+        await _service.SaveAsync(CreateDocument("Доступная копия"), null);
+        await File.WriteAllTextAsync(_service.PointerFilePath, "{ invalid");
+
+        RecoveryStartupResult result =
+            await _service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Recoverable, result.State);
+        Assert.Equal(
+            "Доступная копия",
+            Assert.Single(result.Document!.Paragraphs).GetPlainText());
+        Assert.Equal(RecoveryCandidateKind.OtherGeneration, result.CandidateKind);
+        Assert.Single(result.Issues);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenOnlyGenerationIsInvalid_ReturnsCorrupted()
+    {
+        await _service.SaveAsync(CreateDocument("Повреждаемая"), null);
+        File.Delete(_service.MetadataFilePath);
+
+        RecoveryStartupResult result =
+            await _service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Null(result.Document);
+        Assert.Single(result.Issues);
     }
 
     [Fact]
@@ -462,6 +556,55 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         Assert.False(File.Exists(_service.MetadataFilePath));
         Assert.False(File.Exists(temporaryFile));
         Assert.False(_service.HasRecovery);
+    }
+
+    [Fact]
+    public async Task DeleteRecovery_WhenOldGenerationDeleteFails_PreservesCurrent()
+    {
+        await _service.SaveAsync(CreateDocument("Предыдущая"), null);
+        await _service.SaveAsync(CreateDocument("Текущая"), null);
+        string currentPackage = _service.RecoveryFilePath;
+        InjectedRecoveryException deleteException =
+            new("generation delete");
+        RecoveryStorageService failingService = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException = deleteException
+            });
+
+        InjectedRecoveryException actual = Assert.Throws<
+            InjectedRecoveryException>(failingService.DeleteRecovery);
+
+        Assert.Same(deleteException, actual);
+        Assert.True(File.Exists(failingService.PointerFilePath));
+        Assert.True(File.Exists(currentPackage));
+        Assert.True(failingService.HasRecovery);
+    }
+
+    [Fact]
+    public async Task DeleteRecovery_WhenCurrentGenerationDeleteFails_RemainsDiscoverable()
+    {
+        await _service.SaveAsync(CreateDocument("Текущая"), null);
+        string currentPackage = _service.RecoveryFilePath;
+        InjectedRecoveryException deleteException =
+            new("current generation delete");
+        RecoveryStorageService failingService = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException = deleteException
+            });
+
+        Assert.Throws<InjectedRecoveryException>(
+            failingService.DeleteRecovery);
+
+        Assert.False(File.Exists(failingService.PointerFilePath));
+        Assert.True(File.Exists(currentPackage));
+        Assert.True(failingService.HasRecovery);
+        RecoveryStartupResult inspection =
+            await failingService.InspectStartupAsync();
+        Assert.Equal(RecoveryStartupState.Recoverable, inspection.State);
     }
 
     public void Dispose()
