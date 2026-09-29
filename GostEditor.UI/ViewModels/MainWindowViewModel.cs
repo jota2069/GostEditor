@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
@@ -23,6 +23,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly IArchiveService _archiveService;
     private readonly IExportService _exportService;
     private readonly ICodeParserService _codeParserService;
+    private readonly DocumentSaveService _documentSaveService;
 
     private readonly HashSet<CodeListingViewModel> _trackedCodeListings = new();
     private readonly HashSet<BibliographySourceViewModel> _trackedBibliographySources = new();
@@ -31,6 +32,7 @@ public partial class MainWindowViewModel : ObservableObject
     public IArchiveService ArchiveService => _archiveService;
     public IExportService ExportService => _exportService;
     public ICodeParserService CodeParserService => _codeParserService;
+    public DocumentSaveService DocumentSaveService => _documentSaveService;
 
     public DocumentSessionState Session { get; }
 
@@ -147,7 +149,8 @@ public partial class MainWindowViewModel : ObservableObject
         IArchiveService archiveService,
         IExportService exportService,
         ICodeParserService codeParserService,
-        DocumentSessionState session)
+        DocumentSessionState session,
+        DocumentSaveService documentSaveService)
     {
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
@@ -160,6 +163,9 @@ public partial class MainWindowViewModel : ObservableObject
 
         Session = session
             ?? throw new ArgumentNullException(nameof(session));
+
+        _documentSaveService = documentSaveService
+            ?? throw new ArgumentNullException(nameof(documentSaveService));
 
         _currentDocument = new GostDocument();
 
@@ -245,45 +251,6 @@ public partial class MainWindowViewModel : ObservableObject
             Debug.WriteLine($"[VM]   Параграфов: {editorDocument.Paragraphs.Count}");
             Debug.WriteLine($"[VM]   Листингов: {editorDocument.CodeListings.Count}");
             Debug.WriteLine($"[VM]   Изображений: {editorDocument.Images.Count}");
-
-            // Синхронизация метаданных титульного листа
-            editorDocument.TitlePage.University = University;
-            editorDocument.TitlePage.Department = Department;
-            editorDocument.TitlePage.Discipline = Discipline;
-            editorDocument.TitlePage.WorkType = WorkType;
-            editorDocument.TitlePage.WorkTitle = WorkTitle;
-            editorDocument.TitlePage.GroupNumber = GroupNumber;
-            editorDocument.TitlePage.StudentName = StudentName;
-            editorDocument.TitlePage.TeacherName = TeacherName;
-            editorDocument.TitlePage.City = City;
-            editorDocument.TitlePage.Year = Year;
-
-            // Синхронизация модулей
-            editorDocument.Modules.HasTitlePage = HasTitlePage;
-            editorDocument.Modules.HasTableOfContents = HasTableOfContents;
-            editorDocument.Modules.HasBibliography = HasBibliography;
-            editorDocument.Modules.HasAppendix = HasAppendix;
-            editorDocument.Modules.ContentStartPage = ContentStartPage;
-
-            // Синхронизация листингов кода
-            editorDocument.CodeListings.Clear();
-
-            foreach (CodeListingViewModel listingViewModel in CodeListings.Where(listing => listing.IsSelected))
-            {
-                editorDocument.CodeListings.Add(listingViewModel.Listing);
-            }
-
-            editorDocument.BibliographySources.Clear();
-            for (int i = 0; i < BibliographySources.Count; i++)
-            {
-                BibliographySourceViewModel sourceViewModel = BibliographySources[i];
-                sourceViewModel.Source.Order = i;
-                sourceViewModel.Source.IsSelected = sourceViewModel.IsSelected;
-                editorDocument.BibliographySources.Add(sourceViewModel.Source);
-            }
-
-            Debug.WriteLine($"[VM] Метаданные синхронизированы");
-            Debug.WriteLine($"[VM] Подготовлено листингов: {editorDocument.CodeListings.Count}");
 
             // ВАЖНО: Экспорт вызывается из MainWindow.axaml.cs
             await Task.CompletedTask;
@@ -498,7 +465,14 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (!_isSynchronizingDocument)
         {
-            Session.MarkDirty();
+            if (CodeListings.Count == 0 &&
+                CurrentDocument.CodeListings.Count == 0)
+            {
+                return;
+            }
+
+            SynchronizeCodeListingsToDocument();
+            Session.RecordMutation();
         }
     }
 
@@ -510,7 +484,14 @@ public partial class MainWindowViewModel : ObservableObject
 
         if (!_isSynchronizingDocument)
         {
-            Session.MarkDirty();
+            if (BibliographySources.Count == 0 &&
+                CurrentDocument.BibliographySources.Count == 0)
+            {
+                return;
+            }
+
+            SynchronizeBibliographyToDocument();
+            Session.RecordMutation();
         }
     }
 
@@ -566,109 +547,162 @@ public partial class MainWindowViewModel : ObservableObject
         object? sender,
         PropertyChangedEventArgs e)
     {
-        if (!_isSynchronizingDocument)
+        if (_isSynchronizingDocument)
         {
-            Session.MarkDirty();
+            return;
         }
+
+        switch (sender)
+        {
+            case CodeListingViewModel when
+                string.IsNullOrEmpty(e.PropertyName) ||
+                e.PropertyName is
+                    nameof(CodeListingViewModel.IsSelected) or
+                    nameof(CodeListingViewModel.Listing):
+                SynchronizeCodeListingsToDocument();
+                break;
+
+            case BibliographySourceViewModel when
+                string.IsNullOrEmpty(e.PropertyName) ||
+                e.PropertyName is
+                    nameof(BibliographySourceViewModel.IsSelected) or
+                    nameof(BibliographySourceViewModel.Source) or
+                    nameof(BibliographySourceViewModel.Description):
+                SynchronizeBibliographyToDocument();
+                break;
+
+            default:
+                return;
+        }
+
+        Session.RecordMutation();
     }
 
     // === ОТСЛЕЖИВАНИЕ ИЗМЕНЕНИЙ ДОКУМЕНТА ===
 
     partial void OnUniversityChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.University = value);
     }
 
     partial void OnDepartmentChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.Department = value);
     }
 
     partial void OnDisciplineChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.Discipline = value);
     }
 
     partial void OnWorkTypeChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.WorkType = value);
     }
 
     partial void OnWorkTitleChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.WorkTitle = value);
     }
 
     partial void OnStudentNameChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.StudentName = value);
     }
 
     partial void OnGroupNumberChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.GroupNumber = value);
     }
 
     partial void OnTeacherNameChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.TeacherName = value);
     }
 
     partial void OnCityChanged(string value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.City = value);
     }
 
     partial void OnYearChanged(int value)
     {
-        Session.MarkDirty();
+        RecordTitlePageMutation(titlePage => titlePage.Year = value);
     }
 
     // === СИНХРОНИЗАЦИЯ МОДУЛЕЙ С ДОКУМЕНТОМ ===
 
     partial void OnHasTitlePageChanged(bool value)
     {
-        if (CurrentDocument?.Modules != null)
-        {
-            CurrentDocument.Modules.HasTitlePage = value;
-            Debug.WriteLine($"[VM] HasTitlePage = {value}");
-        }
+        RecordModuleMutation(modules => modules.HasTitlePage = value);
     }
 
     partial void OnHasTableOfContentsChanged(bool value)
     {
-        if (CurrentDocument?.Modules != null)
-        {
-            CurrentDocument.Modules.HasTableOfContents = value;
-            Debug.WriteLine($"[VM] HasTableOfContents = {value}");
-        }
+        RecordModuleMutation(modules => modules.HasTableOfContents = value);
     }
 
     partial void OnHasBibliographyChanged(bool value)
     {
-        if (CurrentDocument?.Modules != null)
-        {
-            CurrentDocument.Modules.HasBibliography = value;
-            Debug.WriteLine($"[VM] HasBibliography = {value}");
-        }
+        RecordModuleMutation(modules => modules.HasBibliography = value);
     }
 
     partial void OnHasAppendixChanged(bool value)
     {
-        if (CurrentDocument?.Modules != null)
-        {
-            CurrentDocument.Modules.HasAppendix = value;
-            Debug.WriteLine($"[VM] HasAppendix = {value}");
-        }
+        RecordModuleMutation(modules => modules.HasAppendix = value);
     }
 
     partial void OnContentStartPageChanged(int value)
     {
-        if (CurrentDocument?.Modules != null)
+        RecordModuleMutation(modules => modules.ContentStartPage = value);
+    }
+
+    private void RecordTitlePageMutation(Action<TitlePageInfo> mutation)
+    {
+        if (_isSynchronizingDocument)
         {
-            CurrentDocument.Modules.ContentStartPage = value;
-            Debug.WriteLine($"[VM] ContentStartPage = {value}");
+            return;
         }
+
+        mutation(CurrentDocument.TitlePage);
+        Session.RecordMutation();
+    }
+
+    private void RecordModuleMutation(Action<DocumentModules> mutation)
+    {
+        if (_isSynchronizingDocument)
+        {
+            return;
+        }
+
+        mutation(CurrentDocument.Modules);
+        Session.RecordMutation();
+    }
+
+    private void SynchronizeCodeListingsToDocument()
+    {
+        CurrentDocument.CodeListings.Clear();
+        foreach (CodeListingViewModel viewModel in CodeListings)
+        {
+            viewModel.Listing.IsSelected = viewModel.IsSelected;
+            CurrentDocument.CodeListings.Add(viewModel.Listing);
+        }
+    }
+
+    private void SynchronizeBibliographyToDocument()
+    {
+        CurrentDocument.BibliographySources.Clear();
+        for (int index = 0; index < BibliographySources.Count; index++)
+        {
+            BibliographySourceViewModel viewModel = BibliographySources[index];
+            viewModel.Source.Order = index;
+            viewModel.Source.IsSelected = viewModel.IsSelected;
+            CurrentDocument.BibliographySources.Add(viewModel.Source);
+        }
+
+        CurrentDocument.Counters.SourcesCount =
+            CurrentDocument.BibliographySources.Count(
+                source => source.IsSelected);
     }
 
     /// <summary>
@@ -778,6 +812,11 @@ public partial class CodeListingViewModel : ObservableObject
         string.IsNullOrEmpty(Listing.Content)
             ? 0
             : Listing.Content.Split('\n').Length;
+
+    partial void OnIsSelectedChanged(bool value)
+    {
+        Listing.IsSelected = value;
+    }
 }
 
 public partial class BibliographySourceViewModel : ObservableObject

@@ -6,12 +6,35 @@ namespace GostEditor.UI.Services;
 
 public partial class DocumentSessionState : ObservableObject
 {
-    [ObservableProperty]
     private long _changeVersion;
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(WindowTitle))]
+    private long _savedRevision;
+
     private bool _isDirty;
+
+    public long ChangeVersion
+    {
+        get => _changeVersion;
+        private set => SetProperty(ref _changeVersion, value);
+    }
+
+    public long SavedRevision
+    {
+        get => _savedRevision;
+        private set => SetProperty(ref _savedRevision, value);
+    }
+
+    public bool IsDirty
+    {
+        get => _isDirty;
+        private set
+        {
+            if (SetProperty(ref _isDirty, value))
+            {
+                OnPropertyChanged(nameof(WindowTitle));
+            }
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DocumentName))]
@@ -34,11 +57,10 @@ public partial class DocumentSessionState : ObservableObject
 
     public void StartNew()
     {
-        ChangeVersion = 0;
+        AdvanceToCleanBaseline();
         CurrentFilePath = null;
         LastSavedAt = null;
         IsRecovered = false;
-        IsDirty = false;
     }
 
     public void MarkOpened(string filePath)
@@ -48,24 +70,33 @@ public partial class DocumentSessionState : ObservableObject
         CurrentFilePath = Path.GetFullPath(filePath);
         LastSavedAt = null;
         IsRecovered = false;
-        IsDirty = false;
-        ChangeVersion = 0;
+        AdvanceToCleanBaseline();
     }
 
-    public void MarkDirty()
+    public void RecordMutation()
     {
-        ChangeVersion++;
-        IsDirty = true;
+        ChangeVersion = checked(ChangeVersion + 1);
+        UpdateDirtyState();
     }
 
-    public void MarkSaved(string filePath, DateTimeOffset savedAt)
+    public void MarkDirty() => RecordMutation();
+
+    public void MarkSaved(
+        string filePath,
+        DateTimeOffset savedAt,
+        long savedRevision)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        if (savedRevision < 0 || savedRevision > ChangeVersion)
+        {
+            throw new ArgumentOutOfRangeException(nameof(savedRevision));
+        }
 
         CurrentFilePath = Path.GetFullPath(filePath);
         LastSavedAt = savedAt;
         IsRecovered = false;
-        IsDirty = false;
+        SavedRevision = savedRevision;
+        UpdateDirtyState();
     }
 
     public void MarkRecovered(string? originalFilePath)
@@ -76,7 +107,20 @@ public partial class DocumentSessionState : ObservableObject
 
         LastSavedAt = null;
         IsRecovered = true;
-        IsDirty = true;
-        ChangeVersion = 1;
+        ChangeVersion = checked(ChangeVersion + 1);
+        SavedRevision = ChangeVersion - 1;
+        UpdateDirtyState();
+    }
+
+    private void AdvanceToCleanBaseline()
+    {
+        ChangeVersion = checked(ChangeVersion + 1);
+        SavedRevision = ChangeVersion;
+        UpdateDirtyState();
+    }
+
+    private void UpdateDirtyState()
+    {
+        IsDirty = ChangeVersion != SavedRevision;
     }
 }

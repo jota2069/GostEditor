@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using GostEditor.Core.Models;
+using GostEditor.Core.Serialization;
 
 namespace GostEditor.Core.Interfaces;
 
@@ -36,7 +37,15 @@ public interface IArchiveService
     /// </summary>
     /// <param name="document">Документ для сохранения</param>
     /// <param name="filePath">Путь назначения</param>
-    Task SaveAsync(GostDocument document, string filePath);
+    Task SaveAsync(
+        GostDocument document,
+        string filePath,
+        CancellationToken cancellationToken = default);
+
+    Task SaveAsync(
+        DocumentPersistenceSnapshot snapshot,
+        string filePath,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Сохраняет документ напрямую в поток данных. Граница атомарности и
@@ -44,5 +53,13 @@ public interface IArchiveService
     /// </summary>
     /// <param name="document">Документ для сохранения</param>
     /// <param name="stream">Целевой поток</param>
-    Task SaveAsync(GostDocument document, Stream stream);
+    Task SaveAsync(
+        GostDocument document,
+        Stream stream,
+        CancellationToken cancellationToken = default);
+
+    Task SaveAsync(
+        DocumentPersistenceSnapshot snapshot,
+        Stream stream,
+        CancellationToken cancellationToken = default);
 }

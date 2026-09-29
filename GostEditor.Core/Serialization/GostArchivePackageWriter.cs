@@ -17,7 +17,6 @@ internal sealed class GostArchivePackageWriter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(stream);
 
-        document.ModifiedAt = DateTime.UtcNow;
         WriteProjection projection = CreateProjection(document);
 
         using ZipArchive archive = new(
@@ -50,9 +49,6 @@ internal sealed class GostArchivePackageWriter
 
     private static WriteProjection CreateProjection(GostDocument document)
     {
-        document.Counters.ImagesCount = document.Paragraphs.Count(
-            paragraph => paragraph.ImageId.HasValue);
-
         GostDocumentV2Dto manifest = new()
         {
             FormatVersion = GostFormatVersions.Current,

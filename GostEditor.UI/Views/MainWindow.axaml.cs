@@ -443,46 +443,7 @@ public partial class MainWindow : Window
 
     private GostDocument SyncDocumentFromViewModel(MainWindowViewModel viewModel)
     {
-        GostDocument document = MainEditor?.CurrentDocument ?? viewModel.CurrentDocument;
-
-        document.TitlePage.University = viewModel.University;
-        document.TitlePage.Department = viewModel.Department;
-        document.TitlePage.Discipline = viewModel.Discipline;
-        document.TitlePage.WorkType = viewModel.WorkType;
-        document.TitlePage.WorkTitle = viewModel.WorkTitle;
-        document.TitlePage.GroupNumber = viewModel.GroupNumber;
-        document.TitlePage.StudentName = viewModel.StudentName;
-        document.TitlePage.TeacherName = viewModel.TeacherName;
-        document.TitlePage.City = viewModel.City;
-        document.TitlePage.Year = viewModel.Year;
-
-        document.Modules.HasTitlePage = viewModel.HasTitlePage;
-        document.Modules.HasTableOfContents = viewModel.HasTableOfContents;
-        document.Modules.HasBibliography = viewModel.HasBibliography;
-        document.Modules.HasAppendix = viewModel.HasAppendix;
-        document.Modules.ContentStartPage = viewModel.ContentStartPage;
-
-        document.CodeListings.Clear();
-
-        foreach (CodeListingViewModel listingViewModel in viewModel.CodeListings)
-        {
-            listingViewModel.Listing.IsSelected = listingViewModel.IsSelected;
-            document.CodeListings.Add(listingViewModel.Listing);
-        }
-
-        document.BibliographySources.Clear();
-
-        for (int i = 0; i < viewModel.BibliographySources.Count; i++)
-        {
-            BibliographySourceViewModel sourceViewModel = viewModel.BibliographySources[i];
-            sourceViewModel.Source.Order = i;
-            sourceViewModel.Source.IsSelected = sourceViewModel.IsSelected;
-            document.BibliographySources.Add(sourceViewModel.Source);
-        }
-
-        document.Counters.SourcesCount = document.BibliographySources.Count(source => source.IsSelected);
-
-        return document;
+        return MainEditor?.CurrentDocument ?? viewModel.CurrentDocument;
     }
 
     private async void PasteNormalizedToEditor()
@@ -768,7 +729,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        MainEditor.SetStartPageNumber(Math.Max(1, decimal.ToInt32(value)));
+        int pageNumber = Math.Max(1, decimal.ToInt32(value));
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.ContentStartPage = pageNumber;
+        }
+
+        MainEditor.SetStartPageNumber(pageNumber);
     }
 
     private async void OnGlobalPreviewKeyDown(object? sender, KeyEventArgs e)
@@ -898,9 +865,9 @@ public partial class MainWindow : Window
                         FileTypeChoices =
                         [
                             new FilePickerFileType("GOST Document")
-                        {
-                            Patterns = ["*.gost"]
-                        }
+                            {
+                                Patterns = ["*.gost"]
+                            }
                         ]
                     });
 
@@ -922,17 +889,18 @@ public partial class MainWindow : Window
             GostDocument documentToSave =
                 SyncDocumentFromViewModel(viewModel);
 
-            await viewModel.ArchiveService.SaveAsync(
+            await viewModel.DocumentSaveService.SaveAsync(
                 documentToSave,
                 filePath);
 
-            viewModel.Session.MarkSaved(
-                filePath,
-                DateTimeOffset.Now);
+            if (!viewModel.Session.IsDirty)
+            {
+                await ClearAutoSaveRecoveryAsync();
+            }
 
-            await ClearAutoSaveRecoveryAsync();
-
-            viewModel.StatusMessage = "Документ сохранён";
+            viewModel.StatusMessage = viewModel.Session.IsDirty
+                ? "Сохранена предыдущая версия; есть новые изменения"
+                : "Документ сохранён";
             return true;
         }
         catch (Exception ex)

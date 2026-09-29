@@ -69,6 +69,7 @@ public partial class DocumentEngineView : UserControl
         _mouseController = new MouseController(_editor, _renderController);
         _imageController = new ImageController(_editor, _renderController, _layoutManager);
 
+        _editor.DocumentChanged += (_, _) => ContentChanged?.Invoke();
         _renderController.CaretStyleChanged += (s, e) => CaretStyleChanged?.Invoke(this, e);
         _isConfigured = true;
 
@@ -187,7 +188,6 @@ public partial class DocumentEngineView : UserControl
         {
             TopLevel? topLevel = TopLevel.GetTopLevel(this);
             await _textInputController.HandleTextInputAsync(e.Text, topLevel?.Clipboard);
-            ContentChanged?.Invoke();
             e.Handled = true;
         }
     }
@@ -196,7 +196,6 @@ public partial class DocumentEngineView : UserControl
     {
         TopLevel? topLevel = TopLevel.GetTopLevel(this);
         await _textInputController.HandleKeyDownAsync(e, topLevel?.Clipboard);
-        if (e.Handled) ContentChanged?.Invoke();
     }
 
     // === КОНТЕКСТНОЕ МЕНЮ ===
@@ -258,9 +257,9 @@ public partial class DocumentEngineView : UserControl
         }
         else
         {
-            MenuItem h1 = new MenuItem { Header = "Сделать Главой (Уровень 1)", FontWeight = FontWeight.Bold }; h1.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Heading1); ContentChanged?.Invoke(); };
-            MenuItem h2 = new MenuItem { Header = "Сделать Подразделом (Уровень 2)", FontWeight = FontWeight.SemiBold }; h2.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Heading2); ContentChanged?.Invoke(); };
-            MenuItem norm = new MenuItem { Header = "Сделать обычным текстом" }; norm.Click += (_, _) => { ApplyParagraphStyle(ParagraphStyle.Normal); ContentChanged?.Invoke(); };
+            MenuItem h1 = new MenuItem { Header = "Сделать Главой (Уровень 1)", FontWeight = FontWeight.Bold }; h1.Click += (_, _) => ApplyParagraphStyle(ParagraphStyle.Heading1);
+            MenuItem h2 = new MenuItem { Header = "Сделать Подразделом (Уровень 2)", FontWeight = FontWeight.SemiBold }; h2.Click += (_, _) => ApplyParagraphStyle(ParagraphStyle.Heading2);
+            MenuItem norm = new MenuItem { Header = "Сделать обычным текстом" }; norm.Click += (_, _) => ApplyParagraphStyle(ParagraphStyle.Normal);
             MenuItem copy = new MenuItem { Header = "Копировать текст" }; copy.Click += OnCopyClick;
             MenuItem paste = new MenuItem { Header = "Вставить текст" }; paste.Click += OnPasteClick;
 
@@ -279,13 +278,12 @@ public partial class DocumentEngineView : UserControl
         }
 
         await _imageController.InsertImageFromFileAsync(topLevel);
-        ContentChanged?.Invoke();
         Focus();
     }
 
     private async void OnCopyClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) await cb.SetTextAsync(_editor.GetSelectedText()); }
-    private async void OnCutClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) { await cb.SetTextAsync(_editor.GetSelectedText()); _editor.DeleteSelection(); _renderController.RefreshView(); ContentChanged?.Invoke(); } }
-    private async void OnPasteClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb) { string? text = await cb.GetTextAsync(); if (!string.IsNullOrEmpty(text)) { _editor.PasteText(text); _renderController.RefreshView(); ContentChanged?.Invoke(); } } }
+    private async void OnCutClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb && _editor.HasSelection) { await cb.SetTextAsync(_editor.GetSelectedText()); _editor.DeleteSelection(); _renderController.RefreshView(); } }
+    private async void OnPasteClick(object? sender, RoutedEventArgs e) { if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb) { string? text = await cb.GetTextAsync(); if (!string.IsNullOrEmpty(text)) { _editor.PasteText(text); _renderController.RefreshView(); } } }
     private void OnSelectAllClick(object? sender, RoutedEventArgs e) { _editor.SelectAll(); _renderController.RefreshView(); }
     private void OnUndoClick(object? sender, RoutedEventArgs e) => Undo();
 
@@ -296,16 +294,16 @@ public partial class DocumentEngineView : UserControl
     public void AlignCenter() { _editor.AlignCenter(); _renderController.RefreshView(); }
     public void AlignRight() { _editor.AlignRight(); _renderController.RefreshView(); }
     public void AlignJustify() { _editor.AlignJustify(); _renderController.RefreshView(); }
-    public void ClearFormatting() { _editor.ClearFormatting(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
-    public void InsertTextBlock() { _editor.InsertTextBlock(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
-    public void InsertTablePlaceholder() { _editor.InsertTablePlaceholder(); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
+    public void ClearFormatting() { _editor.ClearFormatting(); _renderController.RefreshView(); Focus(); }
+    public void InsertTextBlock() { _editor.InsertTextBlock(); _renderController.RefreshView(); Focus(); }
+    public void InsertTablePlaceholder() { _editor.InsertTablePlaceholder(); _renderController.RefreshView(); Focus(); }
     public bool FindNext(string searchText) { bool found = _editor.FindNext(searchText); _renderController.RefreshView(); if (found) _renderController.ScrollToCaret(); Focus(); return found; }
-    public void PasteText(string text) { _editor.PasteText(text); _renderController.RefreshView(); ContentChanged?.Invoke(); Focus(); }
+    public void PasteText(string text) { _editor.PasteText(text); _renderController.RefreshView(); Focus(); }
     public void ApplyParagraphStyle(ParagraphStyle style) { _editor.SetParagraphStyle(style); _renderController.RefreshView(); Focus(); }
     public void Undo() { _editor.History.Undo(); _renderController.RefreshView(); }
     public void Redo() { _editor.History.Redo(); _renderController.RefreshView(); }
-    public void AppendParagraphs(List<Paragraph> paragraphs) { _editor.AppendParagraphs(paragraphs); _renderController.RefreshView(); ContentChanged?.Invoke(); }
-    public void InsertHeading(int level, string text) { _editor.InsertHeading(level, text); _renderController.RefreshView(); ContentChanged?.Invoke(); }
+    public void AppendParagraphs(List<Paragraph> paragraphs) { _editor.AppendParagraphs(paragraphs); _renderController.RefreshView(); }
+    public void InsertHeading(int level, string text) { _editor.InsertHeading(level, text); _renderController.RefreshView(); }
     public void ScrollToParagraph(int index) { _editor.ScrollToParagraph(index); _renderController.RefreshView(); _renderController.ScrollToCaret(); }
     public void SetStartPageNumber(int pageNumber)
     {
