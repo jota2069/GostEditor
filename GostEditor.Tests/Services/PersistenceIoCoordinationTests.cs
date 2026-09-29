@@ -275,7 +275,7 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
 
         Assert.True(await recovery);
         Assert.False(await cleanup);
-        Assert.True(File.Exists(GetRecoveryPath("guarded-cleanup")));
+        Assert.True(File.Exists(GetRecoveryPointerPath("guarded-cleanup")));
         Assert.Equal(session.ChangeVersion, autoSave.LastSavedChangeVersion);
     }
 
@@ -614,10 +614,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
             TimeSpan.FromMinutes(1));
     }
 
-    private string GetRecoveryPath(string directoryName) =>
+    private string GetRecoveryPointerPath(string directoryName) =>
         Path.Combine(
             _temporaryDirectory.GetPath(directoryName),
-            "autosave.gost");
+            "current.json");
 
     private sealed class ControlledArchiveService : IArchiveService
     {

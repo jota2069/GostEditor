@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.IO;
 using GostEditor.Core.Models;
 
 namespace GostEditor.UI.Services;
@@ -12,9 +14,16 @@ public sealed class RecoveryStorageService
 {
     private const string RecoveryFileName = "autosave.gost";
     private const string MetadataFileName = "session.json";
+    private const string PointerFileName = "current.json";
+    private const string GenerationPrefix = "generation-";
+    private const string StagingPrefix = ".generation-";
 
     private readonly IArchiveService _archiveService;
+    private readonly IAtomicFileCommitter _fileCommitter;
+    private readonly IRecoveryFileSystem _fileSystem;
     private readonly TimeProvider _timeProvider;
+    private readonly object _diagnosticsSync = new();
+    private readonly List<RecoveryStorageDiagnostic> _diagnostics = new();
     private readonly JsonSerializerOptions _jsonOptions =
         new(JsonSerializerDefaults.Web)
         {
@@ -25,7 +34,9 @@ public sealed class RecoveryStorageService
         : this(
             archiveService,
             GetDefaultRecoveryDirectory(),
-            TimeProvider.System)
+            TimeProvider.System,
+            new AtomicFileCommitter(),
+            new PhysicalRecoveryFileSystem())
     {
     }
 
@@ -35,19 +46,27 @@ public sealed class RecoveryStorageService
         : this(
             archiveService,
             recoveryDirectoryPath,
-            TimeProvider.System)
+            TimeProvider.System,
+            new AtomicFileCommitter(),
+            new PhysicalRecoveryFileSystem())
     {
     }
 
     internal RecoveryStorageService(
         IArchiveService archiveService,
         string recoveryDirectoryPath,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IAtomicFileCommitter? fileCommitter = null,
+        IRecoveryFileSystem? fileSystem = null)
     {
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
         _timeProvider = timeProvider
             ?? throw new ArgumentNullException(nameof(timeProvider));
+        _fileCommitter = fileCommitter
+            ?? new AtomicFileCommitter();
+        _fileSystem = fileSystem
+            ?? new PhysicalRecoveryFileSystem();
 
         ArgumentException.ThrowIfNullOrWhiteSpace(recoveryDirectoryPath);
 
@@ -57,12 +76,38 @@ public sealed class RecoveryStorageService
     public string RecoveryDirectoryPath { get; }
 
     public string RecoveryFilePath =>
-        Path.Combine(RecoveryDirectoryPath, RecoveryFileName);
+        TryResolveCurrentGeneration(out RecoveryGenerationPaths paths)
+            ? paths.PackagePath
+            : LegacyRecoveryFilePath;
 
     public string MetadataFilePath =>
-        Path.Combine(RecoveryDirectoryPath, MetadataFileName);
+        TryResolveCurrentGeneration(out RecoveryGenerationPaths paths)
+            ? paths.MetadataPath
+            : LegacyMetadataFilePath;
 
-    public bool HasRecovery => File.Exists(RecoveryFilePath);
+    internal string PointerFilePath =>
+        Path.Combine(RecoveryDirectoryPath, PointerFileName);
+
+    internal IReadOnlyList<RecoveryStorageDiagnostic> Diagnostics
+    {
+        get
+        {
+            lock (_diagnosticsSync)
+            {
+                return _diagnostics.ToArray();
+            }
+        }
+    }
+
+    public bool HasRecovery =>
+        _fileSystem.FileExists(PointerFilePath) ||
+        _fileSystem.FileExists(LegacyRecoveryFilePath);
+
+    private string LegacyRecoveryFilePath =>
+        Path.Combine(RecoveryDirectoryPath, RecoveryFileName);
+
+    private string LegacyMetadataFilePath =>
+        Path.Combine(RecoveryDirectoryPath, MetadataFileName);
 
     public async Task<RecoveryMetadata> SaveAsync(
         GostDocument document,
@@ -71,112 +116,319 @@ public sealed class RecoveryStorageService
     {
         ArgumentNullException.ThrowIfNull(document);
 
-        Directory.CreateDirectory(RecoveryDirectoryPath);
+        _fileSystem.CreateDirectory(RecoveryDirectoryPath);
 
-        string packageTempPath = CreateTemporaryPath(RecoveryFileName);
-        string metadataTempPath = CreateTemporaryPath(MetadataFileName);
+        RecoveryGenerationPointer? previousPointer =
+            TryReadCurrentPointer();
+        Guid generationId = Guid.NewGuid();
+        string stagingDirectory = Path.Combine(
+            RecoveryDirectoryPath,
+            $"{StagingPrefix}{generationId:N}.tmp");
+        string generationDirectory = GetGenerationDirectory(generationId);
 
         RecoveryMetadata metadata = new()
         {
-            SessionId = Guid.NewGuid(),
+            SessionId = generationId,
             OriginalFilePath = NormalizeOptionalPath(originalFilePath),
             SavedAtUtc = _timeProvider.GetUtcNow()
         };
 
+        _fileSystem.CreateDirectory(stagingDirectory);
+
         try
         {
+            string packagePath = Path.Combine(
+                stagingDirectory,
+                RecoveryFileName);
+            string metadataPath = Path.Combine(
+                stagingDirectory,
+                MetadataFileName);
+
             await _archiveService.SaveAsync(
                 document,
-                packageTempPath,
+                packagePath,
                 cancellationToken);
 
-            await using (FileStream metadataStream = new(
-                metadataTempPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 4096,
-                useAsync: true))
-            {
-                await JsonSerializer.SerializeAsync(
-                    metadataStream,
-                    metadata,
-                    _jsonOptions,
-                    cancellationToken);
-
-                await metadataStream.FlushAsync(cancellationToken);
-            }
+            await WriteMetadataAsync(
+                metadataPath,
+                metadata,
+                cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            File.Move(packageTempPath, RecoveryFilePath, overwrite: true);
-            File.Move(metadataTempPath, MetadataFilePath, overwrite: true);
+            _fileSystem.MoveDirectory(stagingDirectory, generationDirectory);
+
+            RecoveryGenerationPointer pointer = new()
+            {
+                GenerationId = generationId
+            };
+
+            await _fileCommitter.WriteAsync(
+                PointerFilePath,
+                (stream, token) => JsonSerializer.SerializeAsync(
+                        stream,
+                        pointer,
+                        _jsonOptions,
+                        token),
+                cancellationToken);
+
+            CleanupAfterSuccessfulPublish(
+                generationId,
+                previousPointer?.GenerationId);
 
             return metadata;
         }
         finally
         {
-            TryDeleteFile(packageTempPath);
-            TryDeleteFile(metadataTempPath);
+            TryCleanupDirectory(stagingDirectory, "staging cleanup");
         }
     }
 
-    public Task<GostDocument> LoadDocumentAsync()
+    public async Task<GostDocument> LoadDocumentAsync()
     {
-        if (!File.Exists(RecoveryFilePath))
+        RecoveryGenerationPaths paths =
+            await ResolveCurrentGenerationAsync();
+
+        if (!_fileSystem.FileExists(paths.PackagePath))
         {
             throw new FileNotFoundException(
                 "Файл автоматического восстановления не найден.",
-                RecoveryFilePath);
+                paths.PackagePath);
         }
 
-        return _archiveService.LoadAsync(RecoveryFilePath);
+        return await _archiveService.LoadAsync(paths.PackagePath);
     }
 
     public async Task<RecoveryMetadata?> LoadMetadataAsync()
     {
-        if (!File.Exists(MetadataFilePath))
+        RecoveryGenerationPaths paths =
+            await ResolveCurrentGenerationAsync();
+
+        if (!_fileSystem.FileExists(paths.MetadataPath))
         {
+            if (paths.GenerationId.HasValue)
+            {
+                throw new FileNotFoundException(
+                    "Метаданные текущего поколения recovery не найдены.",
+                    paths.MetadataPath);
+            }
+
             return null;
         }
 
-        await using FileStream stream = new(
-            MetadataFilePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: 4096,
-            useAsync: true);
+        await using Stream stream = _fileSystem.OpenRead(paths.MetadataPath);
 
-        return await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
-            stream,
-            _jsonOptions);
+        RecoveryMetadata? metadata =
+            await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
+                stream,
+                _jsonOptions);
+
+        if (paths.GenerationId.HasValue && metadata is null)
+        {
+            throw new InvalidDataException(
+                "Метаданные текущего поколения recovery пусты.");
+        }
+
+        if (paths.GenerationId.HasValue &&
+            metadata!.SessionId != paths.GenerationId.Value)
+        {
+            throw new InvalidDataException(
+                "Метаданные recovery относятся к другому поколению.");
+        }
+
+        return metadata;
     }
 
     public void DeleteRecovery()
     {
-        File.Delete(RecoveryFilePath);
-        File.Delete(MetadataFilePath);
+        _fileSystem.DeleteFile(PointerFilePath);
+        _fileSystem.DeleteFile(LegacyRecoveryFilePath);
+        _fileSystem.DeleteFile(LegacyMetadataFilePath);
 
-        if (!Directory.Exists(RecoveryDirectoryPath))
+        if (!_fileSystem.DirectoryExists(RecoveryDirectoryPath))
         {
             return;
         }
 
-        foreach (string temporaryFile in Directory.EnumerateFiles(
+        foreach (string file in _fileSystem.EnumerateFiles(
                      RecoveryDirectoryPath,
-                     "*.tmp",
-                     SearchOption.TopDirectoryOnly))
+                     "*.tmp"))
         {
-            TryDeleteFile(temporaryFile);
+            TryCleanupFile(file, "temporary file cleanup");
+        }
+
+        foreach (string file in _fileSystem.EnumerateFiles(
+                     RecoveryDirectoryPath,
+                     "*.rollback"))
+        {
+            TryCleanupFile(file, "rollback cleanup");
+        }
+
+        foreach (string directory in
+                 _fileSystem.EnumerateDirectories(RecoveryDirectoryPath))
+        {
+            string name = Path.GetFileName(directory);
+            if (name.StartsWith(GenerationPrefix, StringComparison.Ordinal) ||
+                name.StartsWith(StagingPrefix, StringComparison.Ordinal))
+            {
+                TryCleanupDirectory(directory, "generation cleanup");
+            }
         }
     }
 
-    private string CreateTemporaryPath(string baseFileName)
+    private async Task WriteMetadataAsync(
+        string path,
+        RecoveryMetadata metadata,
+        CancellationToken cancellationToken)
     {
-        return Path.Combine(
+        await using Stream stream = _fileSystem.CreateMetadataFile(path);
+
+        await JsonSerializer.SerializeAsync(
+            stream,
+            metadata,
+            _jsonOptions,
+            cancellationToken);
+        await _fileSystem.FlushToDiskAsync(stream, cancellationToken);
+    }
+
+    private async Task<RecoveryGenerationPaths> ResolveCurrentGenerationAsync()
+    {
+        if (!_fileSystem.FileExists(PointerFilePath))
+        {
+            return RecoveryGenerationPaths.Legacy(
+                LegacyRecoveryFilePath,
+                LegacyMetadataFilePath);
+        }
+
+        await using Stream stream = _fileSystem.OpenRead(PointerFilePath);
+
+        RecoveryGenerationPointer? pointer =
+            await JsonSerializer.DeserializeAsync<RecoveryGenerationPointer>(
+                stream,
+                _jsonOptions);
+
+        return CreateGenerationPaths(ValidatePointer(pointer));
+    }
+
+    private bool TryResolveCurrentGeneration(
+        out RecoveryGenerationPaths paths)
+    {
+        RecoveryGenerationPointer? pointer = TryReadCurrentPointer();
+        if (pointer is null)
+        {
+            paths = null!;
+            return false;
+        }
+
+        paths = CreateGenerationPaths(pointer.GenerationId);
+        return true;
+    }
+
+    private RecoveryGenerationPointer? TryReadCurrentPointer()
+    {
+        if (!_fileSystem.FileExists(PointerFilePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            string json = _fileSystem.ReadAllText(PointerFilePath);
+            RecoveryGenerationPointer? pointer =
+                JsonSerializer.Deserialize<RecoveryGenerationPointer>(
+                    json,
+                    _jsonOptions);
+            return pointer is null || pointer.GenerationId == Guid.Empty
+                ? null
+                : pointer;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static Guid ValidatePointer(
+        RecoveryGenerationPointer? pointer)
+    {
+        if (pointer is null ||
+            pointer.Version != RecoveryGenerationPointer.CurrentVersion ||
+            pointer.GenerationId == Guid.Empty)
+        {
+            throw new InvalidDataException(
+                "Указатель recovery отсутствует или имеет неподдерживаемый формат.");
+        }
+
+        return pointer.GenerationId;
+    }
+
+    private RecoveryGenerationPaths CreateGenerationPaths(Guid generationId)
+    {
+        string directory = GetGenerationDirectory(generationId);
+        return new RecoveryGenerationPaths(
+            generationId,
+            Path.Combine(directory, RecoveryFileName),
+            Path.Combine(directory, MetadataFileName));
+    }
+
+    private string GetGenerationDirectory(Guid generationId) =>
+        Path.Combine(
             RecoveryDirectoryPath,
-            $"{baseFileName}.{Guid.NewGuid():N}.tmp");
+            $"{GenerationPrefix}{generationId:N}");
+
+    private void CleanupAfterSuccessfulPublish(
+        Guid currentGenerationId,
+        Guid? previousGenerationId)
+    {
+        try
+        {
+            foreach (string directory in
+                     _fileSystem.EnumerateDirectories(RecoveryDirectoryPath))
+            {
+                string name = Path.GetFileName(directory);
+                if (name.StartsWith(StagingPrefix, StringComparison.Ordinal))
+                {
+                    TryCleanupDirectory(directory, "staging cleanup");
+                    continue;
+                }
+
+                if (!previousGenerationId.HasValue ||
+                    !TryParseGenerationId(name, out Guid generationId) ||
+                    generationId == currentGenerationId ||
+                    generationId == previousGenerationId)
+                {
+                    continue;
+                }
+
+                TryCleanupDirectory(directory, "old generation cleanup");
+            }
+        }
+        catch (Exception exception)
+        {
+            RecordDiagnostic("generation enumeration", exception);
+        }
+    }
+
+    private static bool TryParseGenerationId(
+        string directoryName,
+        out Guid generationId)
+    {
+        generationId = Guid.Empty;
+        return directoryName.StartsWith(
+                   GenerationPrefix,
+                   StringComparison.Ordinal) &&
+               Guid.TryParseExact(
+                   directoryName[GenerationPrefix.Length..],
+                   "N",
+                   out generationId);
     }
 
     private static string GetDefaultRecoveryDirectory()
@@ -203,17 +455,61 @@ public sealed class RecoveryStorageService
             : Path.GetFullPath(filePath);
     }
 
-    private static void TryDeleteFile(string filePath)
+    private void TryCleanupFile(string filePath, string operation)
     {
         try
         {
-            File.Delete(filePath);
+            _fileSystem.DeleteFile(filePath);
         }
-        catch (IOException)
+        catch (Exception exception)
         {
+            RecordDiagnostic(operation, exception);
         }
-        catch (UnauthorizedAccessException)
+    }
+
+    private void TryCleanupDirectory(
+        string directoryPath,
+        string operation)
+    {
+        try
         {
+            _fileSystem.DeleteDirectory(directoryPath);
         }
+        catch (Exception exception)
+        {
+            RecordDiagnostic(operation, exception);
+        }
+    }
+
+    private void RecordDiagnostic(
+        string operation,
+        Exception exception)
+    {
+        lock (_diagnosticsSync)
+        {
+            _diagnostics.Add(new RecoveryStorageDiagnostic(
+                operation,
+                exception));
+        }
+    }
+
+    private sealed record RecoveryGenerationPointer
+    {
+        internal const int CurrentVersion = 1;
+
+        public int Version { get; init; } = CurrentVersion;
+
+        public Guid GenerationId { get; init; }
+    }
+
+    private sealed record RecoveryGenerationPaths(
+        Guid? GenerationId,
+        string PackagePath,
+        string MetadataPath)
+    {
+        internal static RecoveryGenerationPaths Legacy(
+            string packagePath,
+            string metadataPath) =>
+            new(null, packagePath, metadataPath);
     }
 }
