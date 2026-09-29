@@ -92,7 +92,7 @@ only after coordinated persistence has reached a stable idle boundary.
 
 This coordinator is process-local and does not solve:
 
-- recovery generations or atomic package/metadata generations;
+- startup selection and diagnostics for corrupt recovery generations;
 - startup recovery decisions;
 - external file modification or multiple application processes;
 - transactional undo/redo;

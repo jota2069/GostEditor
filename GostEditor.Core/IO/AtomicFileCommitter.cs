@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace GostEditor.Core.IO;
 
-internal interface IAtomicFileCommitter
+public interface IAtomicFileCommitter
 {
     Task WriteAsync(
         string destinationPath,
@@ -49,7 +49,7 @@ internal interface IAtomicFileSystem
     void Delete(string path);
 }
 
-internal sealed class AtomicFileCommitter : IAtomicFileCommitter
+public sealed class AtomicFileCommitter : IAtomicFileCommitter
 {
     internal const string ArtifactStateDataKey =
         "GostEditor.AtomicFileCommit.ArtifactState";
