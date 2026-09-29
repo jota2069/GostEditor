@@ -39,7 +39,9 @@ public sealed class DocumentExportService
                 PersistenceIoOperation.Export,
                 cancellationToken);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        CancellationToken operationCancellation =
+            ownership.CancellationToken;
+        operationCancellation.ThrowIfCancellationRequested();
 
         long revision = _session.ChangeVersion;
         DocumentPersistenceSnapshot snapshot =
@@ -51,7 +53,7 @@ public sealed class DocumentExportService
         await _exportService.ExportToDocxAsync(
             snapshot,
             outputPath,
-            cancellationToken);
+            operationCancellation);
 
         return new DocumentExportResult(revision);
     }

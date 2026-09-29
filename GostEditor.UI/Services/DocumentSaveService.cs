@@ -59,7 +59,9 @@ public sealed class DocumentSaveService
         using PersistenceIoCoordinator.PersistenceIoLease ownership =
             await _ioCoordinator.AcquireAsync(operation, cancellationToken);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        CancellationToken operationCancellation =
+            ownership.CancellationToken;
+        operationCancellation.ThrowIfCancellationRequested();
 
         DateTimeOffset savedAt = _timeProvider.GetUtcNow();
         DocumentPersistenceSnapshot snapshot =
@@ -71,7 +73,7 @@ public sealed class DocumentSaveService
         await _archiveService.SaveAsync(
             snapshot,
             filePath,
-            cancellationToken);
+            operationCancellation);
 
         _session.MarkSaved(filePath, savedAt, snapshot.Revision);
         bool isCurrentRevision =

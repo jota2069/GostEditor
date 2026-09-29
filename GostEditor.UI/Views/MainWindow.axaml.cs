@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -28,6 +29,9 @@ public partial class MainWindow : Window
     private bool _isClosePromptActive;
     private readonly AutoSaveService? _autoSaveService;
     private readonly RecoveryStorageService? _recoveryStorageService;
+    private readonly PersistenceShutdownService? _persistenceShutdownService;
+    private readonly PersistenceIoCoordinator? _persistenceIoCoordinator;
+    private Task? _closeWorkflow;
 
     public MainWindow()
         : this(new ImageService())
@@ -51,7 +55,9 @@ public partial class MainWindow : Window
     public MainWindow(
         IImageService imageService,
         AutoSaveService autoSaveService,
-        RecoveryStorageService recoveryStorageService)
+        RecoveryStorageService recoveryStorageService,
+        PersistenceShutdownService persistenceShutdownService,
+        PersistenceIoCoordinator persistenceIoCoordinator)
         : this(imageService)
     {
         _autoSaveService = autoSaveService
@@ -59,6 +65,14 @@ public partial class MainWindow : Window
 
         _recoveryStorageService = recoveryStorageService
             ?? throw new ArgumentNullException(nameof(recoveryStorageService));
+
+        _persistenceShutdownService = persistenceShutdownService
+            ?? throw new ArgumentNullException(
+                nameof(persistenceShutdownService));
+
+        _persistenceIoCoordinator = persistenceIoCoordinator
+            ?? throw new ArgumentNullException(
+                nameof(persistenceIoCoordinator));
 
         _autoSaveService.Failed += OnAutoSaveFailed;
         Opened += OnWindowOpened;
@@ -327,34 +341,74 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (DataContext is MainWindowViewModel viewModel &&
-            viewModel.Session.IsDirty)
+        if (DataContext is MainWindowViewModel viewModel)
         {
+            if (_persistenceShutdownService is null &&
+                !viewModel.Session.IsDirty)
+            {
+                base.OnClosing(e);
+                return;
+            }
+
             e.Cancel = true;
-            _ = ConfirmWindowCloseAsync(viewModel);
+            _isClosePromptActive = true;
+            _closeWorkflow = ObserveWindowCloseAsync(viewModel);
         }
 
         base.OnClosing(e);
     }
 
-    private async Task ConfirmWindowCloseAsync(
+    private async Task ObserveWindowCloseAsync(
         MainWindowViewModel viewModel)
     {
-        _isClosePromptActive = true;
-
         try
         {
-            bool canClose =
+            if (_persistenceShutdownService is not null)
+            {
+                await _persistenceShutdownService.SuspendAndDrainAsync();
+
+                if (viewModel.Session.IsDirty)
+                {
+                    _persistenceShutdownService.Resume();
+                }
+            }
+
+            CloseConfirmation confirmation =
                 await ConfirmUnsavedChangesAsync(viewModel);
 
-            if (!canClose)
+            if (!confirmation.CanClose)
             {
                 return;
             }
 
-            if (viewModel.Session.IsDirty)
+            if (MainEditor is not null)
+            {
+                MainEditor.IsEnabled = false;
+            }
+
+            if (confirmation.DiscardChanges)
             {
                 await ClearAutoSaveRecoveryAsync();
+            }
+            else if (viewModel.Session.IsDirty)
+            {
+                viewModel.StatusMessage =
+                    "Появились новые изменения; закрытие отменено";
+                return;
+            }
+
+            if (_persistenceShutdownService is not null &&
+                !_persistenceShutdownService.IsSuspended)
+            {
+                await _persistenceShutdownService.SuspendAndDrainAsync();
+            }
+
+            if (!confirmation.DiscardChanges &&
+                viewModel.Session.IsDirty)
+            {
+                viewModel.StatusMessage =
+                    "Появились новые изменения; закрытие отменено";
+                return;
             }
 
             _isCloseConfirmed = true;
@@ -370,7 +424,40 @@ public partial class MainWindow : Window
         }
         finally
         {
+            if (!_isCloseConfirmed)
+            {
+                if (MainEditor is not null)
+                {
+                    MainEditor.IsEnabled = true;
+                }
+
+                TryResumePersistence(viewModel);
+            }
+
             _isClosePromptActive = false;
+            _closeWorkflow = null;
+        }
+    }
+
+    private void TryResumePersistence(MainWindowViewModel viewModel)
+    {
+        try
+        {
+            if (_persistenceShutdownService?.IsSuspended == true)
+            {
+                _persistenceShutdownService.Resume();
+            }
+
+            StartAutoSave(viewModel);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                "[MAINWINDOW] Не удалось возобновить persistence после " +
+                $"отмены закрытия: {exception}");
+
+            viewModel.StatusMessage =
+                $"Не удалось возобновить автосохранение: {exception.Message}";
         }
     }
 
@@ -774,10 +861,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool canContinue =
+        CloseConfirmation confirmation =
             await ConfirmUnsavedChangesAsync(viewModel);
 
-        if (!canContinue)
+        if (!confirmation.CanClose)
         {
             return;
         }
@@ -812,16 +899,15 @@ public partial class MainWindow : Window
                         "Не удалось определить путь открытого документа.");
                 }
 
-                await using Stream stream = await selectedFile.OpenReadAsync();
+                await LoadDocumentForOpenAsync(
+                    viewModel.ArchiveService,
+                    selectedFile.OpenReadAsync,
+                    _persistenceIoCoordinator,
+                    loadedDocument => PublishOpenedDocument(
+                        viewModel,
+                        loadedDocument,
+                        filePath));
 
-                GostDocument loadedDocument =
-                    await viewModel.ArchiveService.LoadAsync(stream);
-
-                viewModel.CurrentDocument = loadedDocument;
-                MainEditor.LoadDocument(loadedDocument);
-                viewModel.SyncNavigation();
-
-                viewModel.Session.MarkOpened(filePath);
                 await ResetAutoSaveRecoveryAsync();
 
                 viewModel.StatusMessage = "Документ загружен";
@@ -840,6 +926,54 @@ public partial class MainWindow : Window
         {
             viewModel.IsBusy = false;
         }
+    }
+
+    private void PublishOpenedDocument(
+        MainWindowViewModel viewModel,
+        GostDocument loadedDocument,
+        string filePath)
+    {
+        viewModel.CurrentDocument = loadedDocument;
+        MainEditor!.LoadDocument(loadedDocument);
+        viewModel.SyncNavigation();
+        viewModel.Session.MarkOpened(filePath);
+    }
+
+    internal static async Task LoadDocumentForOpenAsync(
+        IArchiveService archiveService,
+        Func<Task<Stream>> openStreamAsync,
+        PersistenceIoCoordinator? ioCoordinator,
+        Action<GostDocument> publishDocument,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(archiveService);
+        ArgumentNullException.ThrowIfNull(openStreamAsync);
+        ArgumentNullException.ThrowIfNull(publishDocument);
+
+        if (ioCoordinator is null)
+        {
+            await using Stream uncoordinatedStream =
+                await openStreamAsync();
+            GostDocument uncoordinatedDocument =
+                await archiveService.LoadAsync(uncoordinatedStream);
+            publishDocument(uncoordinatedDocument);
+            return;
+        }
+
+        using PersistenceIoCoordinator.PersistenceIoLease ownership =
+            await ioCoordinator.AcquireAsync(
+                PersistenceIoOperation.Open,
+                cancellationToken);
+
+        ownership.CancellationToken.ThrowIfCancellationRequested();
+
+        await using Stream stream = await openStreamAsync();
+
+        GostDocument loadedDocument =
+            await archiveService.LoadAsync(stream);
+
+        ownership.CancellationToken.ThrowIfCancellationRequested();
+        publishDocument(loadedDocument);
     }
 
     private async Task<bool> SaveDocumentToFileAsync()
@@ -905,7 +1039,7 @@ public partial class MainWindow : Window
             viewModel.StatusMessage = viewModel.Session.IsDirty
                 ? "Сохранена предыдущая версия; есть новые изменения"
                 : "Документ сохранён";
-            return true;
+            return CanCloseAfterSave(saveResult, viewModel.Session);
         }
         catch (Exception ex)
         {
@@ -923,12 +1057,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> ConfirmUnsavedChangesAsync(
+    private async Task<CloseConfirmation> ConfirmUnsavedChangesAsync(
         MainWindowViewModel viewModel)
     {
         if (!viewModel.Session.IsDirty)
         {
-            return true;
+            return new CloseConfirmation(
+                CanClose: true,
+                DiscardChanges: false);
         }
 
         UnsavedChangesPromptDialog dialog =
@@ -940,15 +1076,38 @@ public partial class MainWindow : Window
         switch (decision)
         {
             case UnsavedChangesDecision.Save:
-                return await SaveDocumentToFileAsync();
+                return new CloseConfirmation(
+                    CanClose: await SaveDocumentToFileAsync(),
+                    DiscardChanges: false);
 
             case UnsavedChangesDecision.Discard:
-                return true;
+                return new CloseConfirmation(
+                    CanClose: true,
+                    DiscardChanges: true);
 
             default:
-                return false;
+                return new CloseConfirmation(
+                    CanClose: false,
+                    DiscardChanges: false);
         }
     }
+
+    internal static bool CanCloseAfterSave(
+        DocumentSaveResult saveResult,
+        DocumentSessionState session)
+    {
+        ArgumentNullException.ThrowIfNull(saveResult);
+        ArgumentNullException.ThrowIfNull(session);
+
+        return saveResult.IsCurrentRevision &&
+               !session.IsDirty &&
+               session.ChangeVersion == saveResult.SavedRevision &&
+               session.SavedRevision == saveResult.SavedRevision;
+    }
+
+    private readonly record struct CloseConfirmation(
+        bool CanClose,
+        bool DiscardChanges);
 
     private async void OnNewDocumentClick(
         object? sender,
@@ -960,10 +1119,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        bool canContinue =
+        CloseConfirmation confirmation =
             await ConfirmUnsavedChangesAsync(viewModel);
 
-        if (!canContinue)
+        if (!confirmation.CanClose)
         {
             return;
         }

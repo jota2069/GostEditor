@@ -33,6 +33,7 @@ public partial class App : Application
         services.AddSingleton<DocumentExportService>();
         services.AddSingleton<RecoveryStorageService>();
         services.AddSingleton<AutoSaveService>();
+        services.AddSingleton<PersistenceShutdownService>();
 
         services.AddTransient<MainWindowViewModel>();
 
@@ -47,7 +48,9 @@ public partial class App : Application
             MainWindow mainWindow = new MainWindow(
                 serviceProvider.GetRequiredService<IImageService>(),
                 serviceProvider.GetRequiredService<AutoSaveService>(),
-                serviceProvider.GetRequiredService<RecoveryStorageService>())
+                serviceProvider.GetRequiredService<RecoveryStorageService>(),
+                serviceProvider.GetRequiredService<PersistenceShutdownService>(),
+                serviceProvider.GetRequiredService<PersistenceIoCoordinator>())
             {
                 DataContext =
                     serviceProvider
