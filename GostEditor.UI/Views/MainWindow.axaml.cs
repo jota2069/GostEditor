@@ -387,7 +387,8 @@ public partial class MainWindow : Window
         Closed -= OnWindowClosed;
     }
 
-    private async Task ClearAutoSaveRecoveryAsync()
+    private async Task ClearAutoSaveRecoveryAsync(
+        long? expectedCleanRevision = null)
     {
         if (_autoSaveService is null)
         {
@@ -396,7 +397,8 @@ public partial class MainWindow : Window
 
         try
         {
-            await _autoSaveService.ClearRecoveryAsync();
+            await _autoSaveService.ClearRecoveryAsync(
+                expectedCleanRevision);
         }
         catch (Exception exception)
         {
@@ -889,13 +891,15 @@ public partial class MainWindow : Window
             GostDocument documentToSave =
                 SyncDocumentFromViewModel(viewModel);
 
-            await viewModel.DocumentSaveService.SaveAsync(
-                documentToSave,
-                filePath);
+            DocumentSaveResult saveResult =
+                await viewModel.DocumentSaveService.SaveAsync(
+                    documentToSave,
+                    filePath);
 
-            if (!viewModel.Session.IsDirty)
+            if (saveResult.IsCurrentRevision)
             {
-                await ClearAutoSaveRecoveryAsync();
+                await ClearAutoSaveRecoveryAsync(
+                    saveResult.SavedRevision);
             }
 
             viewModel.StatusMessage = viewModel.Session.IsDirty
@@ -1045,7 +1049,9 @@ public partial class MainWindow : Window
             Debug.WriteLine($"[MAINWINDOW] Подготовлено листингов: {documentToExport.CodeListings.Count}");
 
             // ИСПОЛЬЗУЕМ СЕРВИС ИЗ DI!
-            await viewModel.ExportService.ExportToDocxAsync(documentToExport, outputPath);
+            await viewModel.DocumentExportService.ExportToDocxAsync(
+                documentToExport,
+                outputPath);
 
             viewModel.StatusMessage = "Успешно экспортировано!";
             Debug.WriteLine("[MAINWINDOW] Экспорт завершён успешно");

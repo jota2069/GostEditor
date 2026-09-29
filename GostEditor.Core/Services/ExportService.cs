@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
+using GostEditor.Core.Serialization;
 using SkiaSharp;
 using Xceed.Document.NET;
 using Xceed.Words.NET;
@@ -33,12 +34,34 @@ public class ExportService : IExportService
         _imageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
     }
 
-    public Task ExportToDocxAsync(GostDocument document, string outputPath)
+    public Task ExportToDocxAsync(
+        GostDocument document,
+        string outputPath,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
 
-        return Task.Run(() => BuildDocument(document, outputPath));
+        DocumentPersistenceSnapshot snapshot =
+            DocumentPersistenceSnapshot.Capture(
+                document,
+                revision: 0,
+                document.ModifiedAt);
+
+        return ExportToDocxAsync(snapshot, outputPath, cancellationToken);
+    }
+
+    public Task ExportToDocxAsync(
+        DocumentPersistenceSnapshot snapshot,
+        string outputPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+
+        return Task.Run(
+            () => BuildDocument(snapshot.Document, outputPath),
+            cancellationToken);
     }
 
     private void BuildDocument(GostDocument document, string outputPath)

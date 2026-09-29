@@ -168,19 +168,29 @@ public class PersistedMutationTrackingTests
         DocumentSessionState session)
     {
         ArchiveService archive = new();
+        PersistenceIoCoordinator coordinator = new();
+        NoOpExportService export = new();
         return new MainWindowViewModel(
             archive,
-            new NoOpExportService(),
+            new DocumentExportService(export, session, coordinator),
             new NoOpCodeParserService(),
             session,
-            new DocumentSaveService(archive, session));
+            new DocumentSaveService(archive, session, coordinator));
     }
 
     private sealed class NoOpExportService : IExportService
     {
         public Task ExportToDocxAsync(
             GostDocument document,
-            string outputPath) => Task.CompletedTask;
+            string outputPath,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task ExportToDocxAsync(
+            DocumentPersistenceSnapshot snapshot,
+            string outputPath,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 
     private sealed class NoOpCodeParserService : ICodeParserService

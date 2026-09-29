@@ -26,6 +26,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _autoSave = new AutoSaveService(
             _recoveryStorage,
             _session,
+            new PersistenceIoCoordinator(),
             TimeSpan.FromMinutes(1));
     }
 
@@ -187,6 +188,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         using AutoSaveService autoSave = new(
             recoveryStorage,
             session,
+            new PersistenceIoCoordinator(),
             TimeSpan.FromMinutes(1));
         using CancellationTokenSource timeout =
             new(TimeSpan.FromSeconds(5));
@@ -243,6 +245,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         using AutoSaveService autoSave = new(
             recoveryStorage,
             session,
+            new PersistenceIoCoordinator(),
             TimeSpan.FromMinutes(1));
         using CancellationTokenSource timeout =
             new(TimeSpan.FromSeconds(5));
@@ -291,6 +294,7 @@ public sealed class AutoSaveServiceTests : IDisposable
             () => new AutoSaveService(
                 _recoveryStorage,
                 _session,
+                new PersistenceIoCoordinator(),
                 TimeSpan.Zero));
     }
 
