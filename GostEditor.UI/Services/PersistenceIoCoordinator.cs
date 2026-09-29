@@ -133,6 +133,10 @@ public sealed class PersistenceIoCoordinator
 
     public Task SuspendAndDrainAsync()
     {
+        CancellationTokenSource cancellation;
+        Task drainTask;
+        TaskCompletionSource<bool> suspensionCompletion;
+
         lock (_sync)
         {
             if (_isSuspended)
@@ -144,7 +148,6 @@ public sealed class PersistenceIoCoordinator
 
             _isSuspended = true;
 
-            Task drainTask;
             if (!_isOwned && _waiters.Count == 0)
             {
                 drainTask = Task.CompletedTask;
@@ -156,13 +159,28 @@ public sealed class PersistenceIoCoordinator
                 drainTask = _idleCompletion.Task;
             }
 
-            _suspensionCompletion = Task.Run(
-                () => CancelAndDrainAsync(
-                    _lifecycleCancellation,
-                    drainTask));
-
-            return _suspensionCompletion;
+            cancellation = _lifecycleCancellation;
+            suspensionCompletion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            _suspensionCompletion = suspensionCompletion.Task;
         }
+
+        Exception? cancellationFailure = null;
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (Exception exception)
+        {
+            cancellationFailure = exception;
+        }
+
+        _ = CompleteSuspensionAsync(
+            drainTask,
+            suspensionCompletion,
+            cancellationFailure);
+
+        return suspensionCompletion.Task;
     }
 
     public void Resume()
@@ -275,31 +293,27 @@ public sealed class PersistenceIoCoordinator
         idleCompletion?.TrySetResult(true);
     }
 
-    private static async Task CancelAndDrainAsync(
-        CancellationTokenSource cancellation,
-        Task drainTask)
+    private static async Task CompleteSuspensionAsync(
+        Task drainTask,
+        TaskCompletionSource<bool> completion,
+        Exception? cancellationFailure)
     {
-        Exception? cancellationFailure = null;
-
         try
         {
-            await cancellation.CancelAsync();
+            await drainTask;
+            if (cancellationFailure is not null)
+            {
+                throw new InvalidOperationException(
+                    "Одна из операций завершилась ошибкой при отмене shutdown.",
+                    cancellationFailure);
+            }
+
+            completion.TrySetResult(true);
         }
         catch (Exception exception)
         {
-            cancellationFailure = exception;
+            completion.TrySetException(exception);
         }
-
-        await drainTask;
-
-        if (cancellationFailure is null)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException(
-            "Одна из операций завершилась ошибкой при отмене shutdown.",
-            cancellationFailure);
     }
 
     internal sealed class PersistenceIoLease : IDisposable

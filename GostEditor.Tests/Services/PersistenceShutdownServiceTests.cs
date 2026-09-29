@@ -57,6 +57,22 @@ public sealed class PersistenceShutdownServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task SuspendAndDrain_CancelsActiveLeaseBeforeReturning()
+    {
+        PersistenceIoCoordinator coordinator = new();
+        PersistenceIoCoordinator.PersistenceIoLease lease =
+            await coordinator.AcquireAsync(PersistenceIoOperation.Open);
+
+        Task drain = coordinator.SuspendAndDrainAsync();
+
+        Assert.True(lease.CancellationToken.IsCancellationRequested);
+        Assert.False(drain.IsCompleted);
+
+        lease.Dispose();
+        await drain;
+    }
+
+    [Fact]
     public async Task SuspendAndDrain_WaitsForLateSuccessfulSaveAndKeepsCommittedResult()
     {
         ManualAsyncGate commit = new();
