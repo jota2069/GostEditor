@@ -59,5 +59,5 @@ not expose a portable directory-fsync API, so survival of the directory rename
 across sudden power loss still depends on filesystem and operating-system
 semantics. The previous committed generation is retained to reduce that risk.
 
-Startup selection, diagnostics and user decisions for corrupt/orphaned
-generations belong to the separate startup recovery state-machine branch.
+Startup selection and user decisions for corrupt/orphaned generations are
+defined in `recovery-startup-state-machine.md`.

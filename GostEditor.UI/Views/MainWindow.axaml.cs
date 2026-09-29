@@ -138,44 +138,48 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!_recoveryStorageService.HasRecovery)
+        RecoveryStartupResult inspection;
+        try
+        {
+            inspection =
+                await _recoveryStorageService.InspectStartupAsync();
+        }
+        catch (Exception exception)
+        {
+            await HandleCorruptedRecoveryAsync(
+                viewModel,
+                "Не удалось проверить каталог аварийного восстановления.",
+                exception);
+            return;
+        }
+
+        if (inspection.State == RecoveryStartupState.None)
         {
             StartAutoSave(viewModel);
             return;
         }
 
-        RecoveryMetadata? metadata;
-
-        try
-        {
-            metadata =
-                await _recoveryStorageService.LoadMetadataAsync();
-        }
-        catch (Exception exception)
+        if (inspection.State == RecoveryStartupState.Corrupted)
         {
             await HandleCorruptedRecoveryAsync(
                 viewModel,
-                "Не удалось прочитать session.json. " +
-                "Метаданные аварийной копии повреждены или недоступны.",
-                exception);
+                "Не найдено ни одной согласованной и читаемой " +
+                "аварийной копии.",
+                inspection.Issues.FirstOrDefault()?.Exception ??
+                new InvalidDataException(
+                    "Recovery содержит только повреждённые данные."));
             return;
         }
 
-        GostDocument recoveredDocument;
-
-        try
-        {
-            recoveredDocument =
-                await _recoveryStorageService.LoadDocumentAsync();
-        }
-        catch (Exception exception)
+        RecoveryMetadata? metadata = inspection.Metadata;
+        GostDocument? recoveredDocument = inspection.Document;
+        if (recoveredDocument is null)
         {
             await HandleCorruptedRecoveryAsync(
                 viewModel,
-                "Не удалось прочитать autosave.gost. " +
-                "Аварийная копия повреждена или имеет " +
-                "неподдерживаемый формат.",
-                exception);
+                "Проверка recovery не вернула документ.",
+                new InvalidDataException(
+                    "Recoverable state не содержит документа."));
             return;
         }
 
@@ -190,15 +194,27 @@ public partial class MainWindow : Window
                 RestoreRecovery(
                     viewModel,
                     metadata,
-                    recoveredDocument);
+                    recoveredDocument,
+                    inspection.Issues.Count);
                 break;
 
             case RecoveryDecision.Discard:
-                await ResetAutoSaveRecoveryAsync();
-                viewModel.Session.StartNew();
-                viewModel.StatusMessage =
-                    "Аварийная копия удалена";
-                StartAutoSave(viewModel);
+                try
+                {
+                    await _autoSaveService.ResetAsync();
+                    viewModel.Session.StartNew();
+                    viewModel.StatusMessage =
+                        "Аварийная копия удалена";
+                    StartAutoSave(viewModel);
+                }
+                catch (Exception exception)
+                {
+                    await HandleCorruptedRecoveryAsync(
+                        viewModel,
+                        "Не удалось удалить аварийную копию. " +
+                        "Она не будет перезаписана автоматически.",
+                        exception);
+                }
                 break;
 
             default:
@@ -210,7 +226,8 @@ public partial class MainWindow : Window
     private void RestoreRecovery(
         MainWindowViewModel viewModel,
         RecoveryMetadata? metadata,
-        GostDocument recoveredDocument)
+        GostDocument recoveredDocument,
+        int ignoredDamagedArtifacts)
     {
         if (MainEditor is null)
         {
@@ -230,8 +247,10 @@ public partial class MainWindow : Window
             viewModel.Session.MarkRecovered(
                 metadata?.OriginalFilePath);
 
-            viewModel.StatusMessage =
-                "Аварийная копия восстановлена";
+            viewModel.StatusMessage = ignoredDamagedArtifacts == 0
+                ? "Аварийная копия восстановлена"
+                : "Аварийная копия восстановлена; " +
+                  "повреждённые варианты пропущены";
 
             StartAutoSave(viewModel);
         }
