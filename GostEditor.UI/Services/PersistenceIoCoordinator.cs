@@ -9,6 +9,7 @@ public enum PersistenceIoOperation
 {
     ManualSave,
     SaveAs,
+    Open,
     AutoSave,
     Export,
     RecoveryMaintenance
@@ -22,10 +23,25 @@ public sealed class PersistenceIoCoordinator
 {
     private readonly object _sync = new();
     private readonly LinkedList<OwnershipWaiter> _waiters = new();
+    private CancellationTokenSource _lifecycleCancellation = new();
+    private TaskCompletionSource<bool>? _idleCompletion;
+    private Task? _suspensionCompletion;
     private bool _isOwned;
+    private bool _isSuspended;
     private int _activeOperation = -1;
 
     public bool IsBusy => Volatile.Read(ref _activeOperation) >= 0;
+
+    public bool IsSuspended
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _isSuspended;
+            }
+        }
+    }
 
     public PersistenceIoOperation? ActiveOperation
     {
@@ -44,16 +60,33 @@ public sealed class PersistenceIoCoordinator
 
         lock (_sync)
         {
+            if (_isSuspended)
+            {
+                return ValueTask.FromCanceled<PersistenceIoLease>(
+                    new CancellationToken(canceled: true));
+            }
+
+            CancellationTokenSource operationCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    _lifecycleCancellation.Token);
+
             if (!_isOwned && _waiters.Count == 0)
             {
                 _isOwned = true;
                 Volatile.Write(ref _activeOperation, (int)operation);
-                return ValueTask.FromResult(new PersistenceIoLease(this));
+                return ValueTask.FromResult(
+                    new PersistenceIoLease(
+                        this,
+                        operationCancellation));
             }
 
-            OwnershipWaiter waiter = new(operation, cancellationToken);
+            OwnershipWaiter waiter = new(
+                operation,
+                operationCancellation);
             waiter.Node = _waiters.AddLast(waiter);
-            waiter.CancellationRegistration = cancellationToken.Register(
+            waiter.CancellationRegistration =
+                operationCancellation.Token.Register(
                 static state =>
                 {
                     CancellationState cancellationState =
@@ -63,17 +96,25 @@ public sealed class PersistenceIoCoordinator
                 },
                 new CancellationState(this, waiter));
 
+            if (waiter.State == WaiterState.Cancelled)
+            {
+                waiter.DisposeCancellationResources();
+            }
+
             return new ValueTask<PersistenceIoLease>(waiter.Task);
         }
     }
 
     internal bool TryAcquire(
         PersistenceIoOperation operation,
+        CancellationToken cancellationToken,
         out PersistenceIoLease? lease)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         lock (_sync)
         {
-            if (_isOwned || _waiters.Count > 0)
+            if (_isSuspended || _isOwned || _waiters.Count > 0)
             {
                 lease = null;
                 return false;
@@ -81,18 +122,90 @@ public sealed class PersistenceIoCoordinator
 
             _isOwned = true;
             Volatile.Write(ref _activeOperation, (int)operation);
-            lease = new PersistenceIoLease(this);
+            lease = new PersistenceIoLease(
+                this,
+                CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    _lifecycleCancellation.Token));
             return true;
         }
+    }
+
+    public Task SuspendAndDrainAsync()
+    {
+        lock (_sync)
+        {
+            if (_isSuspended)
+            {
+                return _suspensionCompletion
+                    ?? throw new InvalidOperationException(
+                        "Задача приостановки I/O не была создана.");
+            }
+
+            _isSuspended = true;
+
+            Task drainTask;
+            if (!_isOwned && _waiters.Count == 0)
+            {
+                drainTask = Task.CompletedTask;
+            }
+            else
+            {
+                _idleCompletion ??= new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                drainTask = _idleCompletion.Task;
+            }
+
+            _suspensionCompletion = Task.Run(
+                () => CancelAndDrainAsync(
+                    _lifecycleCancellation,
+                    drainTask));
+
+            return _suspensionCompletion;
+        }
+    }
+
+    public void Resume()
+    {
+        CancellationTokenSource previousCancellation;
+
+        lock (_sync)
+        {
+            if (!_isSuspended)
+            {
+                return;
+            }
+
+            if (_isOwned || _waiters.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    "Нельзя возобновить I/O до завершения всех операций.");
+            }
+
+            if (_suspensionCompletion?.IsCompleted != true)
+            {
+                throw new InvalidOperationException(
+                    "Нельзя возобновить I/O до завершения отмены shutdown.");
+            }
+
+            previousCancellation = _lifecycleCancellation;
+            _lifecycleCancellation = new CancellationTokenSource();
+            _idleCompletion = null;
+            _suspensionCompletion = null;
+            _isSuspended = false;
+        }
+
+        previousCancellation.Dispose();
     }
 
     private void Release()
     {
         OwnershipWaiter? next = null;
+        TaskCompletionSource<bool>? idleCompletion = null;
 
         lock (_sync)
         {
-            while (_waiters.First is not null)
+            while (!_isSuspended && _waiters.First is not null)
             {
                 next = _waiters.First.Value;
                 _waiters.RemoveFirst();
@@ -114,18 +227,29 @@ public sealed class PersistenceIoCoordinator
             {
                 _isOwned = false;
                 Volatile.Write(ref _activeOperation, -1);
+                if (_isSuspended && _waiters.Count == 0)
+                {
+                    idleCompletion = _idleCompletion;
+                }
             }
         }
 
         if (next is not null)
         {
             next.CancellationRegistration.Dispose();
-            next.Completion.TrySetResult(new PersistenceIoLease(this));
+            next.Completion.TrySetResult(
+                new PersistenceIoLease(
+                    this,
+                    next.TakeCancellationSource()));
         }
+
+        idleCompletion?.TrySetResult(true);
     }
 
     private void CancelWaiter(OwnershipWaiter waiter)
     {
+        TaskCompletionSource<bool>? idleCompletion = null;
+
         lock (_sync)
         {
             if (waiter.State != WaiterState.Waiting)
@@ -139,23 +263,77 @@ public sealed class PersistenceIoCoordinator
                 _waiters.Remove(waiter.Node);
                 waiter.Node = null;
             }
+
+            if (_isSuspended && !_isOwned && _waiters.Count == 0)
+            {
+                idleCompletion = _idleCompletion;
+            }
         }
 
         waiter.Completion.TrySetCanceled(waiter.CancellationToken);
+        waiter.DisposeCancellationSource();
+        idleCompletion?.TrySetResult(true);
+    }
+
+    private static async Task CancelAndDrainAsync(
+        CancellationTokenSource cancellation,
+        Task drainTask)
+    {
+        Exception? cancellationFailure = null;
+
+        try
+        {
+            await cancellation.CancelAsync();
+        }
+        catch (Exception exception)
+        {
+            cancellationFailure = exception;
+        }
+
+        await drainTask;
+
+        if (cancellationFailure is null)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            "Одна из операций завершилась ошибкой при отмене shutdown.",
+            cancellationFailure);
     }
 
     internal sealed class PersistenceIoLease : IDisposable
     {
         private PersistenceIoCoordinator? _owner;
+        private CancellationTokenSource? _cancellationSource;
 
-        internal PersistenceIoLease(PersistenceIoCoordinator owner)
+        internal PersistenceIoLease(
+            PersistenceIoCoordinator owner,
+            CancellationTokenSource cancellationSource)
         {
             _owner = owner;
+            _cancellationSource = cancellationSource;
         }
+
+        public CancellationToken CancellationToken =>
+            _cancellationSource?.Token
+            ?? new CancellationToken(canceled: true);
 
         public void Dispose()
         {
-            Interlocked.Exchange(ref _owner, null)?.Release();
+            PersistenceIoCoordinator? owner =
+                Interlocked.Exchange(ref _owner, null);
+            CancellationTokenSource? cancellationSource =
+                Interlocked.Exchange(ref _cancellationSource, null);
+
+            try
+            {
+                owner?.Release();
+            }
+            finally
+            {
+                cancellationSource?.Dispose();
+            }
         }
     }
 
@@ -163,15 +341,19 @@ public sealed class PersistenceIoCoordinator
     {
         internal OwnershipWaiter(
             PersistenceIoOperation operation,
-            CancellationToken cancellationToken)
+            CancellationTokenSource cancellationSource)
         {
             Operation = operation;
-            CancellationToken = cancellationToken;
+            _cancellationSource = cancellationSource;
         }
 
         internal PersistenceIoOperation Operation { get; }
 
-        internal CancellationToken CancellationToken { get; }
+        internal CancellationToken CancellationToken =>
+            _cancellationSource?.Token
+            ?? new CancellationToken(canceled: true);
+
+        private CancellationTokenSource? _cancellationSource;
 
         internal TaskCompletionSource<PersistenceIoLease> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -187,6 +369,22 @@ public sealed class PersistenceIoCoordinator
         }
 
         internal WaiterState State { get; set; }
+
+        internal CancellationTokenSource TakeCancellationSource() =>
+            Interlocked.Exchange(ref _cancellationSource, null)
+            ?? throw new InvalidOperationException(
+                "Источник отмены ownership уже передан или освобождён.");
+
+        internal void DisposeCancellationSource()
+        {
+            Interlocked.Exchange(ref _cancellationSource, null)?.Dispose();
+        }
+
+        internal void DisposeCancellationResources()
+        {
+            CancellationRegistration.Dispose();
+            DisposeCancellationSource();
+        }
     }
 
     private sealed record CancellationState(

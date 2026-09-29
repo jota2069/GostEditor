@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -15,10 +17,13 @@ public sealed class AutoSaveService : IDisposable
     private readonly DocumentSessionState _session;
     private readonly PersistenceIoCoordinator _ioCoordinator;
     private readonly TimeSpan _interval;
+    private readonly object _scheduledOperationsSync = new();
+    private readonly HashSet<Task> _scheduledOperations = new();
 
     private DispatcherTimer? _timer;
     private Func<GostDocument>? _documentSnapshotProvider;
     private long _lastSavedChangeVersion = -1;
+    private bool _acceptScheduledOperations;
     private bool _disposed;
 
     public AutoSaveService(
@@ -80,6 +85,11 @@ public sealed class AutoSaveService : IDisposable
             ?? throw new ArgumentNullException(
                 nameof(documentSnapshotProvider));
 
+        lock (_scheduledOperationsSync)
+        {
+            _acceptScheduledOperations = true;
+        }
+
         if (_timer is null)
         {
             _timer = new DispatcherTimer
@@ -95,6 +105,11 @@ public sealed class AutoSaveService : IDisposable
 
     public void Stop()
     {
+        lock (_scheduledOperationsSync)
+        {
+            _acceptScheduledOperations = false;
+        }
+
         _timer?.Stop();
     }
 
@@ -138,6 +153,7 @@ public sealed class AutoSaveService : IDisposable
 
         if (!_ioCoordinator.TryAcquire(
                 PersistenceIoOperation.AutoSave,
+                cancellationToken,
                 out PersistenceIoCoordinator.PersistenceIoLease? ownership))
         {
             return false;
@@ -145,7 +161,9 @@ public sealed class AutoSaveService : IDisposable
 
         using (ownership)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            CancellationToken operationCancellation =
+                ownership!.CancellationToken;
+            operationCancellation.ThrowIfCancellationRequested();
 
             if (!_session.IsDirty)
             {
@@ -169,7 +187,7 @@ public sealed class AutoSaveService : IDisposable
             await _recoveryStorage.SaveAsync(
                 snapshot,
                 _session.CurrentFilePath,
-                cancellationToken);
+                operationCancellation);
 
             Interlocked.Exchange(
                 ref _lastSavedChangeVersion,
@@ -195,7 +213,7 @@ public sealed class AutoSaveService : IDisposable
                 PersistenceIoOperation.RecoveryMaintenance,
                 cancellationToken);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        ownership.CancellationToken.ThrowIfCancellationRequested();
 
         if (expectedCleanRevision.HasValue &&
             (_session.IsDirty ||
@@ -224,7 +242,7 @@ public sealed class AutoSaveService : IDisposable
                 PersistenceIoOperation.RecoveryMaintenance,
                 cancellationToken);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        ownership.CancellationToken.ThrowIfCancellationRequested();
         _recoveryStorage.DeleteRecovery();
 
         Interlocked.Exchange(
@@ -240,10 +258,10 @@ public sealed class AutoSaveService : IDisposable
         }
 
         _disposed = true;
+        Stop();
 
         if (_timer is not null)
         {
-            _timer.Stop();
             _timer.Tick -= OnTimerTick;
             _timer = null;
         }
@@ -251,17 +269,102 @@ public sealed class AutoSaveService : IDisposable
         _documentSnapshotProvider = null;
     }
 
-    private async void OnTimerTick(
+    internal Task WaitForScheduledOperationsAsync()
+    {
+        lock (_scheduledOperationsSync)
+        {
+            return _scheduledOperations.Count == 0
+                ? Task.CompletedTask
+                : Task.WhenAll([.. _scheduledOperations]);
+        }
+    }
+
+    internal Task RunScheduledSaveAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        lock (_scheduledOperationsSync)
+        {
+            if (!_acceptScheduledOperations)
+            {
+                return Task.CompletedTask;
+            }
+
+            Task operation = RunScheduledSaveCoreAsync();
+            _scheduledOperations.Add(operation);
+            _ = RemoveScheduledOperationWhenCompleteAsync(operation);
+            return operation;
+        }
+    }
+
+    private void OnTimerTick(
         object? sender,
         EventArgs e)
     {
         try
         {
+            _ = RunScheduledSaveAsync();
+        }
+        catch (ObjectDisposedException)
+        {
+            // A dispatcher callback already queued before Dispose is stale.
+        }
+    }
+
+    private async Task RunScheduledSaveCoreAsync()
+    {
+        // Ensure the operation is registered before any provider, writer or
+        // event callback can complete synchronously.
+        await Task.Yield();
+
+        try
+        {
             await SaveIfNeededAsync();
+        }
+        catch (OperationCanceledException)
+            when (_ioCoordinator.IsSuspended)
+        {
+            // Application shutdown deliberately cancels active persistence.
         }
         catch (Exception exception)
         {
-            Failed?.Invoke(exception);
+            NotifyFailure(exception);
+        }
+    }
+
+    private async Task RemoveScheduledOperationWhenCompleteAsync(
+        Task operation)
+    {
+        try
+        {
+            await operation;
+        }
+        finally
+        {
+            lock (_scheduledOperationsSync)
+            {
+                _scheduledOperations.Remove(operation);
+            }
+        }
+    }
+
+    private void NotifyFailure(Exception exception)
+    {
+        Delegate[] subscribers =
+            Failed?.GetInvocationList() ?? [];
+
+        foreach (Delegate subscriber in subscribers)
+        {
+            try
+            {
+                ((Action<Exception>)subscriber)(exception);
+            }
+            catch (Exception subscriberException)
+            {
+                Debug.WriteLine(
+                    "[AUTOSAVE] Обработчик ошибки автосохранения " +
+                    $"завершился с ошибкой: {subscriberException}");
+            }
         }
     }
 }
