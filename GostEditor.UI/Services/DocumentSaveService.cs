@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,24 +13,33 @@ public sealed class DocumentSaveService
 {
     private readonly IArchiveService _archiveService;
     private readonly DocumentSessionState _session;
+    private readonly PersistenceIoCoordinator _ioCoordinator;
     private readonly TimeProvider _timeProvider;
 
     public DocumentSaveService(
         IArchiveService archiveService,
-        DocumentSessionState session)
-        : this(archiveService, session, TimeProvider.System)
+        DocumentSessionState session,
+        PersistenceIoCoordinator ioCoordinator)
+        : this(
+            archiveService,
+            session,
+            ioCoordinator,
+            TimeProvider.System)
     {
     }
 
     internal DocumentSaveService(
         IArchiveService archiveService,
         DocumentSessionState session,
+        PersistenceIoCoordinator ioCoordinator,
         TimeProvider timeProvider)
     {
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
         _session = session
             ?? throw new ArgumentNullException(nameof(session));
+        _ioCoordinator = ioCoordinator
+            ?? throw new ArgumentNullException(nameof(ioCoordinator));
         _timeProvider = timeProvider
             ?? throw new ArgumentNullException(nameof(timeProvider));
     }
@@ -41,6 +51,15 @@ public sealed class DocumentSaveService
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+
+        PersistenceIoOperation operation = IsSaveAs(filePath)
+            ? PersistenceIoOperation.SaveAs
+            : PersistenceIoOperation.ManualSave;
+
+        using PersistenceIoCoordinator.PersistenceIoLease ownership =
+            await _ioCoordinator.AcquireAsync(operation, cancellationToken);
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         DateTimeOffset savedAt = _timeProvider.GetUtcNow();
         DocumentPersistenceSnapshot snapshot =
@@ -69,6 +88,24 @@ public sealed class DocumentSaveService
             snapshot.Revision,
             isCurrentRevision,
             savedAt);
+    }
+
+    private bool IsSaveAs(string filePath)
+    {
+        string? currentPath = _session.CurrentFilePath;
+        if (string.IsNullOrWhiteSpace(currentPath))
+        {
+            return true;
+        }
+
+        StringComparison comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return !string.Equals(
+            Path.GetFullPath(currentPath),
+            Path.GetFullPath(filePath),
+            comparison);
     }
 }
 

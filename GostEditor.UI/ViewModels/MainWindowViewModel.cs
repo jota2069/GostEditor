@@ -21,7 +21,7 @@ namespace GostEditor.UI.ViewModels;
 public partial class MainWindowViewModel : ObservableObject
 {
     private readonly IArchiveService _archiveService;
-    private readonly IExportService _exportService;
+    private readonly DocumentExportService _documentExportService;
     private readonly ICodeParserService _codeParserService;
     private readonly DocumentSaveService _documentSaveService;
 
@@ -30,7 +30,8 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _isSynchronizingDocument;
 
     public IArchiveService ArchiveService => _archiveService;
-    public IExportService ExportService => _exportService;
+    public DocumentExportService DocumentExportService =>
+        _documentExportService;
     public ICodeParserService CodeParserService => _codeParserService;
     public DocumentSaveService DocumentSaveService => _documentSaveService;
 
@@ -147,7 +148,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     public MainWindowViewModel(
         IArchiveService archiveService,
-        IExportService exportService,
+        DocumentExportService documentExportService,
         ICodeParserService codeParserService,
         DocumentSessionState session,
         DocumentSaveService documentSaveService)
@@ -155,8 +156,9 @@ public partial class MainWindowViewModel : ObservableObject
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
 
-        _exportService = exportService
-            ?? throw new ArgumentNullException(nameof(exportService));
+        _documentExportService = documentExportService
+            ?? throw new ArgumentNullException(
+                nameof(documentExportService));
 
         _codeParserService = codeParserService
             ?? throw new ArgumentNullException(nameof(codeParserService));

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
@@ -65,7 +66,8 @@ public sealed class RecoveryStorageService
 
     public async Task<RecoveryMetadata> SaveAsync(
         GostDocument document,
-        string? originalFilePath)
+        string? originalFilePath,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
 
@@ -83,7 +85,10 @@ public sealed class RecoveryStorageService
 
         try
         {
-            await _archiveService.SaveAsync(document, packageTempPath);
+            await _archiveService.SaveAsync(
+                document,
+                packageTempPath,
+                cancellationToken);
 
             await using (FileStream metadataStream = new(
                 metadataTempPath,
@@ -96,10 +101,13 @@ public sealed class RecoveryStorageService
                 await JsonSerializer.SerializeAsync(
                     metadataStream,
                     metadata,
-                    _jsonOptions);
+                    _jsonOptions,
+                    cancellationToken);
 
-                await metadataStream.FlushAsync();
+                await metadataStream.FlushAsync(cancellationToken);
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             File.Move(packageTempPath, RecoveryFilePath, overwrite: true);
             File.Move(metadataTempPath, MetadataFilePath, overwrite: true);

@@ -117,6 +117,8 @@ This layer does not coordinate simultaneous saves and does not detect external
 file modification. `File.Exists`, state inspection and the following move or
 replace operations contain unavoidable TOCTOU windows.
 
-Ordering manual save, autosave and export belongs to the later I/O coordinator.
+Ordering manual save, autosave and export is defined by
+[`persistence-io-coordinator.md`](persistence-io-coordinator.md). This primitive
+remains unaware of that higher-level process-local ownership boundary.
 Revision snapshots and savepoints are separate persistence work. External file
 conflict detection and recovery generations are also outside this contract.

@@ -28,7 +28,9 @@ public partial class App : Application
 
         services.AddSingleton<DialogService>();
         services.AddSingleton<DocumentSessionState>();
+        services.AddSingleton<PersistenceIoCoordinator>();
         services.AddSingleton<DocumentSaveService>();
+        services.AddSingleton<DocumentExportService>();
         services.AddSingleton<RecoveryStorageService>();
         services.AddSingleton<AutoSaveService>();
 

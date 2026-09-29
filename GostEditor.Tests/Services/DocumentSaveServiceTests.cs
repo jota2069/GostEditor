@@ -165,7 +165,11 @@ public class DocumentSaveServiceTests
     private static DocumentSaveService CreateService(
         IArchiveService archive,
         DocumentSessionState session) =>
-        new(archive, session, new ManualUtcTimeProvider(SavedAt));
+        new(
+            archive,
+            session,
+            new PersistenceIoCoordinator(),
+            new ManualUtcTimeProvider(SavedAt));
 
     private sealed class CapturingArchiveService : IArchiveService
     {

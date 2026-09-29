@@ -13,7 +13,7 @@ public sealed class AutoSaveService : IDisposable
 
     private readonly RecoveryStorageService _recoveryStorage;
     private readonly DocumentSessionState _session;
-    private readonly SemaphoreSlim _saveGate = new(1, 1);
+    private readonly PersistenceIoCoordinator _ioCoordinator;
     private readonly TimeSpan _interval;
 
     private DispatcherTimer? _timer;
@@ -23,10 +23,12 @@ public sealed class AutoSaveService : IDisposable
 
     public AutoSaveService(
         RecoveryStorageService recoveryStorage,
-        DocumentSessionState session)
+        DocumentSessionState session,
+        PersistenceIoCoordinator ioCoordinator)
         : this(
             recoveryStorage,
             session,
+            ioCoordinator,
             DefaultInterval)
     {
     }
@@ -34,6 +36,7 @@ public sealed class AutoSaveService : IDisposable
     public AutoSaveService(
         RecoveryStorageService recoveryStorage,
         DocumentSessionState session,
+        PersistenceIoCoordinator ioCoordinator,
         TimeSpan interval)
     {
         _recoveryStorage = recoveryStorage
@@ -43,6 +46,10 @@ public sealed class AutoSaveService : IDisposable
         _session = session
             ?? throw new ArgumentNullException(
                 nameof(session));
+
+        _ioCoordinator = ioCoordinator
+            ?? throw new ArgumentNullException(
+                nameof(ioCoordinator));
 
         if (interval <= TimeSpan.Zero)
         {
@@ -91,7 +98,8 @@ public sealed class AutoSaveService : IDisposable
         _timer?.Stop();
     }
 
-    public Task<bool> SaveIfNeededAsync()
+    public Task<bool> SaveIfNeededAsync(
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -100,16 +108,19 @@ public sealed class AutoSaveService : IDisposable
 
         return provider is null
             ? Task.FromResult(false)
-            : SaveIfNeededAsync(provider);
+            : SaveIfNeededAsync(provider, cancellationToken);
     }
 
     public async Task<bool> SaveIfNeededAsync(
-        Func<GostDocument> documentSnapshotProvider)
+        Func<GostDocument> documentSnapshotProvider,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         ArgumentNullException.ThrowIfNull(
             documentSnapshotProvider);
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!_session.IsDirty)
         {
@@ -125,13 +136,17 @@ public sealed class AutoSaveService : IDisposable
             return false;
         }
 
-        if (!await _saveGate.WaitAsync(0))
+        if (!_ioCoordinator.TryAcquire(
+                PersistenceIoOperation.AutoSave,
+                out PersistenceIoCoordinator.PersistenceIoLease? ownership))
         {
             return false;
         }
 
-        try
+        using (ownership)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!_session.IsDirty)
             {
                 return false;
@@ -153,7 +168,8 @@ public sealed class AutoSaveService : IDisposable
 
             await _recoveryStorage.SaveAsync(
                 snapshot,
-                _session.CurrentFilePath);
+                _session.CurrentFilePath,
+                cancellationToken);
 
             Interlocked.Exchange(
                 ref _lastSavedChangeVersion,
@@ -166,50 +182,54 @@ public sealed class AutoSaveService : IDisposable
 
             return true;
         }
-        finally
-        {
-            _saveGate.Release();
-        }
     }
 
-    public async Task ClearRecoveryAsync()
+    public async Task<bool> ClearRecoveryAsync(
+        long? expectedCleanRevision = null,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        await _saveGate.WaitAsync();
+        using PersistenceIoCoordinator.PersistenceIoLease ownership =
+            await _ioCoordinator.AcquireAsync(
+                PersistenceIoOperation.RecoveryMaintenance,
+                cancellationToken);
 
-        try
-        {
-            _recoveryStorage.DeleteRecovery();
+        cancellationToken.ThrowIfCancellationRequested();
 
-            Interlocked.Exchange(
-                ref _lastSavedChangeVersion,
-                _session.ChangeVersion);
-        }
-        finally
+        if (expectedCleanRevision.HasValue &&
+            (_session.IsDirty ||
+             _session.ChangeVersion != expectedCleanRevision.Value ||
+             _session.SavedRevision != expectedCleanRevision.Value))
         {
-            _saveGate.Release();
+            return false;
         }
+
+        _recoveryStorage.DeleteRecovery();
+
+        Interlocked.Exchange(
+            ref _lastSavedChangeVersion,
+            expectedCleanRevision ?? _session.ChangeVersion);
+
+        return true;
     }
 
-    public async Task ResetAsync()
+    public async Task ResetAsync(
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        await _saveGate.WaitAsync();
+        using PersistenceIoCoordinator.PersistenceIoLease ownership =
+            await _ioCoordinator.AcquireAsync(
+                PersistenceIoOperation.RecoveryMaintenance,
+                cancellationToken);
 
-        try
-        {
-            _recoveryStorage.DeleteRecovery();
+        cancellationToken.ThrowIfCancellationRequested();
+        _recoveryStorage.DeleteRecovery();
 
-            Interlocked.Exchange(
-                ref _lastSavedChangeVersion,
-                -1);
-        }
-        finally
-        {
-            _saveGate.Release();
-        }
+        Interlocked.Exchange(
+            ref _lastSavedChangeVersion,
+            -1);
     }
 
     public void Dispose()
@@ -229,7 +249,6 @@ public sealed class AutoSaveService : IDisposable
         }
 
         _documentSnapshotProvider = null;
-        _saveGate.Dispose();
     }
 
     private async void OnTimerTick(
