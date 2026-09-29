@@ -64,19 +64,68 @@ public class ArchiveService : IArchiveService
         return GostDocumentMaterializer.Materialize(result.Document);
     }
 
-    public Task SaveAsync(GostDocument document, string filePath)
+    public Task SaveAsync(
+        GostDocument document,
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        return _fileCommitter.WriteAsync(
-            filePath,
-            (stream, cancellationToken) =>
-                _writer.WriteAsync(document, stream, cancellationToken));
+        DocumentPersistenceSnapshot snapshot =
+            DocumentPersistenceSnapshot.Capture(
+                document,
+                revision: 0,
+                document.ModifiedAt);
+
+        return SaveAsync(snapshot, filePath, cancellationToken);
     }
 
-    public Task SaveAsync(GostDocument document, Stream stream)
+    public Task SaveAsync(
+        DocumentPersistenceSnapshot snapshot,
+        string filePath,
+        CancellationToken cancellationToken = default)
     {
-        return _writer.WriteAsync(document, stream);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+
+        return _fileCommitter.WriteAsync(
+            filePath,
+            (stream, writerCancellationToken) =>
+                _writer.WriteAsync(
+                    snapshot.Document,
+                    stream,
+                    writerCancellationToken),
+            cancellationToken);
+    }
+
+    public Task SaveAsync(
+        GostDocument document,
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+
+        DocumentPersistenceSnapshot snapshot =
+            DocumentPersistenceSnapshot.Capture(
+                document,
+                revision: 0,
+                document.ModifiedAt);
+
+        return SaveAsync(snapshot, stream, cancellationToken);
+    }
+
+    public Task SaveAsync(
+        DocumentPersistenceSnapshot snapshot,
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(stream);
+
+        return _writer.WriteAsync(
+            snapshot.Document,
+            stream,
+            cancellationToken);
     }
 }

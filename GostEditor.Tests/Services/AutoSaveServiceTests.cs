@@ -366,7 +366,8 @@ public sealed class AutoSaveServiceTests : IDisposable
 
         public async Task SaveAsync(
             GostDocument document,
-            string filePath)
+            string filePath,
+            CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _saveCalls);
             if (_beforeSaveGate is not null)
@@ -376,13 +377,27 @@ public sealed class AutoSaveServiceTests : IDisposable
 
             await File.WriteAllBytesAsync(
                 filePath,
-                "blocked package"u8.ToArray());
-            await _saveGate.SignalAndWaitAsync();
+                "blocked package"u8.ToArray(),
+                cancellationToken);
+            await _saveGate.SignalAndWaitAsync(cancellationToken);
         }
 
         public Task SaveAsync(
             GostDocument document,
-            Stream stream) =>
+            Stream stream,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            DocumentPersistenceSnapshot snapshot,
+            string filePath,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            DocumentPersistenceSnapshot snapshot,
+            Stream stream,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 }

@@ -37,6 +37,8 @@ public sealed class AvaloniaLayoutIsolationTests
         Assert.True(definition.DisableParallelization);
         AssertUsesAvaloniaLayoutCollection(typeof(ImageLayoutTests));
         AssertUsesAvaloniaLayoutCollection(typeof(IncrementalPageLayoutTests));
+        AssertUsesAvaloniaLayoutCollection(
+            typeof(DocumentEngineRevisionSignalTests));
     }
 
     private static void AssertUsesAvaloniaLayoutCollection(Type testClass)
