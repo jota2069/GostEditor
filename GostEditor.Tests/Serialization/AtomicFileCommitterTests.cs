@@ -128,6 +128,28 @@ public sealed class AtomicFileCommitterTests : IDisposable
     }
 
     [Fact]
+    public async Task WriteAsync_WhenBeforeCommitGuardFails_PreservesDestinationAndCleansTemp()
+    {
+        string destinationPath = await CreateExistingDestinationAsync();
+        FaultInjectingAtomicFileSystem fileSystem = new(
+            AtomicFileFailurePoint.None);
+        AtomicFileCommitter committer = new(fileSystem);
+        InjectedFileSystemIOException conflict = new("external conflict");
+
+        InjectedFileSystemIOException actual =
+            await Assert.ThrowsAsync<InjectedFileSystemIOException>(() =>
+                committer.WriteAsync(
+                    destinationPath,
+                    WriteReplacementAsync,
+                    _ => Task.FromException(conflict)));
+
+        Assert.Same(conflict, actual);
+        Assert.Equal(0, fileSystem.CommitAttempts);
+        Assert.Equal(1, fileSystem.CloseAttempts);
+        await AssertOriginalDestinationAndNoArtifactsAsync(destinationPath);
+    }
+
+    [Fact]
     public async Task WriteAsync_WhenCancelledAfterCommitStarts_ReportsSuccessfulCommit()
     {
         string destinationPath = await CreateExistingDestinationAsync();

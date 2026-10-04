@@ -922,10 +922,11 @@ public partial class MainWindow : Window
                     viewModel.ArchiveService,
                     selectedFile.OpenReadAsync,
                     _persistenceIoCoordinator,
-                    loadedDocument => PublishOpenedDocument(
+                    (loadedDocument, fingerprint) => PublishOpenedDocument(
                         viewModel,
                         loadedDocument,
-                        filePath));
+                        filePath,
+                        fingerprint));
 
                 await ResetAutoSaveRecoveryAsync();
 
@@ -950,12 +951,13 @@ public partial class MainWindow : Window
     private void PublishOpenedDocument(
         MainWindowViewModel viewModel,
         GostDocument loadedDocument,
-        string filePath)
+        string filePath,
+        FileContentFingerprint fileFingerprint)
     {
         viewModel.CurrentDocument = loadedDocument;
         MainEditor!.LoadDocument(loadedDocument);
         viewModel.SyncNavigation();
-        viewModel.Session.MarkOpened(filePath);
+        viewModel.Session.MarkOpened(filePath, fileFingerprint);
     }
 
     internal static async Task LoadDocumentForOpenAsync(
@@ -963,6 +965,21 @@ public partial class MainWindow : Window
         Func<Task<Stream>> openStreamAsync,
         PersistenceIoCoordinator? ioCoordinator,
         Action<GostDocument> publishDocument,
+        CancellationToken cancellationToken = default)
+    {
+        await LoadDocumentForOpenAsync(
+            archiveService,
+            openStreamAsync,
+            ioCoordinator,
+            (document, _) => publishDocument(document),
+            cancellationToken);
+    }
+
+    internal static async Task LoadDocumentForOpenAsync(
+        IArchiveService archiveService,
+        Func<Task<Stream>> openStreamAsync,
+        PersistenceIoCoordinator? ioCoordinator,
+        Action<GostDocument, FileContentFingerprint> publishDocument,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(archiveService);
@@ -973,9 +990,12 @@ public partial class MainWindow : Window
         {
             await using Stream uncoordinatedStream =
                 await openStreamAsync();
-            GostDocument uncoordinatedDocument =
-                await archiveService.LoadAsync(uncoordinatedStream);
-            publishDocument(uncoordinatedDocument);
+            (GostDocument document, FileContentFingerprint fingerprint) =
+                await LoadDocumentAndFingerprintAsync(
+                    archiveService,
+                    uncoordinatedStream,
+                    cancellationToken);
+            publishDocument(document, fingerprint);
             return;
         }
 
@@ -988,14 +1008,42 @@ public partial class MainWindow : Window
 
         await using Stream stream = await openStreamAsync();
 
-        GostDocument loadedDocument =
-            await archiveService.LoadAsync(stream);
+        (GostDocument loadedDocument,
+            FileContentFingerprint coordinatedFingerprint) =
+            await LoadDocumentAndFingerprintAsync(
+                archiveService,
+                stream,
+                ownership.CancellationToken);
 
         ownership.CancellationToken.ThrowIfCancellationRequested();
-        publishDocument(loadedDocument);
+        publishDocument(loadedDocument, coordinatedFingerprint);
     }
 
-    private async Task<bool> SaveDocumentToFileAsync()
+    private static async Task<(
+        GostDocument Document,
+        FileContentFingerprint Fingerprint)> LoadDocumentAndFingerprintAsync(
+            IArchiveService archiveService,
+            Stream source,
+            CancellationToken cancellationToken)
+    {
+        await using MemoryStream buffered = new();
+        await source.CopyToAsync(buffered, cancellationToken);
+
+        buffered.Position = 0;
+        FileContentFingerprint fingerprint =
+            await new FileContentFingerprintService().CaptureAsync(
+                buffered,
+                cancellationToken);
+
+        buffered.Position = 0;
+        GostDocument document =
+            await archiveService.LoadAsync(buffered);
+        return (document, fingerprint);
+    }
+
+    private async Task<bool> SaveDocumentToFileAsync(
+        bool forceSaveAs = false,
+        bool overwriteExternalChanges = false)
     {
         if (DataContext is not MainWindowViewModel viewModel ||
             MainEditor?.CurrentDocument is null)
@@ -1010,7 +1058,7 @@ public partial class MainWindow : Window
         {
             string? filePath = viewModel.Session.CurrentFilePath;
 
-            if (string.IsNullOrWhiteSpace(filePath))
+            if (forceSaveAs || string.IsNullOrWhiteSpace(filePath))
             {
                 IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
                     new FilePickerSaveOptions
@@ -1047,7 +1095,8 @@ public partial class MainWindow : Window
             DocumentSaveResult saveResult =
                 await viewModel.DocumentSaveService.SaveAsync(
                     documentToSave,
-                    filePath);
+                    filePath,
+                    overwriteExternalChanges: overwriteExternalChanges);
 
             if (saveResult.IsCurrentRevision)
             {
@@ -1059,6 +1108,23 @@ public partial class MainWindow : Window
                 ? "Сохранена предыдущая версия; есть новые изменения"
                 : "Документ сохранён";
             return CanCloseAfterSave(saveResult, viewModel.Session);
+        }
+        catch (ExternalFileChangedException exception)
+        {
+            ExternalFileConflictDialog dialog = new(
+                Path.GetFileName(exception.FilePath));
+            ExternalFileConflictDecision decision =
+                await dialog.ShowDialog<ExternalFileConflictDecision>(this);
+
+            return decision switch
+            {
+                ExternalFileConflictDecision.Overwrite =>
+                    await SaveDocumentToFileAsync(
+                        overwriteExternalChanges: true),
+                ExternalFileConflictDecision.SaveCopy =>
+                    await SaveDocumentToFileAsync(forceSaveAs: true),
+                _ => false
+            };
         }
         catch (Exception ex)
         {

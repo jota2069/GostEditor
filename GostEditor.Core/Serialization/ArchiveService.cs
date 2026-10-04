@@ -2,6 +2,7 @@ using GostEditor.Core.Interfaces;
 using GostEditor.Core.IO;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using System.Security.Cryptography;
 
 namespace GostEditor.Core.Serialization;
 
@@ -99,6 +100,66 @@ public class ArchiveService : IArchiveService
             cancellationToken);
     }
 
+    public async Task<ArchiveFileFingerprint> SaveWithFingerprintAsync(
+        DocumentPersistenceSnapshot snapshot,
+        string filePath,
+        Func<CancellationToken, Task>? beforeCommitAsync = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+
+        await using MemoryStream package = new();
+        await _writer.WriteAsync(
+            snapshot.Document,
+            package,
+            cancellationToken);
+
+        if (!package.TryGetBuffer(out ArraySegment<byte> buffer))
+        {
+            throw new InvalidOperationException(
+                "Не удалось получить подготовленный пакет .gost.");
+        }
+
+        int length = checked((int)package.Length);
+        string sha256 = Convert.ToHexString(
+            SHA256.HashData(buffer.AsSpan(0, length)));
+        package.Position = 0;
+
+        await _fileCommitter.WriteAsync(
+            filePath,
+            async (destination, token) =>
+            {
+                package.Position = 0;
+                await package.CopyToAsync(destination, token);
+            },
+            beforeCommitAsync ?? (static _ => Task.CompletedTask),
+            cancellationToken);
+
+        return new ArchiveFileFingerprint(length, sha256);
+    }
+
+    public Task SaveAsync(
+        DocumentPersistenceSnapshot snapshot,
+        string filePath,
+        Func<CancellationToken, Task> beforeCommitAsync,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ArgumentNullException.ThrowIfNull(beforeCommitAsync);
+
+        return _fileCommitter.WriteAsync(
+            filePath,
+            (stream, writerCancellationToken) =>
+                _writer.WriteAsync(
+                    snapshot.Document,
+                    stream,
+                    writerCancellationToken),
+            beforeCommitAsync,
+            cancellationToken);
+    }
+
     public Task SaveAsync(
         GostDocument document,
         Stream stream,
@@ -129,3 +190,7 @@ public class ArchiveService : IArchiveService
             cancellationToken);
     }
 }
+
+public sealed record ArchiveFileFingerprint(
+    long Length,
+    string Sha256);
