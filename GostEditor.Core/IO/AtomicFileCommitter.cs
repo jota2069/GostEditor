@@ -8,6 +8,12 @@ public interface IAtomicFileCommitter
         string destinationPath,
         Func<Stream, CancellationToken, Task> writeAsync,
         CancellationToken cancellationToken = default);
+
+    Task WriteAsync(
+        string destinationPath,
+        Func<Stream, CancellationToken, Task> writeAsync,
+        Func<CancellationToken, Task> beforeCommitAsync,
+        CancellationToken cancellationToken = default);
 }
 
 internal enum AtomicFileEntryState
@@ -74,8 +80,22 @@ public sealed class AtomicFileCommitter : IAtomicFileCommitter
         Func<Stream, CancellationToken, Task> writeAsync,
         CancellationToken cancellationToken = default)
     {
+        await WriteAsync(
+            destinationPath,
+            writeAsync,
+            static _ => Task.CompletedTask,
+            cancellationToken);
+    }
+
+    public async Task WriteAsync(
+        string destinationPath,
+        Func<Stream, CancellationToken, Task> writeAsync,
+        Func<CancellationToken, Task> beforeCommitAsync,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
         ArgumentNullException.ThrowIfNull(writeAsync);
+        ArgumentNullException.ThrowIfNull(beforeCommitAsync);
 
         string fullDestinationPath = Path.GetFullPath(destinationPath);
         string? directoryPath = Path.GetDirectoryName(fullDestinationPath);
@@ -111,6 +131,8 @@ public sealed class AtomicFileCommitter : IAtomicFileCommitter
 
             await _fileSystem.CloseTemporaryFileAsync(temporaryStream);
             temporaryStream = null;
+
+            await beforeCommitAsync(cancellationToken);
 
             // This is the cancellation commit point. Once Commit starts, its
             // result wins over a later cancellation request.

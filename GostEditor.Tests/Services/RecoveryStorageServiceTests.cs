@@ -678,6 +678,23 @@ public sealed class RecoveryStorageServiceTests : IDisposable
                     writeAsync,
                     cancellationToken);
         }
+
+        public Task WriteAsync(
+            string destinationPath,
+            Func<Stream, CancellationToken, Task> writeAsync,
+            Func<CancellationToken, Task> beforeCommitAsync,
+            CancellationToken cancellationToken = default)
+        {
+            int call = Interlocked.Increment(ref _calls);
+            return call == _failOnCall
+                ? Task.FromException(
+                    new InjectedRecoveryIOException("pointer publish"))
+                : _inner.WriteAsync(
+                    destinationPath,
+                    writeAsync,
+                    beforeCommitAsync,
+                    cancellationToken);
+        }
     }
 
     private sealed class InjectedRecoveryIOException : IOException
@@ -708,6 +725,13 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         public Task WriteAsync(
             string destinationPath,
             Func<Stream, CancellationToken, Task> writeAsync,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException(_exception);
+
+        public Task WriteAsync(
+            string destinationPath,
+            Func<Stream, CancellationToken, Task> writeAsync,
+            Func<CancellationToken, Task> beforeCommitAsync,
             CancellationToken cancellationToken = default) =>
             Task.FromException(_exception);
     }

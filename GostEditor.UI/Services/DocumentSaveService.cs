@@ -15,6 +15,7 @@ public sealed class DocumentSaveService
     private readonly DocumentSessionState _session;
     private readonly PersistenceIoCoordinator _ioCoordinator;
     private readonly TimeProvider _timeProvider;
+    private readonly FileContentFingerprintService _fingerprintService;
 
     public DocumentSaveService(
         IArchiveService archiveService,
@@ -24,7 +25,8 @@ public sealed class DocumentSaveService
             archiveService,
             session,
             ioCoordinator,
-            TimeProvider.System)
+            TimeProvider.System,
+            new FileContentFingerprintService())
     {
     }
 
@@ -32,7 +34,8 @@ public sealed class DocumentSaveService
         IArchiveService archiveService,
         DocumentSessionState session,
         PersistenceIoCoordinator ioCoordinator,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        FileContentFingerprintService? fingerprintService = null)
     {
         _archiveService = archiveService
             ?? throw new ArgumentNullException(nameof(archiveService));
@@ -42,12 +45,15 @@ public sealed class DocumentSaveService
             ?? throw new ArgumentNullException(nameof(ioCoordinator));
         _timeProvider = timeProvider
             ?? throw new ArgumentNullException(nameof(timeProvider));
+        _fingerprintService = fingerprintService
+            ?? new FileContentFingerprintService();
     }
 
     public async Task<DocumentSaveResult> SaveAsync(
         GostDocument document,
         string filePath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool overwriteExternalChanges = false)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
@@ -63,6 +69,49 @@ public sealed class DocumentSaveService
             ownership.CancellationToken;
         operationCancellation.ThrowIfCancellationRequested();
 
+        FileContentFingerprint? expectedFingerprint =
+            _session.FileFingerprint;
+        bool verifyExternalVersion =
+            operation == PersistenceIoOperation.ManualSave &&
+            !overwriteExternalChanges;
+        if (verifyExternalVersion)
+        {
+            if (!_session.HasFileFingerprintBaseline)
+            {
+                FileContentFingerprint? unknownBaselineFile;
+                try
+                {
+                    unknownBaselineFile =
+                        await _fingerprintService.TryCaptureAsync(
+                            filePath,
+                            operationCancellation);
+                }
+                catch (IOException exception)
+                {
+                    throw new ExternalFileChangedException(
+                        filePath,
+                        exception);
+                }
+                catch (UnauthorizedAccessException exception)
+                {
+                    throw new ExternalFileChangedException(
+                        filePath,
+                        exception);
+                }
+                if (unknownBaselineFile is not null)
+                {
+                    throw new ExternalFileChangedException(filePath);
+                }
+            }
+            else
+            {
+                await EnsureExternalVersionUnchangedAsync(
+                    filePath,
+                    expectedFingerprint,
+                    operationCancellation);
+            }
+        }
+
         DateTimeOffset savedAt = _timeProvider.GetUtcNow();
         DocumentPersistenceSnapshot snapshot =
             DocumentPersistenceSnapshot.Capture(
@@ -70,12 +119,53 @@ public sealed class DocumentSaveService
                 _session.ChangeVersion,
                 savedAt.UtcDateTime);
 
-        await _archiveService.SaveAsync(
-            snapshot,
-            filePath,
-            operationCancellation);
+        FileContentFingerprint? committedFingerprint;
+        if (_archiveService is ArchiveService archiveService)
+        {
+            ArchiveFileFingerprint written =
+                await archiveService.SaveWithFingerprintAsync(
+                snapshot,
+                filePath,
+                verifyExternalVersion
+                    ? token => EnsureExternalVersionUnchangedAsync(
+                        filePath,
+                        expectedFingerprint,
+                        token)
+                    : null,
+                operationCancellation);
+            committedFingerprint = new FileContentFingerprint(
+                written.Length,
+                written.Sha256);
+        }
+        else
+        {
+            await _archiveService.SaveAsync(
+                snapshot,
+                filePath,
+                operationCancellation);
 
-        _session.MarkSaved(filePath, savedAt, snapshot.Revision);
+            try
+            {
+                committedFingerprint =
+                    await _fingerprintService.TryCaptureAsync(
+                        filePath,
+                        CancellationToken.None);
+            }
+            catch (IOException)
+            {
+                committedFingerprint = null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                committedFingerprint = null;
+            }
+        }
+
+        _session.MarkSaved(
+            filePath,
+            savedAt,
+            snapshot.Revision,
+            committedFingerprint);
         bool isCurrentRevision =
             _session.ChangeVersion == snapshot.Revision;
 
@@ -108,6 +198,33 @@ public sealed class DocumentSaveService
             Path.GetFullPath(currentPath),
             Path.GetFullPath(filePath),
             comparison);
+    }
+
+    private async Task EnsureExternalVersionUnchangedAsync(
+        string filePath,
+        FileContentFingerprint? expected,
+        CancellationToken cancellationToken)
+    {
+        FileContentFingerprint? actual;
+        try
+        {
+            actual = await _fingerprintService.TryCaptureAsync(
+                filePath,
+                cancellationToken);
+        }
+        catch (IOException exception)
+        {
+            throw new ExternalFileChangedException(filePath, exception);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new ExternalFileChangedException(filePath, exception);
+        }
+
+        if (actual != expected)
+        {
+            throw new ExternalFileChangedException(filePath);
+        }
     }
 }
 

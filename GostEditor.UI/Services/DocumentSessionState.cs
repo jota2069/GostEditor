@@ -12,6 +12,10 @@ public partial class DocumentSessionState : ObservableObject
 
     private bool _isDirty;
 
+    private FileContentFingerprint? _fileFingerprint;
+
+    private bool _hasFileFingerprintBaseline;
+
     public long ChangeVersion
     {
         get => _changeVersion;
@@ -34,6 +38,20 @@ public partial class DocumentSessionState : ObservableObject
                 OnPropertyChanged(nameof(WindowTitle));
             }
         }
+    }
+
+    public FileContentFingerprint? FileFingerprint
+    {
+        get => _fileFingerprint;
+        private set => SetProperty(ref _fileFingerprint, value);
+    }
+
+    public bool HasFileFingerprintBaseline
+    {
+        get => _hasFileFingerprintBaseline;
+        private set => SetProperty(
+            ref _hasFileFingerprintBaseline,
+            value);
     }
 
     [ObservableProperty]
@@ -61,15 +79,21 @@ public partial class DocumentSessionState : ObservableObject
         CurrentFilePath = null;
         LastSavedAt = null;
         IsRecovered = false;
+        FileFingerprint = null;
+        HasFileFingerprintBaseline = false;
     }
 
-    public void MarkOpened(string filePath)
+    public void MarkOpened(
+        string filePath,
+        FileContentFingerprint? fileFingerprint = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
         CurrentFilePath = Path.GetFullPath(filePath);
         LastSavedAt = null;
         IsRecovered = false;
+        FileFingerprint = fileFingerprint;
+        HasFileFingerprintBaseline = true;
         AdvanceToCleanBaseline();
     }
 
@@ -84,7 +108,8 @@ public partial class DocumentSessionState : ObservableObject
     public void MarkSaved(
         string filePath,
         DateTimeOffset savedAt,
-        long savedRevision)
+        long savedRevision,
+        FileContentFingerprint? fileFingerprint = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
         if (savedRevision < 0 || savedRevision > ChangeVersion)
@@ -95,6 +120,8 @@ public partial class DocumentSessionState : ObservableObject
         CurrentFilePath = Path.GetFullPath(filePath);
         LastSavedAt = savedAt;
         IsRecovered = false;
+        FileFingerprint = fileFingerprint;
+        HasFileFingerprintBaseline = fileFingerprint is not null;
         SavedRevision = savedRevision;
         UpdateDirtyState();
     }
@@ -107,6 +134,8 @@ public partial class DocumentSessionState : ObservableObject
 
         LastSavedAt = null;
         IsRecovered = true;
+        FileFingerprint = null;
+        HasFileFingerprintBaseline = false;
         ChangeVersion = checked(ChangeVersion + 1);
         SavedRevision = ChangeVersion - 1;
         UpdateDirtyState();
