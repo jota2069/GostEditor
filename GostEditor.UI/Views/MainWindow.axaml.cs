@@ -919,7 +919,8 @@ public partial class MainWindow : Window
                         "Не удалось определить путь открытого документа.");
                 }
 
-                await LoadDocumentForOpenAsync(
+                IReadOnlyList<GostArchiveDiagnostic> diagnostics =
+                    await LoadDocumentForOpenAsync(
                     viewModel.ArchiveService,
                     selectedFile.OpenReadAsync,
                     _persistenceIoCoordinator,
@@ -931,7 +932,7 @@ public partial class MainWindow : Window
 
                 await ResetAutoSaveRecoveryAsync();
 
-                viewModel.StatusMessage = "Документ загружен";
+                viewModel.StatusMessage = CreateLoadStatus(diagnostics);
             }
             else
             {
@@ -961,14 +962,34 @@ public partial class MainWindow : Window
         viewModel.Session.MarkOpened(filePath, fileFingerprint);
     }
 
-    internal static async Task LoadDocumentForOpenAsync(
+    private static string CreateLoadStatus(
+        IReadOnlyList<GostArchiveDiagnostic> diagnostics)
+    {
+        if (diagnostics.Count == 0)
+        {
+            return "Документ загружен";
+        }
+
+        GostArchiveDiagnostic[] ordered = diagnostics
+            .OrderByDescending(item => item.Severity)
+            .ToArray();
+        string suffix = ordered.Length > 3
+            ? $"; ещё сообщений: {ordered.Length - 3}"
+            : string.Empty;
+        return "Документ загружен с примечаниями: " +
+               string.Join("; ", ordered.Take(3).Select(item => item.Message)) +
+               suffix;
+    }
+
+    internal static async Task<IReadOnlyList<GostArchiveDiagnostic>>
+        LoadDocumentForOpenAsync(
         IArchiveService archiveService,
         Func<Task<Stream>> openStreamAsync,
         PersistenceIoCoordinator? ioCoordinator,
         Action<GostDocument> publishDocument,
         CancellationToken cancellationToken = default)
     {
-        await LoadDocumentForOpenAsync(
+        return await LoadDocumentForOpenAsync(
             archiveService,
             openStreamAsync,
             ioCoordinator,
@@ -976,7 +997,8 @@ public partial class MainWindow : Window
             cancellationToken);
     }
 
-    internal static async Task LoadDocumentForOpenAsync(
+    internal static async Task<IReadOnlyList<GostArchiveDiagnostic>>
+        LoadDocumentForOpenAsync(
         IArchiveService archiveService,
         Func<Task<Stream>> openStreamAsync,
         PersistenceIoCoordinator? ioCoordinator,
@@ -991,13 +1013,15 @@ public partial class MainWindow : Window
         {
             await using Stream uncoordinatedStream =
                 await openStreamAsync();
-            (GostDocument document, FileContentFingerprint fingerprint) =
+            (GostDocument document,
+                FileContentFingerprint fingerprint,
+                IReadOnlyList<GostArchiveDiagnostic> diagnostics) =
                 await LoadDocumentAndFingerprintAsync(
                     archiveService,
                     uncoordinatedStream,
                     cancellationToken);
             publishDocument(document, fingerprint);
-            return;
+            return diagnostics;
         }
 
         using PersistenceIoCoordinator.PersistenceIoLease ownership =
@@ -1010,7 +1034,8 @@ public partial class MainWindow : Window
         await using Stream stream = await openStreamAsync();
 
         (GostDocument loadedDocument,
-            FileContentFingerprint coordinatedFingerprint) =
+            FileContentFingerprint coordinatedFingerprint,
+            IReadOnlyList<GostArchiveDiagnostic> coordinatedDiagnostics) =
             await LoadDocumentAndFingerprintAsync(
                 archiveService,
                 stream,
@@ -1018,11 +1043,14 @@ public partial class MainWindow : Window
 
         ownership.CancellationToken.ThrowIfCancellationRequested();
         publishDocument(loadedDocument, coordinatedFingerprint);
+        return coordinatedDiagnostics;
     }
 
     private static async Task<(
         GostDocument Document,
-        FileContentFingerprint Fingerprint)> LoadDocumentAndFingerprintAsync(
+        FileContentFingerprint Fingerprint,
+        IReadOnlyList<GostArchiveDiagnostic> Diagnostics)>
+        LoadDocumentAndFingerprintAsync(
             IArchiveService archiveService,
             Stream source,
             CancellationToken cancellationToken)
@@ -1039,9 +1067,11 @@ public partial class MainWindow : Window
                 cancellationToken);
 
         buffered.Position = 0;
-        GostDocument document =
-            await archiveService.LoadAsync(buffered);
-        return (document, fingerprint);
+        GostArchiveLoadResult result =
+            await archiveService.LoadWithDiagnosticsAsync(
+                buffered,
+                cancellationToken);
+        return (result.Document, fingerprint, result.Diagnostics);
     }
 
     internal static async Task<MemoryStream> BufferArchiveAsync(

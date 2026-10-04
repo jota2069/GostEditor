@@ -11,7 +11,8 @@ namespace GostEditor.Core.Serialization;
 internal sealed class GostArchiveReadResult
 {
     public required GostMigratableDocument Document { get; init; }
-    public required IReadOnlyList<GostSerializationDiagnostic> Diagnostics { get; init; }
+    public required int SourceVersion { get; init; }
+    public required IReadOnlyList<GostArchiveDiagnostic> Diagnostics { get; init; }
 }
 
 internal sealed class GostArchivePackageReader
@@ -87,6 +88,8 @@ internal sealed class GostArchivePackageReader
             cancellationToken);
         ValidateManifestComplexity(manifestBytes);
         JObject manifest = ParseManifest(manifestBytes);
+        bool formatVersionWasPresent = manifest.Properties().Any(
+            property => property.Name == nameof(GostDocumentV2Dto.FormatVersion));
         int formatVersion = ReadFormatVersion(manifest);
 
         if (formatVersion > GostFormatVersions.Current)
@@ -105,7 +108,8 @@ internal sealed class GostArchivePackageReader
             GostMigrationContext migrationContext = new(
                 formatVersion,
                 legacyDocument,
-                entries);
+                entries,
+                formatVersionWasPresent);
             await _migrationRegistry.MigrateToAsync(
                 migrationContext,
                 GostFormatVersions.Current,
@@ -116,6 +120,7 @@ internal sealed class GostArchivePackageReader
                 Document = migrationContext.Document
                     ?? throw new InvalidOperationException(
                         "Цепочка миграций не создала каноническую модель документа."),
+                SourceVersion = formatVersion,
                 Diagnostics = migrationContext.Diagnostics.Items
             };
         }
@@ -136,6 +141,7 @@ internal sealed class GostArchivePackageReader
         return new GostArchiveReadResult
         {
             Document = document,
+            SourceVersion = formatVersion,
             Diagnostics = diagnostics.Items
         };
     }
@@ -304,14 +310,27 @@ internal sealed class GostArchivePackageReader
 
     private static int ReadFormatVersion(JObject manifest)
     {
-        JToken? versionToken = manifest.GetValue(
-            nameof(GostDocumentV2Dto.FormatVersion),
-            StringComparison.Ordinal);
-
-        if (versionToken == null)
+        string propertyName = nameof(GostDocumentV2Dto.FormatVersion);
+        List<JProperty> versionProperties = manifest.Properties()
+            .Where(property => string.Equals(
+                property.Name,
+                propertyName,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (versionProperties.Count == 0)
         {
             return GostFormatVersions.LegacyWithoutVersion;
         }
+
+        if (versionProperties.Count != 1 ||
+            versionProperties[0].Name != propertyName)
+        {
+            throw new InvalidDataException(
+                "Имя свойства FormatVersion должно иметь точный регистр и " +
+                "встречаться один раз.");
+        }
+
+        JToken versionToken = versionProperties[0].Value;
 
         if (versionToken.Type != JTokenType.Integer)
         {

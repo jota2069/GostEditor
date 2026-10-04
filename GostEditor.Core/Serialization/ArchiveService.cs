@@ -2,6 +2,7 @@ using GostEditor.Core.Interfaces;
 using GostEditor.Core.IO;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Core.Serialization.Format;
 using System.Security.Cryptography;
 
 namespace GostEditor.Core.Serialization;
@@ -51,18 +52,40 @@ public class ArchiveService : IArchiveService
 
     public async Task<GostDocument> LoadAsync(string filePath)
     {
+        GostArchiveLoadResult result = await LoadWithDiagnosticsAsync(filePath);
+        return result.Document;
+    }
+
+    public async Task<GostArchiveLoadResult> LoadWithDiagnosticsAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
         await using FileStream fileStream = File.OpenRead(filePath);
-        return await LoadAsync(fileStream);
+        return await LoadWithDiagnosticsAsync(fileStream, cancellationToken);
     }
 
     public async Task<GostDocument> LoadAsync(Stream stream)
     {
+        GostArchiveLoadResult result = await LoadWithDiagnosticsAsync(stream);
+        return result.Document;
+    }
+
+    public async Task<GostArchiveLoadResult> LoadWithDiagnosticsAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
         ArgumentNullException.ThrowIfNull(stream);
 
-        GostArchiveReadResult result = await _reader.ReadAsync(stream);
-        return GostDocumentMaterializer.Materialize(result.Document);
+        GostArchiveReadResult result = await _reader.ReadAsync(
+            stream,
+            cancellationToken);
+        return new GostArchiveLoadResult(
+            GostDocumentMaterializer.Materialize(result.Document),
+            result.SourceVersion,
+            GostFormatVersions.Current,
+            result.Diagnostics);
     }
 
     public Task SaveAsync(

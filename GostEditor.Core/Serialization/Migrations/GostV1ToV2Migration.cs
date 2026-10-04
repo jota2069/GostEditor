@@ -111,6 +111,9 @@ internal sealed class GostV1ToV2Migration : IGostFormatMigration
 
         context.Document = document;
         context.LegacyDocument = null;
+        context.Diagnostics.Info(
+            "FORMAT_V1_MIGRATED",
+            "Документ формата v1 мигрирован в текущую модель v2.");
         context.WorkingVersion = ToVersion;
     }
 

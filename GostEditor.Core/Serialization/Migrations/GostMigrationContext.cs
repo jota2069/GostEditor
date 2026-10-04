@@ -7,12 +7,14 @@ internal sealed class GostMigrationContext
     public GostMigrationContext(
         int sourceVersion,
         GostDocumentV1Dto legacyDocument,
-        GostArchiveEntryIndex entries)
+        GostArchiveEntryIndex entries,
+        bool formatVersionWasPresent = true)
     {
         SourceVersion = sourceVersion;
         WorkingVersion = sourceVersion;
         LegacyDocument = legacyDocument;
         Entries = entries;
+        FormatVersionWasPresent = formatVersionWasPresent;
     }
 
     public GostMigrationContext(
@@ -28,6 +30,7 @@ internal sealed class GostMigrationContext
     }
 
     public int SourceVersion { get; }
+    public bool FormatVersionWasPresent { get; }
     public int WorkingVersion { get; set; }
     public GostDocumentV1Dto? LegacyDocument { get; set; }
     public GostMigratableDocument? Document { get; set; }
