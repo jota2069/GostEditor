@@ -180,12 +180,25 @@ public partial class DocumentEditor
         DocumentChangeKind kind)
     {
         DocumentChangeVersion++;
-        DocumentChanged?.Invoke(
-            this,
-            new DocumentChangedEventArgs(
-                startParagraphIndex,
-                kind,
-                DocumentChangeVersion));
+        DocumentChangedEventArgs args = new(
+            startParagraphIndex,
+            kind,
+            DocumentChangeVersion);
+        foreach (EventHandler<DocumentChangedEventArgs> handler in
+                 DocumentChanged?.GetInvocationList()
+                     .Cast<EventHandler<DocumentChangedEventArgs>>() ?? [])
+        {
+            try
+            {
+                handler(this, args);
+            }
+            catch (Exception exception)
+            {
+                System.Diagnostics.Trace.TraceError(
+                    "DocumentChanged subscriber failed: {0}",
+                    exception);
+            }
+        }
     }
 
 

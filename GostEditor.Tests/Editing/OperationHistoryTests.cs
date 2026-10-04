@@ -10,6 +10,145 @@ namespace GostEditor.Tests.Editing;
 public sealed class OperationHistoryTests
 {
     [Fact]
+    public void Transaction_WhenAtomicChildApplyFails_RollsBackCompletedChildren()
+    {
+        (DocumentEditingSession session, _) = CreateSession("A");
+        MutableCounter counter = new();
+        InvalidOperationException failure = new("apply failed");
+        EditTransaction transaction = new("Сбойная транзакция");
+        transaction.Add(new CounterOperation(counter));
+        transaction.Add(new CounterOperation(
+            counter,
+            applyFailure: failure));
+
+        InvalidOperationException actual = Assert.Throws<
+            InvalidOperationException>(() => session.Execute(transaction));
+
+        Assert.Same(failure, actual);
+        Assert.Equal(0, counter.Value);
+        Assert.Equal(0, session.History.UndoCount);
+        Assert.Equal(0, session.History.RedoCount);
+        Assert.Equal(0, session.History.Version);
+    }
+
+    [Fact]
+    public void Transaction_WhenInsertFailsBeforeMutation_DoesNotRemoveExistingBlock()
+    {
+        (DocumentEditingSession session, ParagraphBlock paragraph) =
+            CreateSession("A");
+        DocumentSection section = session.Document.Sections[0];
+        EditTransaction transaction = new("Повторная вставка");
+        transaction.Add(new InsertBlockOperation(section.Id, 0, paragraph));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.Execute(transaction));
+
+        Assert.Same(paragraph, Assert.Single(section.Blocks));
+        Assert.Equal(0, session.History.UndoCount);
+        Assert.Equal(0, session.History.Version);
+    }
+
+    [Fact]
+    public void Undo_WhenRevertPartiallyFails_RestoresAppliedStateAndKeepsHistory()
+    {
+        (DocumentEditingSession session, _) = CreateSession("A");
+        MutableCounter counter = new();
+        CounterOperation first = new(counter);
+        CounterOperation second = new(
+            counter,
+            revertFailuresRemaining: 1);
+        EditTransaction transaction = new("Сбойный undo");
+        transaction.Add(first);
+        transaction.Add(second);
+        session.Execute(transaction);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.History.Undo());
+
+        Assert.Equal(2, counter.Value);
+        Assert.Equal(1, session.History.UndoCount);
+        Assert.Equal(0, session.History.RedoCount);
+        Assert.Equal(1, session.History.Version);
+
+        Assert.True(session.History.Undo());
+        Assert.Equal(0, counter.Value);
+        Assert.Equal(0, session.History.UndoCount);
+        Assert.Equal(1, session.History.RedoCount);
+    }
+
+    [Fact]
+    public void Redo_WhenApplyPartiallyFails_RestoresUndoneStateAndKeepsHistory()
+    {
+        (DocumentEditingSession session, _) = CreateSession("A");
+        MutableCounter counter = new();
+        CounterOperation first = new(counter);
+        CounterOperation second = new(counter);
+        EditTransaction transaction = new("Сбойный redo");
+        transaction.Add(first);
+        transaction.Add(second);
+        session.Execute(transaction);
+        session.History.Undo();
+        second.ApplyFailuresRemaining = 1;
+
+        Assert.Throws<InvalidOperationException>(() =>
+            session.History.Redo());
+
+        Assert.Equal(0, counter.Value);
+        Assert.Equal(0, session.History.UndoCount);
+        Assert.Equal(1, session.History.RedoCount);
+        Assert.Equal(2, session.History.Version);
+
+        Assert.True(session.History.Redo());
+        Assert.Equal(2, counter.Value);
+    }
+
+    [Fact]
+    public void History_WhenSubscribersThrow_KeepsCommittedStateAndStacks()
+    {
+        (DocumentEditingSession session, ParagraphBlock paragraph) =
+            CreateSession("A");
+        session.History.Changed += (_, _) =>
+            throw new InvalidOperationException("observer failed");
+        session.History.DetailedChanged += (_, _) =>
+            throw new InvalidOperationException("observer failed");
+
+        session.Text.InsertText(
+            new DocumentLocation(paragraph.Id, 1),
+            "B");
+        Assert.Equal("AB", paragraph.GetPlainText());
+        Assert.Equal(1, session.History.UndoCount);
+        Assert.Equal(1, session.History.Version);
+
+        Assert.True(session.History.Undo());
+        Assert.Equal("A", paragraph.GetPlainText());
+        Assert.Equal(1, session.History.RedoCount);
+        Assert.Equal(2, session.History.Version);
+    }
+
+    [Fact]
+    public void SelectionAwareOperation_WhenInnerRejects_DoesNotRevertOrPoisonRetry()
+    {
+        (DocumentEditingSession session, ParagraphBlock paragraph) =
+            CreateSession("A");
+        AtomicRetryOperation inner = new(paragraph.Id);
+        SelectionAwareOperation operation = new(
+            inner,
+            session.Selection,
+            () => session.Selection.MoveCaret(
+                new DocumentLocation(paragraph.Id, 1)));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            operation.Apply(session.Context));
+
+        Assert.Equal(0, inner.RevertCalls);
+        Assert.Equal("A", paragraph.GetPlainText());
+
+        operation.Apply(session.Context);
+        Assert.Equal("AB", paragraph.GetPlainText());
+        Assert.Equal(new DocumentLocation(paragraph.Id, 1),
+            session.Selection.Caret);
+    }
+    [Fact]
     public void InsertText_CanUndoAndRedoWithoutDocumentSnapshot()
     {
         (DocumentEditingSession session, ParagraphBlock paragraph) =
@@ -169,6 +308,104 @@ public sealed class OperationHistoryTests
         section.Blocks.Add(paragraph);
         document.Sections.Add(section);
         return (new DocumentEditingSession(document), paragraph);
+    }
+
+    private sealed class MutableCounter
+    {
+        internal int Value { get; set; }
+    }
+
+    private sealed class CounterOperation : IEditOperation
+    {
+        private readonly MutableCounter _counter;
+        private readonly Exception? _applyFailure;
+        private int _revertFailuresRemaining;
+
+        internal CounterOperation(
+            MutableCounter counter,
+            Exception? applyFailure = null,
+            int revertFailuresRemaining = 0)
+        {
+            _counter = counter;
+            _applyFailure = applyFailure;
+            _revertFailuresRemaining = revertFailuresRemaining;
+        }
+
+        internal int ApplyFailuresRemaining { get; set; }
+
+        public string Description => "Тестовая операция";
+
+        public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
+            Array.Empty<DocumentNodeId>();
+
+        public void Apply(DocumentEditingContext context)
+        {
+            if (ApplyFailuresRemaining > 0)
+            {
+                ApplyFailuresRemaining--;
+                throw new InvalidOperationException("apply failed");
+            }
+
+            if (_applyFailure is not null)
+            {
+                throw _applyFailure;
+            }
+
+            _counter.Value++;
+        }
+
+        public void Revert(DocumentEditingContext context)
+        {
+            if (_revertFailuresRemaining > 0)
+            {
+                _revertFailuresRemaining--;
+                throw new InvalidOperationException("revert failed");
+            }
+
+            _counter.Value--;
+        }
+    }
+
+    private sealed class AtomicRetryOperation : IEditOperation
+    {
+        private readonly DocumentNodeId _paragraphId;
+        private bool _failNextApply = true;
+
+        internal AtomicRetryOperation(DocumentNodeId paragraphId)
+        {
+            _paragraphId = paragraphId;
+        }
+
+        internal int RevertCalls { get; private set; }
+
+        public string Description => "Тест повтора";
+
+        public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
+            new[] { _paragraphId };
+
+        public void Apply(DocumentEditingContext context)
+        {
+            if (_failNextApply)
+            {
+                _failNextApply = false;
+                throw new InvalidOperationException("rejected");
+            }
+
+            ParagraphTextBuffer.Insert(
+                context.GetRequiredParagraph(_paragraphId),
+                1,
+                "B",
+                null);
+        }
+
+        public void Revert(DocumentEditingContext context)
+        {
+            RevertCalls++;
+            ParagraphTextBuffer.Delete(
+                context.GetRequiredParagraph(_paragraphId),
+                1,
+                1);
+        }
     }
 }
 

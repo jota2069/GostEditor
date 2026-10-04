@@ -28,9 +28,29 @@ public class SnapshotCommand : IEditorCommand
         {
             _oldState = CaptureState();
 
-            _action.Invoke();
+            try
+            {
+                _action.Invoke();
+                _newState = CaptureState();
+            }
+            catch (Exception exception)
+            {
+                try
+                {
+                    RestoreState(_oldState);
+                }
+                catch (Exception rollbackException)
+                {
+                    exception.Data[
+                        "GostEditor.SnapshotCommand.RollbackFailure"] =
+                        rollbackException;
+                }
 
-            _newState = CaptureState();
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                    .Capture(exception)
+                    .Throw();
+                throw;
+            }
 
             _isFirstExecution = false;
         }

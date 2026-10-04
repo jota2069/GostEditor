@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.TextEngine.Commands;
+using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 
 namespace GostEditor.Core.TextEngine;
 
@@ -46,8 +48,26 @@ public class CommandManager
         command.Execute();
         bool isCommitted = command is not DocumentMutationCommand mutation ||
                            mutation.IsCommitted;
-        if (!isCommitted || !shouldRecord())
+        if (!isCommitted)
         {
+            return false;
+        }
+
+        bool record;
+        try
+        {
+            record = shouldRecord();
+        }
+        catch (Exception exception)
+        {
+            UndoAfterDecisionFailure(command, exception);
+            ExceptionDispatchInfo.Capture(exception).Throw();
+            throw;
+        }
+
+        if (!record)
+        {
+            command.Undo();
             return false;
         }
 
@@ -62,10 +82,11 @@ public class CommandManager
             return;
         }
 
-        IEditorCommand command = _undoStack.Pop();
+        IEditorCommand command = _undoStack.Peek();
         command.Undo();
+        _undoStack.Pop();
         _redoStack.Push(command);
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChangedSafely();
     }
 
     public void Redo()
@@ -75,23 +96,58 @@ public class CommandManager
             return;
         }
 
-        IEditorCommand command = _redoStack.Pop();
+        IEditorCommand command = _redoStack.Peek();
         command.Execute();
+        _redoStack.Pop();
         _undoStack.Push(command);
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChangedSafely();
     }
 
     public void Clear()
     {
         _undoStack.Clear();
         _redoStack.Clear();
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChangedSafely();
     }
 
     private void RecordExecutedCommand(IEditorCommand command)
     {
         _undoStack.Push(command);
         _redoStack.Clear();
-        Changed?.Invoke(this, EventArgs.Empty);
+        RaiseChangedSafely();
+    }
+
+    private static void UndoAfterDecisionFailure(
+        IEditorCommand command,
+        Exception primaryException)
+    {
+        try
+        {
+            command.Undo();
+        }
+        catch (Exception rollbackException)
+        {
+            primaryException.Data[
+                "GostEditor.CommandManager.RollbackFailure"] =
+                rollbackException;
+        }
+    }
+
+    private void RaiseChangedSafely()
+    {
+        foreach (EventHandler handler in
+                 Changed?.GetInvocationList().Cast<EventHandler>() ?? [])
+        {
+            try
+            {
+                handler(this, EventArgs.Empty);
+            }
+            catch (Exception exception)
+            {
+                Trace.TraceError(
+                    "CommandManager.Changed subscriber failed: {0}",
+                    exception);
+            }
+        }
     }
 }
