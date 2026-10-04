@@ -33,31 +33,83 @@ public sealed class EditTransaction : IEditOperation
 
     public void Apply(DocumentEditingContext context)
     {
-        int appliedCount = 0;
-        try
+        List<int> applied = new();
+        for (int index = 0; index < _operations.Count; index++)
         {
-            foreach (IEditOperation operation in _operations)
+            try
             {
-                operation.Apply(context);
-                appliedCount++;
+                _operations[index].Apply(context);
+                applied.Add(index);
             }
-        }
-        catch
-        {
-            for (int index = appliedCount - 1; index >= 0; index--)
+            catch (Exception primaryException)
             {
-                _operations[index].Revert(context);
-            }
+                List<Exception> rollbackFailures = new();
+                for (int appliedIndex = applied.Count - 1;
+                     appliedIndex >= 0;
+                     appliedIndex--)
+                {
+                    try
+                    {
+                        _operations[applied[appliedIndex]].Revert(context);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        rollbackFailures.Add(rollbackException);
+                    }
+                }
 
-            throw;
+                ThrowPrimaryWithRollbackFailures(
+                    primaryException,
+                    rollbackFailures);
+            }
         }
     }
 
     public void Revert(DocumentEditingContext context)
     {
-        for (int index = _operations.Count - 1; index >= 0; index--)
+        List<int> reverted = new();
+        try
         {
-            _operations[index].Revert(context);
+            for (int index = _operations.Count - 1; index >= 0; index--)
+            {
+                _operations[index].Revert(context);
+                reverted.Add(index);
+            }
         }
+        catch (Exception primaryException)
+        {
+            List<Exception> compensationFailures = new();
+            foreach (int index in reverted.Order())
+            {
+                try
+                {
+                    _operations[index].Apply(context);
+                }
+                catch (Exception compensationException)
+                {
+                    compensationFailures.Add(compensationException);
+                }
+            }
+
+            ThrowPrimaryWithRollbackFailures(
+                primaryException,
+                compensationFailures);
+        }
+    }
+
+    private static void ThrowPrimaryWithRollbackFailures(
+        Exception primaryException,
+        IReadOnlyCollection<Exception> rollbackFailures)
+    {
+        if (rollbackFailures.Count > 0)
+        {
+            primaryException.Data[
+                "GostEditor.EditTransaction.RollbackFailures"] =
+                rollbackFailures.ToArray();
+        }
+
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo
+            .Capture(primaryException)
+            .Throw();
     }
 }

@@ -1,5 +1,7 @@
 namespace GostEditor.Core.Editing;
 
+using System.Diagnostics;
+
 public enum OperationHistoryChangeKind
 {
     Executed,
@@ -71,8 +73,9 @@ public sealed class OperationHistory
             return false;
         }
 
-        IEditOperation operation = _undo.Pop();
+        IEditOperation operation = _undo.Peek();
         operation.Revert(_context);
+        _undo.Pop();
         _redo.Push(operation);
         RaiseChanged(OperationHistoryChangeKind.Undone, operation);
         return true;
@@ -85,8 +88,9 @@ public sealed class OperationHistory
             return false;
         }
 
-        IEditOperation operation = _redo.Pop();
+        IEditOperation operation = _redo.Peek();
         operation.Apply(_context);
+        _redo.Pop();
         _undo.Push(operation);
         RaiseChanged(OperationHistoryChangeKind.Redone, operation);
         return true;
@@ -109,12 +113,49 @@ public sealed class OperationHistory
         IEditOperation? operation)
     {
         Version++;
-        Changed?.Invoke(this, EventArgs.Empty);
-        DetailedChanged?.Invoke(
-            this,
-            new OperationHistoryChangedEventArgs(
-                kind,
-                operation,
-                Version));
+        InvokeSafely(Changed, EventArgs.Empty);
+        InvokeSafely(
+            DetailedChanged,
+            new OperationHistoryChangedEventArgs(kind, operation, Version));
+    }
+
+    private void InvokeSafely(EventHandler? handlers, EventArgs args)
+    {
+        foreach (EventHandler handler in
+                 handlers?.GetInvocationList().Cast<EventHandler>() ?? [])
+        {
+            try
+            {
+                handler(this, args);
+            }
+            catch (Exception exception)
+            {
+                Trace.TraceError(
+                    "OperationHistory event subscriber failed: {0}",
+                    exception);
+            }
+        }
+    }
+
+    private void InvokeSafely<TEventArgs>(
+        EventHandler<TEventArgs>? handlers,
+        TEventArgs args)
+        where TEventArgs : EventArgs
+    {
+        foreach (EventHandler<TEventArgs> handler in
+                 handlers?.GetInvocationList()
+                     .Cast<EventHandler<TEventArgs>>() ?? [])
+        {
+            try
+            {
+                handler(this, args);
+            }
+            catch (Exception exception)
+            {
+                Trace.TraceError(
+                    "OperationHistory event subscriber failed: {0}",
+                    exception);
+            }
+        }
     }
 }

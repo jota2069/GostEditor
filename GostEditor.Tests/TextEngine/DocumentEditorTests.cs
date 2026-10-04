@@ -1,11 +1,199 @@
 using GostEditor.Core.Models;
+using GostEditor.Core.Interfaces;
 using GostEditor.Core.TextEngine;
 using GostEditor.Core.TextEngine.DOM;
+using GostEditor.Core.TextEngine.Commands;
 
 namespace GostEditor.Tests.TextEngine;
 
 public class DocumentEditorTests
 {
+    [Fact]
+    public void CommandManager_WhenUndoOrRedoFails_KeepsCommandOnOriginalStack()
+    {
+        CommandManager history = new();
+        FaultingEditorCommand command = new();
+        int changedEvents = 0;
+        history.Changed += (_, _) => changedEvents++;
+        history.ExecuteCommand(command);
+        command.FailUndo = true;
+
+        Assert.Throws<InvalidOperationException>(history.Undo);
+        Assert.Equal(1, history.UndoCount);
+        Assert.Equal(0, history.RedoCount);
+        Assert.Equal(1, changedEvents);
+
+        command.FailUndo = false;
+        history.Undo();
+        command.FailExecute = true;
+        Assert.Throws<InvalidOperationException>(history.Redo);
+        Assert.Equal(0, history.UndoCount);
+        Assert.Equal(1, history.RedoCount);
+        Assert.Equal(2, changedEvents);
+    }
+    [Fact]
+    public void MutationCommand_WhenActionPartiallyFails_RestoresDocumentAndHistory()
+    {
+        DocumentEditor editor = new();
+        InvalidOperationException failure = new("mutation failed");
+        DocumentMutationCommand command = new(
+            editor,
+            () => new DocumentMutationRange(
+                0,
+                editor.Document.Paragraphs.Count),
+            () => new DocumentMutationRange(
+                0,
+                editor.Document.Paragraphs.Count),
+            () =>
+            {
+                editor.Document.Paragraphs.Add(new Paragraph
+                {
+                    Runs = { new TextRun("partial") }
+                });
+                throw failure;
+            },
+            DocumentChangeKind.Structure);
+
+        InvalidOperationException actual = Assert.Throws<
+            InvalidOperationException>(() =>
+            editor.History.ExecuteCommand(command));
+
+        Assert.Same(failure, actual);
+        Assert.Single(editor.Document.Paragraphs);
+        Assert.Equal(string.Empty, editor.Document.Paragraphs[0].GetPlainText());
+        Assert.Equal(0, editor.History.UndoCount);
+        Assert.Equal(0, editor.History.RedoCount);
+    }
+
+    [Fact]
+    public void MutationCommand_WhenCommitPredicateRejects_RollsBackMutation()
+    {
+        DocumentEditor editor = new();
+        DocumentMutationCommand command = new(
+            editor,
+            () => new DocumentMutationRange(
+                0,
+                editor.Document.Paragraphs.Count),
+            () => new DocumentMutationRange(
+                0,
+                editor.Document.Paragraphs.Count),
+            () => editor.Document.Paragraphs.Add(new Paragraph
+            {
+                Runs = { new TextRun("uncommitted") }
+            }),
+            DocumentChangeKind.Structure,
+            shouldCommit: () => false);
+
+        bool recorded = editor.History.TryExecuteCommand(
+            command,
+            () => false);
+
+        Assert.False(recorded);
+        Assert.Single(editor.Document.Paragraphs);
+        Assert.Equal(0, editor.History.UndoCount);
+    }
+
+    [Fact]
+    public void MutationCommand_WhenAfterRangeFails_RestoresChangedParagraphCount()
+    {
+        DocumentEditor editor = new();
+        InvalidOperationException failure = new("range failed");
+        DocumentMutationCommand command = new(
+            editor,
+            () => new DocumentMutationRange(0, 1),
+            () => throw failure,
+            () =>
+            {
+                editor.Document.Paragraphs.Add(new Paragraph());
+                editor.Document.Paragraphs.Add(new Paragraph());
+            },
+            DocumentChangeKind.Structure);
+
+        InvalidOperationException actual = Assert.Throws<
+            InvalidOperationException>(() =>
+            editor.History.ExecuteCommand(command));
+
+        Assert.Same(failure, actual);
+        Assert.Single(editor.Document.Paragraphs);
+        Assert.Equal(0, editor.History.UndoCount);
+    }
+
+    [Fact]
+    public void TryExecuteCommand_WhenDecisionRejects_UndoesGenericCommand()
+    {
+        CommandManager history = new();
+        StatefulEditorCommand command = new();
+
+        bool recorded = history.TryExecuteCommand(command, () => false);
+
+        Assert.False(recorded);
+        Assert.Equal(0, command.Value);
+        Assert.Equal(0, history.UndoCount);
+    }
+
+    [Fact]
+    public void TryExecuteCommand_WhenDecisionThrows_PreservesErrorAndUndoesCommand()
+    {
+        CommandManager history = new();
+        StatefulEditorCommand command = new();
+        InvalidOperationException failure = new("decision failed");
+
+        InvalidOperationException actual = Assert.Throws<
+            InvalidOperationException>(() =>
+            history.TryExecuteCommand(command, () => throw failure));
+
+        Assert.Same(failure, actual);
+        Assert.Equal(0, command.Value);
+        Assert.Equal(0, history.UndoCount);
+    }
+
+    [Fact]
+    public void DocumentChanged_WhenSubscriberThrows_CommandRemainsUndoable()
+    {
+        DocumentEditor editor = new();
+        editor.DocumentChanged += (_, _) =>
+            throw new InvalidOperationException("observer failed");
+
+        editor.InsertText("A");
+
+        Assert.Equal("A", editor.Document.Paragraphs[0].GetPlainText());
+        Assert.Equal(1, editor.History.UndoCount);
+        editor.History.Undo();
+        Assert.Equal(string.Empty, editor.Document.Paragraphs[0].GetPlainText());
+    }
+
+    [Fact]
+    public void SnapshotCommand_WhenNewSnapshotCaptureFails_RestoresOldState()
+    {
+        DocumentEditor editor = new();
+        SnapshotCommand command = new(
+            editor,
+            () => editor.Document.Paragraphs.Add(null!));
+
+        Assert.ThrowsAny<Exception>(() =>
+            editor.History.ExecuteCommand(command));
+
+        Assert.Single(editor.Document.Paragraphs);
+        Assert.NotNull(editor.Document.Paragraphs[0]);
+        Assert.Equal(0, editor.History.UndoCount);
+    }
+
+    [Fact]
+    public void CommandManager_WhenChangedSubscriberThrows_KeepsHistoryState()
+    {
+        CommandManager history = new();
+        StatefulEditorCommand command = new();
+        history.Changed += (_, _) =>
+            throw new InvalidOperationException("observer failed");
+
+        history.ExecuteCommand(command);
+        Assert.Equal(1, command.Value);
+        Assert.Equal(1, history.UndoCount);
+
+        history.Undo();
+        Assert.Equal(0, command.Value);
+        Assert.Equal(1, history.RedoCount);
+    }
     [Fact]
     public void InsertText_CanBeUndoneAndRedone()
     {
@@ -25,6 +213,38 @@ public class DocumentEditorTests
 
         Assert.Equal("Привет", editor.Document.Paragraphs[0].GetPlainText());
         Assert.Equal(new DocumentPosition(0, 6), editor.CaretPosition);
+    }
+
+    private sealed class FaultingEditorCommand : IEditorCommand
+    {
+        internal bool FailExecute { get; set; }
+
+        internal bool FailUndo { get; set; }
+
+        public void Execute()
+        {
+            if (FailExecute)
+            {
+                throw new InvalidOperationException("execute failed");
+            }
+        }
+
+        public void Undo()
+        {
+            if (FailUndo)
+            {
+                throw new InvalidOperationException("undo failed");
+            }
+        }
+    }
+
+    private sealed class StatefulEditorCommand : IEditorCommand
+    {
+        internal int Value { get; private set; }
+
+        public void Execute() => Value++;
+
+        public void Undo() => Value--;
     }
 
     [Fact]

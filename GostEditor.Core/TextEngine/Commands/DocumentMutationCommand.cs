@@ -1,6 +1,7 @@
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using System.Runtime.ExceptionServices;
 
 namespace GostEditor.Core.TextEngine.Commands;
 
@@ -23,6 +24,7 @@ public sealed class DocumentMutationCommand : IEditorCommand
     private MutationState? _after;
     private bool _isFirstExecution = true;
     private bool _isCommitted;
+    private int _paragraphCountBefore;
 
     public DocumentMutationCommand(
         DocumentEditor editor,
@@ -59,7 +61,18 @@ public sealed class DocumentMutationCommand : IEditorCommand
             return;
         }
 
-        Restore(_after, _before.Range.Count);
+        try
+        {
+            Restore(_after, _before.Range.Count);
+        }
+        catch (Exception exception)
+        {
+            RestoreAfterFailure(
+                _before,
+                _after.Range.Count,
+                exception);
+            throw;
+        }
         _editor.NotifyDocumentChanged(
             Math.Min(_before.Range.Start, _after.Range.Start),
             _changeKind);
@@ -72,7 +85,18 @@ public sealed class DocumentMutationCommand : IEditorCommand
             return;
         }
 
-        Restore(_before, _after.Range.Count);
+        try
+        {
+            Restore(_before, _after.Range.Count);
+        }
+        catch (Exception exception)
+        {
+            RestoreAfterFailure(
+                _after,
+                _before.Range.Count,
+                exception);
+            throw;
+        }
         _editor.NotifyDocumentChanged(
             Math.Min(_before.Range.Start, _after.Range.Start),
             _changeKind);
@@ -82,24 +106,50 @@ public sealed class DocumentMutationCommand : IEditorCommand
     {
         DocumentMutationRange beforeRange =
             _beforeRangeProvider().Normalize(_editor.Document.Paragraphs.Count);
+        _paragraphCountBefore = _editor.Document.Paragraphs.Count;
         _before = Capture(beforeRange);
 
         try
         {
             _action();
         }
-        catch
+        catch (Exception exception)
         {
-            Restore(_before, beforeRange.Count);
+            RestoreAfterFailure(
+                _before,
+                GetCurrentRangeCountForRollback(beforeRange),
+                exception);
+            ExceptionDispatchInfo.Capture(exception).Throw();
             throw;
         }
 
-        DocumentMutationRange afterRange =
-            _afterRangeProvider().Normalize(_editor.Document.Paragraphs.Count);
-        _after = Capture(afterRange);
-        CompactParagraphRanges();
-        _isCommitted = _shouldCommit?.Invoke() ?? HasMeaningfulChange();
-        _isFirstExecution = false;
+        DocumentMutationRange afterRange;
+        int rollbackRangeCount;
+        try
+        {
+            afterRange = _afterRangeProvider().Normalize(
+                _editor.Document.Paragraphs.Count);
+            rollbackRangeCount = afterRange.Count;
+            _after = Capture(afterRange);
+            CompactParagraphRanges();
+            _isCommitted = _shouldCommit?.Invoke() ?? HasMeaningfulChange();
+            _isFirstExecution = false;
+        }
+        catch (Exception exception)
+        {
+            RestoreAfterFailure(
+                _before,
+                GetCurrentRangeCountForRollback(beforeRange),
+                exception);
+            ExceptionDispatchInfo.Capture(exception).Throw();
+            throw;
+        }
+
+        if (!_isCommitted)
+        {
+            Restore(_before, rollbackRangeCount);
+            return;
+        }
 
         if (_isCommitted)
         {
@@ -107,6 +157,36 @@ public sealed class DocumentMutationCommand : IEditorCommand
                 Math.Min(beforeRange.Start, afterRange.Start),
                 _changeKind);
         }
+    }
+
+    private void RestoreAfterFailure(
+        MutationState state,
+        int currentRangeCount,
+        Exception primaryException)
+    {
+        try
+        {
+            Restore(state, currentRangeCount);
+        }
+        catch (Exception rollbackException)
+        {
+            primaryException.Data[
+                "GostEditor.DocumentMutation.RollbackFailure"] =
+                rollbackException;
+        }
+    }
+
+    private int GetCurrentRangeCountForRollback(
+        DocumentMutationRange fallbackRange)
+    {
+        int paragraphsOutsideRange =
+            _paragraphCountBefore - fallbackRange.Count;
+        return Math.Clamp(
+            _editor.Document.Paragraphs.Count - paragraphsOutsideRange,
+            0,
+            Math.Max(
+                0,
+                _editor.Document.Paragraphs.Count - fallbackRange.Start));
     }
 
 
