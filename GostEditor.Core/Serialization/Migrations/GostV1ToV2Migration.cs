@@ -17,6 +17,7 @@ internal sealed class GostV1ToV2Migration : IGostFormatMigration
 
         GostMigratableDocument document = CopyDocumentProperties(legacy);
         HashSet<Guid> usedIds = new();
+        GostImageReadBudget imageBudget = new();
 
         foreach (GostImageV1Dto legacyImage in legacy.Images ?? Enumerable.Empty<GostImageV1Dto>())
         {
@@ -27,6 +28,10 @@ internal sealed class GostV1ToV2Migration : IGostFormatMigration
                 usedIds,
                 context.Diagnostics);
             byte[] data = legacyImage.Data ?? Array.Empty<byte>();
+            imageBudget.Accept(data);
+            GostImageInputValidator.ValidateDimensionsIfDecodable(
+                data,
+                $"Legacy-изображение {imageId}");
             string fileName = legacyImage.FileName ?? string.Empty;
 
             document.Images.Add(new GostMigratableImage
@@ -63,7 +68,7 @@ internal sealed class GostV1ToV2Migration : IGostFormatMigration
                 {
                     byte[] data = await GostArchiveEntryIndex.ReadBytesAsync(
                         imageEntry,
-                        GostArchiveEntryIndex.MaxImageBytes,
+                        imageBudget.GetMaximumNextPayloadBytes(),
                         cancellationToken);
                     if (data.Length == 0)
                     {
@@ -74,6 +79,10 @@ internal sealed class GostV1ToV2Migration : IGostFormatMigration
                     }
                     else
                     {
+                        imageBudget.Accept(data);
+                        GostImageInputValidator.ValidateDecodableImage(
+                            data,
+                            $"Legacy-изображение '{source.ImageFileName}'");
                         Guid imageId = CreateUniqueId(usedIds);
                         string fileName = GetLegacyFileName(
                             source.ImageFileName,

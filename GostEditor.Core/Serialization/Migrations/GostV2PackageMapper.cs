@@ -28,8 +28,10 @@ internal static class GostV2PackageMapper
         };
 
         HashSet<Guid> imageIds = new();
+        HashSet<Guid> validatedImageIds = new();
         Dictionary<Guid, byte[]> imageData = new();
         HashSet<string> consumedMediaEntries = new(StringComparer.Ordinal);
+        GostImageReadBudget imageBudget = new();
 
         foreach (GostImageV2Dto image in source.Images)
         {
@@ -53,8 +55,12 @@ internal static class GostV2PackageMapper
                 $"Для изображения {image.Id} не найдена запись '{mediaPath}'.");
             byte[] data = await GostArchiveEntryIndex.ReadBytesAsync(
                 mediaEntry,
-                GostArchiveEntryIndex.MaxImageBytes,
+                imageBudget.GetMaximumNextPayloadBytes(),
                 cancellationToken);
+            imageBudget.Accept(data);
+            GostImageInputValidator.ValidateDimensionsIfDecodable(
+                data,
+                $"Изображение {image.Id}");
             consumedMediaEntries.Add(mediaPath);
 
             document.Images.Add(new GostMigratableImage
@@ -89,6 +95,13 @@ internal static class GostV2PackageMapper
                 {
                     throw new InvalidDataException(
                         $"Изображение {placementImageId}, используемое параграфом {paragraphIndex}, не содержит данных.");
+                }
+
+                if (validatedImageIds.Add(placementImageId))
+                {
+                    GostImageInputValidator.ValidateDecodableImage(
+                        imageData[placementImageId],
+                        $"Изображение {placementImageId}");
                 }
 
                 ValidatePlacementDimension(

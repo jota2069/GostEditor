@@ -17,6 +17,8 @@ internal sealed class GostArchivePackageWriter
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(stream);
 
+        GostArchiveInputValidator.ValidateForWrite(document);
+
         WriteProjection projection = CreateProjection(document);
 
         using ZipArchive archive = new(
@@ -37,6 +39,12 @@ internal sealed class GostArchivePackageWriter
         string json = JsonConvert.SerializeObject(
             projection.Manifest,
             Formatting.Indented);
+        if (Encoding.UTF8.GetByteCount(json) > GostArchiveLimits.MaxManifestBytes)
+        {
+            throw new InvalidDataException(
+                "Созданный document.json превышает допустимый размер " +
+                $"{GostArchiveLimits.MaxManifestBytes} байт.");
+        }
         ZipArchiveEntry manifestEntry = archive.CreateEntry(
             GostFormatPaths.Manifest,
             CompressionLevel.Optimal);

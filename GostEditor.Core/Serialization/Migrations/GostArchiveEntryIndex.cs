@@ -4,17 +4,38 @@ namespace GostEditor.Core.Serialization.Migrations;
 
 internal sealed class GostArchiveEntryIndex
 {
-    public const long MaxManifestBytes = 16L * 1024 * 1024;
-    public const long MaxImageBytes = 256L * 1024 * 1024;
-
     private readonly Dictionary<string, ZipArchiveEntry> _entries;
 
     public GostArchiveEntryIndex(ZipArchive archive)
     {
+        ArgumentNullException.ThrowIfNull(archive);
+        if (archive.Entries.Count > GostArchiveLimits.MaxEntryCount)
+        {
+            throw new InvalidDataException(
+                $"Архив .gost содержит слишком много записей: " +
+                $"{archive.Entries.Count}.");
+        }
+
         _entries = new Dictionary<string, ZipArchiveEntry>(StringComparer.Ordinal);
+        long totalUncompressedLength = 0;
 
         foreach (ZipArchiveEntry entry in archive.Entries)
         {
+            if (entry.FullName.Length > GostArchiveLimits.MaxEntryNameLength)
+            {
+                throw new InvalidDataException(
+                    "Имя записи архива .gost превышает допустимую длину.");
+            }
+
+            if (entry.Length > GostArchiveLimits.MaxUncompressedArchiveBytes -
+                totalUncompressedLength)
+            {
+                throw new InvalidDataException(
+                    "Суммарный распакованный размер архива .gost превышает " +
+                    $"{GostArchiveLimits.MaxUncompressedArchiveBytes} байт.");
+            }
+
+            totalUncompressedLength += entry.Length;
             if (!_entries.TryAdd(entry.FullName, entry))
             {
                 throw new InvalidDataException(
@@ -53,15 +74,27 @@ internal sealed class GostArchiveEntryIndex
 
         await using Stream source = entry.Open();
         using MemoryStream destination = entry.Length > 0 && entry.Length <= int.MaxValue
-            ? new MemoryStream((int)entry.Length)
+            ? new MemoryStream((int)Math.Min(entry.Length, maximumLength))
             : new MemoryStream();
 
-        await source.CopyToAsync(destination, cancellationToken);
-
-        if (destination.Length > maximumLength)
+        byte[] buffer = new byte[81920];
+        while (true)
         {
-            throw new InvalidDataException(
-                $"Запись '{entry.FullName}' превышает допустимый размер {maximumLength} байт.");
+            int read = await source.ReadAsync(buffer, cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (destination.Length > maximumLength - read)
+            {
+                throw new InvalidDataException(
+                    $"Запись '{entry.FullName}' превышает допустимый размер {maximumLength} байт.");
+            }
+
+            await destination.WriteAsync(
+                buffer.AsMemory(0, read),
+                cancellationToken);
         }
 
         return destination.ToArray();
