@@ -6,6 +6,7 @@ using GostEditor.Core.Serialization;
 using GostEditor.Core.Services;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.Tests.Infrastructure;
+using SkiaSharp;
 
 namespace GostEditor.Tests.Serialization;
 
@@ -563,6 +564,272 @@ public class ArchiveServiceTests
     }
 
     [Fact]
+    public async Task Load_TooManyZipEntries_IsRejectedBeforeManifestRead()
+    {
+        await using MemoryStream stream = new();
+        using (ZipArchive archive = new(
+                   stream,
+                   ZipArchiveMode.Create,
+                   leaveOpen: true))
+        {
+            for (int index = 0;
+                 index <= GostArchiveLimits.MaxEntryCount;
+                 index++)
+            {
+                archive.CreateEntry($"unused/{index}");
+            }
+        }
+        stream.Position = 0;
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("Центральный каталог", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_ManifestBeyondMaximumDepth_IsRejected()
+    {
+        StringBuilder json = new();
+        for (int index = 0;
+             index <= GostArchiveLimits.MaxJsonDepth;
+             index++)
+        {
+            json.Append("{\"a\":");
+        }
+        json.Append('0');
+        for (int index = 0;
+             index <= GostArchiveLimits.MaxJsonDepth;
+             index++)
+        {
+            json.Append('}');
+        }
+        await using MemoryStream stream = await CreateArchiveAsync(
+            json.ToString());
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _service.LoadAsync(stream));
+    }
+
+    [Fact]
+    public async Task Load_HugeNumericLiteral_IsRejectedBeforeNumericParsing()
+    {
+        string hugeNumber = new('9', 1024 * 1024);
+        await using MemoryStream stream = await CreateArchiveAsync(
+            $$"""{"FormatVersion":{{hugeNumber}},"Paragraphs":[]}""");
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("числовой литерал", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_TooManyImages_IsRejectedBeforeMediaLookup()
+    {
+        string images = string.Join(
+            ',',
+            Enumerable.Range(0, GostArchiveLimits.MaxImages + 1)
+                .Select(_ => $$"""{"Id":"{{Guid.NewGuid()}}"}"""));
+        await using MemoryStream stream = await CreateArchiveAsync(
+            $$"""
+            {
+              "FormatVersion": 2,
+              "Images": [{{images}}],
+              "Paragraphs": []
+            }
+            """);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("Images", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_TooManyParagraphs_IsRejectedBeforeMaterialization()
+    {
+        string paragraphs = string.Join(
+            ',',
+            Enumerable.Repeat(
+                "{\"Runs\":[]}",
+                GostArchiveLimits.MaxParagraphs + 1));
+        await using MemoryStream stream = await CreateArchiveAsync(
+            $$"""
+            {
+              "FormatVersion": 2,
+              "Images": [],
+              "Paragraphs": [{{paragraphs}}]
+            }
+            """);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("Paragraphs", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_NullParagraph_IsReportedAsInvalidData()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 2,
+              "Images": [],
+              "Paragraphs": [null]
+            }
+            """);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("Paragraphs", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_NullPersistedStrings_AreNormalizedBeforePublication()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 2,
+              "TitlePage": { "WorkTitle": null },
+              "CodeListings": [{ "Content": null, "FileName": null }],
+              "BibliographySources": [{ "Description": null }],
+              "Images": [],
+              "Paragraphs": [{ "Runs": [{ "Text": null }] }]
+            }
+            """);
+
+        GostDocument document = await _service.LoadAsync(stream);
+
+        Assert.Equal(string.Empty, document.TitlePage.WorkTitle);
+        Assert.Equal(string.Empty, document.CodeListings[0].Content);
+        Assert.Equal(string.Empty, document.CodeListings[0].FileName);
+        Assert.Equal(string.Empty, document.BibliographySources[0].Description);
+        Assert.Equal(string.Empty, document.Paragraphs[0].Runs[0].Text);
+    }
+
+    [Fact]
+    public async Task Load_NonFiniteOrExtremeLayoutValues_AreRejected()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 2,
+              "PageWidth": 100001,
+              "Images": [],
+              "Paragraphs": []
+            }
+            """);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("PageWidth", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_PageMarginsWithoutContentArea_AreRejected()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 2,
+              "PageWidth": 100,
+              "PageHeight": 100,
+              "MarginLeft": 60,
+              "MarginRight": 60,
+              "MarginTop": 60,
+              "MarginBottom": 60,
+              "Images": [],
+              "Paragraphs": []
+            }
+            """);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("положительной ширины", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_NonSeekableStream_UsesBoundedCoreBuffer()
+    {
+        await using MemoryStream archive = await CreateArchiveAsync(
+            """{"FormatVersion":2,"Images":[],"Paragraphs":[]}""");
+        await using NonSeekableReadStream source = new(archive.ToArray());
+
+        GostDocument document = await _service.LoadAsync(source);
+
+        Assert.Empty(document.Paragraphs);
+    }
+
+    [Fact]
+    public async Task Load_CentralDirectoryCountMismatch_IsRejectedByPreflight()
+    {
+        await using MemoryStream archive = await CreateArchiveAsync(
+            """{"FormatVersion":2,"Images":[],"Paragraphs":[]}""",
+            ("unused", new byte[] { 1 }));
+        byte[] bytes = archive.ToArray();
+        int eocd = FindSignatureFromEnd(bytes, 0x06054B50);
+        bytes[eocd + 8] = 1;
+        bytes[eocd + 9] = 0;
+        bytes[eocd + 10] = 1;
+        bytes[eocd + 11] = 0;
+        await using MemoryStream corrupted = new(bytes);
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(corrupted));
+
+        Assert.Contains("Количество записей", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_ReferencedInvalidImagePayload_IsRejected()
+    {
+        Guid imageId = Guid.NewGuid();
+        await using MemoryStream stream = await CreateArchiveAsync(
+            CreateV2Manifest(imageId, includeParagraph: true),
+            ($"media/images/{imageId:N}.dat", new byte[] { 1, 2, 3 }));
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("поддерживаемым изображением", exception.Message);
+    }
+
+    [Fact]
+    public async Task Load_ReferencedImageBeyondPixelDimensionLimit_IsRejected()
+    {
+        Guid imageId = Guid.NewGuid();
+        using SKBitmap bitmap = new(
+            GostArchiveLimits.MaxImagePixelDimension + 1,
+            1);
+        using SKImage image = SKImage.FromBitmap(bitmap);
+        using SKData encoded = image.Encode(SKEncodedImageFormat.Png, 100);
+        await using MemoryStream stream = await CreateArchiveAsync(
+            CreateV2Manifest(imageId, includeParagraph: true),
+            ($"media/images/{imageId:N}.dat", encoded.ToArray()));
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("небезопасные размеры", exception.Message);
+    }
+
+    [Fact]
     public async Task Save_DanglingReference_Throws()
     {
         GostDocument document = new GostDocument();
@@ -576,6 +843,23 @@ public class ArchiveServiceTests
 
         await Assert.ThrowsAsync<InvalidDataException>(
             () => _service.SaveAsync(document, stream));
+    }
+
+    [Fact]
+    public async Task Save_DocumentBeyondReaderLimits_IsRejectedBeforeWriting()
+    {
+        GostDocument document = new();
+        document.Paragraphs = Enumerable.Range(
+                0,
+                GostArchiveLimits.MaxParagraphs + 1)
+            .Select(_ => new Paragraph())
+            .ToList();
+        await using MemoryStream stream = new();
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => _service.SaveAsync(document, stream));
+
+        Assert.Equal(0, stream.Length);
     }
 
     [Fact]
@@ -813,6 +1097,29 @@ public class ArchiveServiceTests
     {
         await using Stream stream = entry.Open();
         await stream.WriteAsync(data);
+    }
+
+    private static int FindSignatureFromEnd(byte[] bytes, uint signature)
+    {
+        for (int index = bytes.Length - 4; index >= 0; index--)
+        {
+            if (BitConverter.ToUInt32(bytes, index) == signature)
+            {
+                return index;
+            }
+        }
+
+        throw new InvalidOperationException("ZIP signature not found.");
+    }
+
+    private sealed class NonSeekableReadStream : MemoryStream
+    {
+        internal NonSeekableReadStream(byte[] bytes)
+            : base(bytes, writable: false)
+        {
+        }
+
+        public override bool CanSeek => false;
     }
 
     private static void AssertDocumentEqual(

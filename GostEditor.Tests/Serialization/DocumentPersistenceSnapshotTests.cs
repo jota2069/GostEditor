@@ -52,7 +52,7 @@ public class DocumentPersistenceSnapshotTests
         Assert.Equal(snapshotModifiedAt, restored.ModifiedAt);
         Assert.Equal(800, restored.PageWidth);
         Assert.Equal(120, restored.MarginLeft);
-        Assert.Equal(new byte[] { 10, 20, 30 }, restored.Images[0].Data.ToArray());
+        Assert.Equal(TestImageData.CreatePng(), restored.Images[0].Data.ToArray());
         Assert.Equal(2, restored.Paragraphs.Count);
         Assert.Single(restored.CodeListings);
         Assert.Single(restored.BibliographySources);
@@ -150,9 +150,9 @@ public class DocumentPersistenceSnapshotTests
         });
         document.MutableImages.Add(new ImageAttachment(
             imageId,
-            "image.bin",
-            "application/octet-stream",
-            new byte[] { 10, 20, 30 },
+            "image.png",
+            "image/png",
+            TestImageData.CreatePng(),
             "legacy caption",
             7));
         document.CodeListings.Add(new CodeListing

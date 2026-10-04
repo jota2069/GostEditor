@@ -15,6 +15,7 @@ using Avalonia.Threading;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.Services;
+using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.UI.Controllers;
 using GostEditor.UI.Services;
@@ -1026,8 +1027,10 @@ public partial class MainWindow : Window
             Stream source,
             CancellationToken cancellationToken)
     {
-        await using MemoryStream buffered = new();
-        await source.CopyToAsync(buffered, cancellationToken);
+        await using MemoryStream buffered = await BufferArchiveAsync(
+            source,
+            GostArchiveLimits.MaxArchiveBytes,
+            cancellationToken);
 
         buffered.Position = 0;
         FileContentFingerprint fingerprint =
@@ -1039,6 +1042,54 @@ public partial class MainWindow : Window
         GostDocument document =
             await archiveService.LoadAsync(buffered);
         return (document, fingerprint);
+    }
+
+    internal static async Task<MemoryStream> BufferArchiveAsync(
+        Stream source,
+        long maximumLength,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (maximumLength <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumLength));
+        }
+
+        if (source.CanSeek && source.Length - source.Position > maximumLength)
+        {
+            throw new InvalidDataException(
+                $"Файл .gost превышает допустимый размер {maximumLength} байт.");
+        }
+
+        MemoryStream buffered = new();
+        byte[] buffer = new byte[81920];
+        try
+        {
+            while (true)
+            {
+                int read = await source.ReadAsync(buffer, cancellationToken);
+                if (read == 0)
+                {
+                    buffered.Position = 0;
+                    return buffered;
+                }
+
+                if (buffered.Length > maximumLength - read)
+                {
+                    throw new InvalidDataException(
+                        $"Файл .gost превышает допустимый размер {maximumLength} байт.");
+                }
+
+                await buffered.WriteAsync(
+                    buffer.AsMemory(0, read),
+                    cancellationToken);
+            }
+        }
+        catch
+        {
+            await buffered.DisposeAsync();
+            throw;
+        }
     }
 
     private async Task<bool> SaveDocumentToFileAsync(
