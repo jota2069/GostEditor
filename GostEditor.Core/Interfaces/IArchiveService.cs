@@ -23,12 +23,40 @@ public interface IArchiveService
     /// <returns>Десериализованный документ</returns>
     Task<GostDocument> LoadAsync(string filePath);
 
+    async Task<GostArchiveLoadResult> LoadWithDiagnosticsAsync(
+        string filePath,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GostDocument document = await LoadAsync(filePath);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new GostArchiveLoadResult(
+            document,
+            sourceVersion: null,
+            GostArchiveFormat.Current,
+            Array.Empty<GostArchiveDiagnostic>());
+    }
+
     /// <summary>
     /// Загружает документ из потока данных (например, при открытии через диалог Avalonia)
     /// </summary>
     /// <param name="stream">Поток с данными файла</param>
     /// <returns>Десериализованный документ</returns>
     Task<GostDocument> LoadAsync(Stream stream);
+
+    async Task<GostArchiveLoadResult> LoadWithDiagnosticsAsync(
+        Stream stream,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        GostDocument document = await LoadAsync(stream);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new GostArchiveLoadResult(
+            document,
+            sourceVersion: null,
+            GostArchiveFormat.Current,
+            Array.Empty<GostArchiveDiagnostic>());
+    }
 
     /// <summary>
     /// Сохраняет документ в файл по указанному физическому пути. Реализация

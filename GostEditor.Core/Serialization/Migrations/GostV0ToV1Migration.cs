@@ -20,6 +20,18 @@ internal sealed class GostV0ToV1Migration : IGostFormatMigration
         }
 
         // v0 means that FormatVersion was absent. Its DTO shape is identical to v1.
+        if (context.FormatVersionWasPresent)
+        {
+            context.Diagnostics.Info(
+                "FORMAT_V0_DECLARED",
+                "Документ явно объявляет формат v0.");
+        }
+        else
+        {
+            context.Diagnostics.Info(
+                "FORMAT_V0_ASSUMED",
+                "FormatVersion отсутствует; документ распознан как формат v0.");
+        }
         context.WorkingVersion = ToVersion;
         return Task.CompletedTask;
     }

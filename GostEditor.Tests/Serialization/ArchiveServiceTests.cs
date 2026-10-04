@@ -61,6 +61,28 @@ public class ArchiveServiceTests
     }
 
     [Fact]
+    public async Task LoadWithDiagnostics_VersionZeroReportsFullMigrationChain()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """{"Paragraphs":[]}""");
+
+        GostArchiveLoadResult result =
+            await _service.LoadWithDiagnosticsAsync(stream);
+
+        Assert.Equal(0, result.SourceVersion);
+        Assert.Equal(2, result.CurrentVersion);
+        Assert.True(result.WasMigrated);
+        Assert.Equal(
+            new[] { "FORMAT_V0_ASSUMED", "FORMAT_V1_MIGRATED" },
+            result.Diagnostics.Select(item => item.Code));
+        Assert.All(
+            result.Diagnostics,
+            item => Assert.Equal(
+                GostArchiveDiagnosticSeverity.Information,
+                item.Severity));
+    }
+
+    [Fact]
     public async Task Load_DocumentWithFormatVersionOne_OpensDocument()
     {
         await using MemoryStream stream = await CreateArchiveAsync(
@@ -85,6 +107,38 @@ public class ArchiveServiceTests
     }
 
     [Fact]
+    public async Task LoadWithDiagnostics_VersionOneReportsMigration()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """{"FormatVersion":1,"Paragraphs":[]}""");
+
+        GostArchiveLoadResult result =
+            await _service.LoadWithDiagnosticsAsync(stream);
+
+        Assert.Equal(1, result.SourceVersion);
+        Assert.True(result.WasMigrated);
+        Assert.Contains(
+            result.Diagnostics,
+            item => item.Code == "FORMAT_V1_MIGRATED");
+    }
+
+    [Theory]
+    [InlineData("formatVersion")]
+    [InlineData("FORMATVERSION")]
+    public async Task Load_MisCasedFormatVersion_IsNotSilentlyTreatedAsV0(
+        string propertyName)
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            $$"""{"{{propertyName}}":2,"Paragraphs":[]}""");
+
+        InvalidDataException exception =
+            await Assert.ThrowsAsync<InvalidDataException>(
+                () => _service.LoadAsync(stream));
+
+        Assert.Contains("точный регистр", exception.Message);
+    }
+
+    [Fact]
     public async Task SaveAndLoad_VersionTwoRoundTripPreservesCompleteModel()
     {
         GostDocument expected = CreateDocument();
@@ -95,6 +149,22 @@ public class ArchiveServiceTests
         GostDocument actual = await _service.LoadAsync(stream);
 
         AssertDocumentEqual(expected, actual);
+    }
+
+    [Fact]
+    public async Task LoadWithDiagnostics_CurrentWriterOutputNeedsNoMigration()
+    {
+        await using MemoryStream stream = new();
+        await _service.SaveAsync(CreateDocument(), stream);
+        stream.Position = 0;
+
+        GostArchiveLoadResult result =
+            await _service.LoadWithDiagnosticsAsync(stream);
+
+        Assert.Equal(2, result.SourceVersion);
+        Assert.Equal(2, result.CurrentVersion);
+        Assert.False(result.WasMigrated);
+        Assert.Empty(result.Diagnostics);
     }
 
     [Fact]
@@ -279,6 +349,33 @@ public class ArchiveServiceTests
         Assert.Null(paragraph.ImageId);
         Assert.Equal("Caption survives", paragraph.GetPlainText());
         Assert.Empty(document.Images);
+    }
+
+    [Fact]
+    public async Task LoadWithDiagnostics_LegacyRepairIsObservableToCaller()
+    {
+        await using MemoryStream stream = await CreateArchiveAsync(
+            """
+            {
+              "FormatVersion": 1,
+              "Paragraphs": [
+                {
+                  "Runs": [],
+                  "ImageFileName": "media/missing.dat",
+                  "ImageWidth": 100,
+                  "ImageHeight": 50
+                }
+              ]
+            }
+            """);
+
+        GostArchiveLoadResult result =
+            await _service.LoadWithDiagnosticsAsync(stream);
+
+        GostArchiveDiagnostic warning = Assert.Single(
+            result.Diagnostics.Where(
+                item => item.Code == "LEGACY_IMAGE_MISSING"));
+        Assert.Equal(GostArchiveDiagnosticSeverity.Warning, warning.Severity);
     }
 
     [Fact]

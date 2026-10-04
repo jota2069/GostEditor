@@ -4,9 +4,9 @@ namespace GostEditor.Core.Serialization.Format;
 
 internal static class GostFormatVersions
 {
-    public const int LegacyWithoutVersion = 0;
-    public const int Legacy = 1;
-    public const int Current = 2;
+    public const int LegacyWithoutVersion = GostArchiveFormat.LegacyWithoutVersion;
+    public const int Legacy = GostArchiveFormat.Legacy;
+    public const int Current = GostArchiveFormat.Current;
 }
 
 internal sealed class GostDocumentV1Dto
