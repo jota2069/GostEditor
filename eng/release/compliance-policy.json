@@ -1,0 +1,325 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "name": "GostEditor",
+    "version": "1.0.0",
+    "supplier": "jota2069"
+  },
+  "allowedLicenses": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "MS-PL",
+    "OFL-1.1"
+  ],
+  "forbiddenPackagePrefixes": [
+    "docx",
+    "xceed"
+  ],
+  "mitLicenseNotice": {
+    "kind": "repository",
+    "path": "eng/release/notices/MIT.txt",
+    "sha256": "508a77d2e7b51d98adeed32648ad124b7b30241a8e70b2e72c99f92d8e5874d1"
+  },
+  "components": {
+    "Avalonia": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Desktop": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Fonts.Inter": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT", "OFL-1.1"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project; Copyright (c) 2016 The Inter Project Authors",
+      "notices": ["avalonia", "inter-ofl"]
+    },
+    "Avalonia.FreeDesktop": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Native": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Remote.Protocol": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Skia": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Themes.Fluent": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Win32": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.X11": {
+      "version": "11.3.22",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/AvaloniaUI/Avalonia/commit/627ae9ef921621e27e7aa58df2796fbadb50af88",
+      "copyright": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "notices": ["avalonia"]
+    },
+    "Avalonia.Angle.Windows.Natives": {
+      "version": "2.1.25547.20250602",
+      "metadataLicenseFile": "LICENSE",
+      "metadataLicenseFileSha256": "54aff7276217df9f6b5181613999d208c9e40d2b1d51bf55217837e6871a4a63",
+      "licenses": ["BSD-3-Clause"],
+      "source": "https://github.com/AvaloniaUI/angle/commit/cb8b4e1307a9d8f5ff56b8c5973bea4158ffead8",
+      "copyright": "Copyright 2013-2025 © The AvaloniaUI Project; Copyright 2018 The ANGLE Project Authors",
+      "notices": ["angle-license"]
+    },
+    "CommunityToolkit.Mvvm": {
+      "version": "8.4.2",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/CommunityToolkit/dotnet/commit/35dfe7b12da0e64384bfaec7ebc0883196a89f9f",
+      "copyright": "(c) .NET Foundation and Contributors. All rights reserved.",
+      "notices": ["community-toolkit"]
+    },
+    "DocumentFormat.OpenXml": {
+      "version": "3.5.1",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/dotnet/Open-XML-SDK/commit/3139fdfd27414548a41555f7848d5728f6e71a42",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": []
+    },
+    "DocumentFormat.OpenXml.Framework": {
+      "version": "3.5.1",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/dotnet/Open-XML-SDK/commit/3139fdfd27414548a41555f7848d5728f6e71a42",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": []
+    },
+    "HarfBuzzSharp": {
+      "version": "8.3.1.1",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/64f24b1cddb68d30ec0ac6b661964178fc21d5ec",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "HarfBuzzSharp.NativeAssets.Linux": {
+      "version": "8.3.1.1",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/64f24b1cddb68d30ec0ac6b661964178fc21d5ec",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "HarfBuzzSharp.NativeAssets.Win32": {
+      "version": "8.3.1.1",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/64f24b1cddb68d30ec0ac6b661964178fc21d5ec",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "MicroCom.Runtime": {
+      "version": "0.11.0",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/kekekeks/MicroCom",
+      "copyright": "Copyright 2021 © Nikita Tsukanov",
+      "notices": []
+    },
+    "Microsoft.Extensions.DependencyInjection": {
+      "version": "10.0.3",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/dotnet/dotnet/commit/c2435c3e0f46de784341ac3ed62863ce77e117b4",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["dotnet-runtime"]
+    },
+    "Microsoft.Extensions.DependencyInjection.Abstractions": {
+      "version": "10.0.3",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/dotnet/dotnet/commit/c2435c3e0f46de784341ac3ed62863ce77e117b4",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["dotnet-runtime"]
+    },
+    "Newtonsoft.Json": {
+      "version": "13.0.4",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/JamesNK/Newtonsoft.Json/commit/4e13299d4b0ec96bd4df9954ef646bd2d1b5bf2a",
+      "copyright": "Copyright © James Newton-King 2008",
+      "notices": []
+    },
+    "SkiaSharp": {
+      "version": "2.88.9",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/9699cdf046a989423a5e5eca68e7fd813486d81c",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "SkiaSharp.NativeAssets.Linux": {
+      "version": "2.88.9",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/9699cdf046a989423a5e5eca68e7fd813486d81c",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "SkiaSharp.NativeAssets.Win32": {
+      "version": "2.88.9",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/mono/SkiaSharp/commit/9699cdf046a989423a5e5eca68e7fd813486d81c",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["skiasharp"]
+    },
+    "System.IO.Packaging": {
+      "version": "10.0.2",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/dotnet/dotnet/commit/44525024595742ebe09023abe709df51de65009b",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "notices": ["dotnet-runtime"]
+    },
+    "Tmds.DBus.Protocol": {
+      "version": "0.21.3",
+      "metadataLicense": "MIT",
+      "licenses": ["MIT"],
+      "source": "https://github.com/tmds/Tmds.DBus/commit/8cb04f66c330b64244e996ff68f685f27f7381a0",
+      "copyright": "Tom Deseyn",
+      "notices": []
+    }
+  },
+  "notices": {
+    "avalonia": {
+      "kind": "repository",
+      "path": "eng/release/notices/Avalonia-NOTICE.md",
+      "sha256": "0e1ecea8b94eaacec8ade631994149d678940d05163b21d6f4be3d5dccb0a08d"
+    },
+    "inter-ofl": {
+      "kind": "repository",
+      "path": "eng/release/notices/Inter-OFL-1.1.txt",
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    },
+    "community-toolkit": {
+      "kind": "package",
+      "package": "CommunityToolkit.Mvvm",
+      "path": "ThirdPartyNotices.txt",
+      "sha256": "7774f8b0ab66bfb47ec154ce24a2d6d574febc44a74d940b8a037d1c56756163"
+    },
+    "skiasharp": {
+      "kind": "package",
+      "package": "SkiaSharp",
+      "path": "THIRD-PARTY-NOTICES.txt",
+      "sha256": "21504c46c4c58aa64c1055bd2dcbc5f9a136b4b8c412ed3cc6740e22c5b127f5"
+    },
+    "dotnet-runtime": {
+      "kind": "package",
+      "package": "Microsoft.Extensions.DependencyInjection",
+      "path": "THIRD-PARTY-NOTICES.TXT",
+      "sha256": "6d15e10a101c6bfff2ab4429ed061bf76c456fc4b23ad6b03e0d0f8377148a21"
+    },
+    "angle-license": {
+      "kind": "package",
+      "package": "Avalonia.Angle.Windows.Natives",
+      "path": "LICENSE",
+      "sha256": "54aff7276217df9f6b5181613999d208c9e40d2b1d51bf55217837e6871a4a63"
+    }
+  },
+  "rids": {
+    "linux-x64": [
+      "Avalonia/11.3.22",
+      "Avalonia.Desktop/11.3.22",
+      "Avalonia.Fonts.Inter/11.3.22",
+      "Avalonia.FreeDesktop/11.3.22",
+      "Avalonia.Native/11.3.22",
+      "Avalonia.Remote.Protocol/11.3.22",
+      "Avalonia.Skia/11.3.22",
+      "Avalonia.Themes.Fluent/11.3.22",
+      "Avalonia.Win32/11.3.22",
+      "Avalonia.X11/11.3.22",
+      "CommunityToolkit.Mvvm/8.4.2",
+      "DocumentFormat.OpenXml/3.5.1",
+      "DocumentFormat.OpenXml.Framework/3.5.1",
+      "HarfBuzzSharp/8.3.1.1",
+      "HarfBuzzSharp.NativeAssets.Linux/8.3.1.1",
+      "MicroCom.Runtime/0.11.0",
+      "Microsoft.Extensions.DependencyInjection/10.0.3",
+      "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.3",
+      "Newtonsoft.Json/13.0.4",
+      "SkiaSharp/2.88.9",
+      "SkiaSharp.NativeAssets.Linux/2.88.9",
+      "System.IO.Packaging/10.0.2",
+      "Tmds.DBus.Protocol/0.21.3"
+    ],
+    "win-x64": [
+      "Avalonia/11.3.22",
+      "Avalonia.Angle.Windows.Natives/2.1.25547.20250602",
+      "Avalonia.Desktop/11.3.22",
+      "Avalonia.Fonts.Inter/11.3.22",
+      "Avalonia.FreeDesktop/11.3.22",
+      "Avalonia.Native/11.3.22",
+      "Avalonia.Remote.Protocol/11.3.22",
+      "Avalonia.Skia/11.3.22",
+      "Avalonia.Themes.Fluent/11.3.22",
+      "Avalonia.Win32/11.3.22",
+      "Avalonia.X11/11.3.22",
+      "CommunityToolkit.Mvvm/8.4.2",
+      "DocumentFormat.OpenXml/3.5.1",
+      "DocumentFormat.OpenXml.Framework/3.5.1",
+      "HarfBuzzSharp/8.3.1.1",
+      "HarfBuzzSharp.NativeAssets.Win32/8.3.1.1",
+      "MicroCom.Runtime/0.11.0",
+      "Microsoft.Extensions.DependencyInjection/10.0.3",
+      "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.3",
+      "Newtonsoft.Json/13.0.4",
+      "SkiaSharp/2.88.9",
+      "SkiaSharp.NativeAssets.Win32/2.88.9",
+      "System.IO.Packaging/10.0.2",
+      "Tmds.DBus.Protocol/0.21.3"
+    ]
+  }
+}
