@@ -22,8 +22,12 @@ file, session savepoint, current path and live document remain unchanged.
 The UI never overwrites silently. It offers three explicit outcomes: cancel,
 save to another path, or overwrite the external version. Confirmed overwrite is
 an intentional last-writer-wins operation and still uses the normal atomic file
-commit. Save As is treated as a new destination selected by the platform file
-picker and establishes a new baseline after commit.
+commit. For Save As, the destination fingerprint (including the absence of a
+file) is captured when the selected path is accepted, before waiting for I/O
+ownership, and checked again after ownership and immediately before atomic
+publication. A replacement during that window is preserved and requires a new
+explicit overwrite decision. A successful Save As establishes the committed
+bytes as the new baseline.
 
 There is no portable cross-platform compare-and-swap operation for replacing a
 regular file. Another process can still race in the very small interval between

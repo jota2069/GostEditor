@@ -183,11 +183,24 @@ public sealed class AutoSaveService : IDisposable
                 documentSnapshotProvider()
                 ?? throw new InvalidOperationException(
                     "Поставщик документа вернул null.");
+            DocumentSessionCheckpoint request =
+                _session.CaptureCheckpoint(snapshot);
+            candidateVersion = request.ChangeVersion;
 
             await _recoveryStorage.SaveAsync(
                 snapshot,
-                _session.CurrentFilePath,
+                request.CurrentFilePath,
                 operationCancellation);
+
+            if (!_session.IsCurrent(request))
+            {
+                // A document replacement outside the normal coordinated
+                // lifecycle must not leave a published recovery generation
+                // that belongs to the previous document identity.
+                _recoveryStorage.DeleteRecovery();
+                Interlocked.Exchange(ref _lastSavedChangeVersion, -1);
+                return false;
+            }
 
             Interlocked.Exchange(
                 ref _lastSavedChangeVersion,
@@ -243,11 +256,14 @@ public sealed class AutoSaveService : IDisposable
                 cancellationToken);
 
         ownership.CancellationToken.ThrowIfCancellationRequested();
-        _recoveryStorage.DeleteRecovery();
+        ResetWhileOwned();
+    }
 
-        Interlocked.Exchange(
-            ref _lastSavedChangeVersion,
-            -1);
+    internal void ResetWhileOwned()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _recoveryStorage.DeleteRecovery();
+        Interlocked.Exchange(ref _lastSavedChangeVersion, -1);
     }
 
     public void Dispose()

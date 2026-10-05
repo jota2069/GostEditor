@@ -30,4 +30,12 @@ internal sealed class ManualUtcTimeProvider : TimeProvider
             _utcNow = _utcNow.Add(elapsed);
         }
     }
+
+    public void SetUtcNow(DateTimeOffset utcNow)
+    {
+        lock (_sync)
+        {
+            _utcNow = utcNow.ToUniversalTime();
+        }
+    }
 }

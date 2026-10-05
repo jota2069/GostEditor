@@ -59,8 +59,9 @@ public partial class MainWindowViewModel : ObservableObject
 
     public string ZoomPercentage => $"{(int)(ZoomLevel * 100)}%";
 
-    [ObservableProperty]
     private GostDocument _currentDocument;
+
+    public GostDocument CurrentDocument => _currentDocument;
 
     // События для взаимодействия с редактором
     public event Action<List<Paragraph>>? OnInsertParagraphsRequested;
@@ -170,6 +171,7 @@ public partial class MainWindowViewModel : ObservableObject
             ?? throw new ArgumentNullException(nameof(documentSaveService));
 
         _currentDocument = new GostDocument();
+        Session.StartNew(_currentDocument);
 
         CodeListings.CollectionChanged += OnCodeListingsCollectionChanged;
         BibliographySources.CollectionChanged += OnBibliographySourcesCollectionChanged;
@@ -711,7 +713,47 @@ public partial class MainWindowViewModel : ObservableObject
     /// Вызывается автоматически при изменении CurrentDocument
     /// Синхронизирует настройки модулей из документа в UI
     /// </summary>
-    partial void OnCurrentDocumentChanged(GostDocument value)
+    internal void SetCurrentDocument(GostDocument value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (ReferenceEquals(_currentDocument, value))
+        {
+            return;
+        }
+
+        GostDocument previous = _currentDocument;
+        _currentDocument = value;
+        try
+        {
+            SynchronizeCurrentDocument(value);
+            OnPropertyChanged(nameof(CurrentDocument));
+        }
+        catch (Exception primaryException)
+        {
+            _currentDocument = previous;
+            TryRestoreViewModelDocument(previous, primaryException);
+            throw;
+        }
+    }
+
+    private void TryRestoreViewModelDocument(
+        GostDocument document,
+        Exception primaryException)
+    {
+        try
+        {
+            SynchronizeCurrentDocument(document);
+            OnPropertyChanged(nameof(CurrentDocument));
+        }
+        catch (Exception rollbackException)
+        {
+            primaryException.Data[
+                "GostEditor.DocumentPublication.ViewModelRollback"] =
+                rollbackException;
+        }
+    }
+
+    private void SynchronizeCurrentDocument(GostDocument value)
     {
         _isSynchronizingDocument = true;
 
@@ -722,41 +764,24 @@ public partial class MainWindowViewModel : ObservableObject
                 return;
             }
 
-            _university = value.TitlePage.University;
-            _department = value.TitlePage.Department;
-            _discipline = value.TitlePage.Discipline;
-            _workType = value.TitlePage.WorkType;
-            _workTitle = value.TitlePage.WorkTitle;
-            _studentName = value.TitlePage.StudentName;
-            _groupNumber = value.TitlePage.GroupNumber;
-            _teacherName = value.TitlePage.TeacherName;
-            _city = value.TitlePage.City;
-            _year = value.TitlePage.Year;
+            University = value.TitlePage.University;
+            Department = value.TitlePage.Department;
+            Discipline = value.TitlePage.Discipline;
+            WorkType = value.TitlePage.WorkType;
+            WorkTitle = value.TitlePage.WorkTitle;
+            StudentName = value.TitlePage.StudentName;
+            GroupNumber = value.TitlePage.GroupNumber;
+            TeacherName = value.TitlePage.TeacherName;
+            City = value.TitlePage.City;
+            Year = value.TitlePage.Year;
 
-            // Загружаем настройки модулей из документа в UI
-            // Используем backing fields для избежания вызова OnChanged методов
-            _hasTitlePage = value.Modules.HasTitlePage;
-            _hasTableOfContents = value.Modules.HasTableOfContents;
-            _hasBibliography = value.Modules.HasBibliography;
-            _hasAppendix = value.Modules.HasAppendix;
-            _contentStartPage = value.Modules.ContentStartPage;
-
-            // Уведомляем UI об изменениях
-            OnPropertyChanged(nameof(University));
-            OnPropertyChanged(nameof(Department));
-            OnPropertyChanged(nameof(Discipline));
-            OnPropertyChanged(nameof(WorkType));
-            OnPropertyChanged(nameof(WorkTitle));
-            OnPropertyChanged(nameof(StudentName));
-            OnPropertyChanged(nameof(GroupNumber));
-            OnPropertyChanged(nameof(TeacherName));
-            OnPropertyChanged(nameof(City));
-            OnPropertyChanged(nameof(Year));
-            OnPropertyChanged(nameof(HasTitlePage));
-            OnPropertyChanged(nameof(HasTableOfContents));
-            OnPropertyChanged(nameof(HasBibliography));
-            OnPropertyChanged(nameof(HasAppendix));
-            OnPropertyChanged(nameof(ContentStartPage));
+            // Загружаем настройки модулей из документа в UI. Флаг
+            // _isSynchronizingDocument подавляет mutation tracking.
+            HasTitlePage = value.Modules.HasTitlePage;
+            HasTableOfContents = value.Modules.HasTableOfContents;
+            HasBibliography = value.Modules.HasBibliography;
+            HasAppendix = value.Modules.HasAppendix;
+            ContentStartPage = value.Modules.ContentStartPage;
 
             CodeListings.Clear();
             foreach (CodeListing listing in value.CodeListings)
@@ -779,11 +804,11 @@ public partial class MainWindowViewModel : ObservableObject
             }
 
             Debug.WriteLine($"[VM] Синхронизированы настройки модулей из документа");
-            Debug.WriteLine($"[VM]   TitlePage: {_hasTitlePage}");
-            Debug.WriteLine($"[VM]   TOC: {_hasTableOfContents}");
-            Debug.WriteLine($"[VM]   Bibliography: {_hasBibliography}");
-            Debug.WriteLine($"[VM]   Appendix: {_hasAppendix}");
-            Debug.WriteLine($"[VM]   ContentStartPage: {_contentStartPage}");
+            Debug.WriteLine($"[VM]   TitlePage: {HasTitlePage}");
+            Debug.WriteLine($"[VM]   TOC: {HasTableOfContents}");
+            Debug.WriteLine($"[VM]   Bibliography: {HasBibliography}");
+            Debug.WriteLine($"[VM]   Appendix: {HasAppendix}");
+            Debug.WriteLine($"[VM]   ContentStartPage: {ContentStartPage}");
         }
         finally
         {

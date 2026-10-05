@@ -6,6 +6,7 @@ using GostEditor.Core.Serialization;
 using GostEditor.Core.TextEngine.DOM;
 using GostEditor.Tests.Infrastructure;
 using GostEditor.UI.Services;
+using GostEditor.UI.Views;
 
 namespace GostEditor.Tests.Services;
 
@@ -291,7 +292,7 @@ public sealed class RecoveryStorageServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task InspectStartupAsync_WhenNewerOrphanIsValid_SelectsOrphan()
+    public async Task InspectStartupAsync_WhenNewerOrphanIsValid_KeepsPublishedCurrent()
     {
         ManualUtcTimeProvider clock = new(SavedAtUtc);
         FailOnCallAtomicCommitter committer = new(failOnCall: 2);
@@ -310,10 +311,223 @@ public sealed class RecoveryStorageServiceTests : IDisposable
 
         Assert.Equal(RecoveryStartupState.Recoverable, result.State);
         Assert.Equal(
-            "Более новое",
+            "Опубликованное",
             Assert.Single(result.Document!.Paragraphs).GetPlainText());
-        Assert.Equal(RecoveryCandidateKind.OtherGeneration, result.CandidateKind);
-        Assert.Equal(2, result.RecoverableCandidateCount);
+        Assert.Equal(RecoveryCandidateKind.CurrentGeneration, result.CandidateKind);
+        Assert.Equal(1, result.RecoverableCandidateCount);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenClockMovesBackward_UsesMonotonicSequence()
+    {
+        ManualUtcTimeProvider clock = new(SavedAtUtc);
+        RecoveryStorageService service = new(
+            new ArchiveService(),
+            _temporaryDirectory.DirectoryPath,
+            clock);
+        RecoveryMetadata first = await service.SaveAsync(
+            CreateDocument("N"),
+            null);
+        clock.SetUtcNow(SavedAtUtc.AddHours(-1));
+        RecoveryMetadata second = await service.SaveAsync(
+            CreateDocument("N+1"),
+            null);
+        await File.WriteAllTextAsync(service.PointerFilePath, "invalid");
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(1, first.GenerationSequence);
+        Assert.Equal(2, second.GenerationSequence);
+        Assert.Equal(RecoveryStartupState.Recoverable, result.State);
+        Assert.Equal(
+            "N+1",
+            Assert.Single(result.Document!.Paragraphs).GetPlainText());
+        Assert.Equal(second.SessionId, result.Metadata!.SessionId);
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenGenerationCountExceedsLimit_ReturnsControlledCorruptionWithoutLoadingPackages()
+    {
+        CountingFailingArchiveService archive = new();
+        RecoveryStorageService service = new(
+            archive,
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
+        Directory.CreateDirectory(_temporaryDirectory.DirectoryPath);
+        for (int index = 0;
+             index <= RecoveryStorageService.MaxGenerationCandidates;
+             index++)
+        {
+            CreateSyntheticGeneration(index, packageLength: 1);
+        }
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Equal(0, archive.LoadCalls);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message.Contains(
+                "Количество поколений",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenAggregatePackageBudgetExceeded_DoesNotMaterializeDocuments()
+    {
+        CountingFailingArchiveService archive = new();
+        RecoveryStorageService service = new(
+            archive,
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
+        Directory.CreateDirectory(_temporaryDirectory.DirectoryPath);
+        long packageLength = 400L * 1024 * 1024;
+        CreateSyntheticGeneration(1, packageLength);
+        CreateSyntheticGeneration(2, packageLength);
+        CreateSyntheticGeneration(3, packageLength);
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Equal(0, archive.LoadCalls);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message.Contains(
+                "Совокупный размер recovery",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenMetadataExceedsLimit_DoesNotLoadPackage()
+    {
+        CountingFailingArchiveService archive = new();
+        RecoveryStorageService service = new(
+            archive,
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
+        string directory = CreateSyntheticGeneration(1, packageLength: 1);
+        await File.WriteAllBytesAsync(
+            Path.Combine(directory, "session.json"),
+            new byte[RecoveryStorageService.MaxMetadataBytes + 1]);
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Equal(0, archive.LoadCalls);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message.Contains(
+                "Метаданные recovery превышают лимит",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_MaterializesOnlyLimitedFallbackCandidates()
+    {
+        CountingFailingArchiveService archive = new();
+        RecoveryStorageService service = new(
+            archive,
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
+        Directory.CreateDirectory(_temporaryDirectory.DirectoryPath);
+        for (int sequence = 1; sequence <= 4; sequence++)
+        {
+            CreateSyntheticGeneration(sequence, packageLength: 1);
+        }
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Equal(
+            RecoveryStorageService.MaxMaterializationAttempts,
+            archive.LoadCalls);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message.Contains(
+                "лимит попыток загрузки",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenMetadataAggregateExceedsLimit_DoesNotLoadPackages()
+    {
+        CountingFailingArchiveService archive = new();
+        RecoveryStorageService service = new(
+            archive,
+            _temporaryDirectory.DirectoryPath,
+            new ManualUtcTimeProvider(SavedAtUtc));
+        Directory.CreateDirectory(_temporaryDirectory.DirectoryPath);
+        for (int sequence = 1; sequence <= 17; sequence++)
+        {
+            CreateSyntheticGeneration(
+                sequence,
+                packageLength: 1,
+                metadataPayloadLength: 63 * 1024);
+        }
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Equal(0, archive.LoadCalls);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message.Contains(
+                "Совокупный размер метаданных",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task InspectStartupAsync_WhenEnumerationFailsAfterPrefix_DoesNotSelectPartialFallback()
+    {
+        string older = CreateSyntheticGeneration(1, packageLength: 1);
+        string newer = CreateSyntheticGeneration(2, packageLength: 1);
+        FaultingRecoveryFileSystem fileSystem = new()
+        {
+            DirectoryEnumerationOverride = [older, newer],
+            ThrowAfterDirectoryCount = 1,
+            EnumerateDirectoriesException =
+                new InjectedRecoveryException("iterator failed")
+        };
+        RecoveryStorageService service = CreateService(
+            new AtomicFileCommitter(),
+            fileSystem);
+
+        RecoveryStartupResult result = await service.InspectStartupAsync();
+
+        Assert.Equal(RecoveryStartupState.Corrupted, result.State);
+        Assert.Null(result.Document);
+        Assert.Contains(
+            result.Issues,
+            issue => issue.Exception.Message == "iterator failed");
+    }
+
+    [Fact]
+    public async Task SaveAsync_WhenPublishedSequenceIsNegative_DoesNotPublishInvalidSuccessor()
+    {
+        await _service.SaveAsync(CreateDocument("Current"), null);
+        string pointerBefore = await File.ReadAllTextAsync(
+            _service.PointerFilePath);
+        RecoveryMetadata current = Assert.IsType<RecoveryMetadata>(
+            await _service.LoadMetadataAsync());
+        RecoveryMetadata corrupted = current with
+        {
+            GenerationSequence = -1
+        };
+        await File.WriteAllTextAsync(
+            _service.MetadataFilePath,
+            JsonSerializer.Serialize(corrupted));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            _service.SaveAsync(CreateDocument("Must not publish"), null));
+
+        Assert.Equal(
+            pointerBefore,
+            await File.ReadAllTextAsync(_service.PointerFilePath));
+        Assert.Equal(
+            current.SessionId,
+            JsonSerializer.Deserialize<RecoveryMetadata>(
+                await File.ReadAllTextAsync(_service.MetadataFilePath))!
+                .SessionId);
     }
 
     [Fact]
@@ -607,9 +821,173 @@ public sealed class RecoveryStorageServiceTests : IDisposable
         Assert.Equal(RecoveryStartupState.Recoverable, inspection.State);
     }
 
+    [Fact]
+    public async Task SemanticReset_WhenRecoveryDeletionFails_PropagatesAndKeepsVersionState()
+    {
+        GostDocument document = CreateDocument("Текущая");
+        await _service.SaveAsync(document, null);
+        DocumentSessionState session = new();
+        session.StartNew(document);
+        session.RecordMutation();
+        RecoveryStorageService failingStorage = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException =
+                    new InjectedRecoveryException("delete failed")
+            });
+        using AutoSaveService autoSave = new(
+            failingStorage,
+            session,
+            new PersistenceIoCoordinator(),
+            TimeSpan.FromMinutes(1));
+        Assert.True(await autoSave.SaveIfNeededAsync(() => document));
+        long savedVersion = autoSave.LastSavedChangeVersion;
+
+        await Assert.ThrowsAsync<InjectedRecoveryException>(
+            () => autoSave.ResetAsync());
+
+        Assert.Equal(savedVersion, autoSave.LastSavedChangeVersion);
+        Assert.True(failingStorage.HasRecovery);
+    }
+
+    [Fact]
+    public async Task NewDocument_WhenRecoveryDeletionFails_DoesNotReplaceCurrentDocument()
+    {
+        GostDocument current = CreateDocument("Текущая");
+        GostDocument replacement = CreateDocument("Новая");
+        await _service.SaveAsync(current, null);
+        DocumentSessionState session = new();
+        session.StartNew(current);
+        RecoveryStorageService failingStorage = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException =
+                    new InjectedRecoveryException("delete failed")
+            });
+        PersistenceIoCoordinator coordinator = new();
+        using AutoSaveService autoSave = new(
+            failingStorage,
+            session,
+            coordinator,
+            TimeSpan.FromMinutes(1));
+        GostDocument? published = null;
+
+        await Assert.ThrowsAsync<InjectedRecoveryException>(() =>
+            MainWindow.ResetRecoveryAndReplaceDocumentAsync(
+                session,
+                current,
+                replacement,
+                coordinator,
+                autoSave,
+                document => published = document));
+
+        Assert.Null(published);
+        Assert.Same(current, session.CaptureCheckpoint(current).Document);
+        Assert.True(failingStorage.HasRecovery);
+        Assert.False(coordinator.IsBusy);
+    }
+
+    [Fact]
+    public async Task PostSaveRecoveryCleanupFailure_IsReportedWithoutRevertingCleanSession()
+    {
+        GostDocument document = CreateDocument("Сохранённая");
+        await _service.SaveAsync(document, null);
+        DocumentSessionState session = new();
+        session.StartNew(document);
+        session.RecordMutation();
+        session.MarkSaved(
+            _temporaryDirectory.GetPath("saved.gost"),
+            SavedAtUtc,
+            session.ChangeVersion);
+        RecoveryStorageService failingStorage = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException =
+                    new InjectedRecoveryException("delete failed")
+            });
+        using AutoSaveService autoSave = new(
+            failingStorage,
+            session,
+            new PersistenceIoCoordinator(),
+            TimeSpan.FromMinutes(1));
+
+        Exception? warning = await MainWindow.TryClearRecoveryAfterSaveAsync(
+            autoSave,
+            session.SavedRevision);
+
+        Assert.IsType<InjectedRecoveryException>(warning);
+        Assert.False(session.IsDirty);
+        Assert.Equal(session.ChangeVersion, session.SavedRevision);
+        Assert.True(failingStorage.HasRecovery);
+    }
+
+    [Fact]
+    public async Task CloseOrDiscardCleanup_WhenDeletionFails_PropagatesFailure()
+    {
+        GostDocument document = CreateDocument("Черновик");
+        await _service.SaveAsync(document, null);
+        DocumentSessionState session = new();
+        session.StartNew(document);
+        session.RecordMutation();
+        RecoveryStorageService failingStorage = CreateService(
+            new AtomicFileCommitter(),
+            new FaultingRecoveryFileSystem
+            {
+                DeleteDirectoryException =
+                    new InjectedRecoveryException("delete failed")
+            });
+        using AutoSaveService autoSave = new(
+            failingStorage,
+            session,
+            new PersistenceIoCoordinator(),
+            TimeSpan.FromMinutes(1));
+
+        await Assert.ThrowsAsync<InjectedRecoveryException>(
+            () => autoSave.ClearRecoveryAsync());
+
+        Assert.True(failingStorage.HasRecovery);
+    }
+
     public void Dispose()
     {
         _temporaryDirectory.Dispose();
+    }
+
+    private string CreateSyntheticGeneration(
+        int sequence,
+        long packageLength,
+        int metadataPayloadLength = 0)
+    {
+        Guid generationId = Guid.NewGuid();
+        string directory = Path.Combine(
+            _temporaryDirectory.DirectoryPath,
+            $"generation-{generationId:N}");
+        Directory.CreateDirectory(directory);
+        using (FileStream package = new(
+                   Path.Combine(directory, "autosave.gost"),
+                   FileMode.CreateNew,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            package.SetLength(packageLength);
+        }
+
+        RecoveryMetadata metadata = new()
+        {
+            SessionId = generationId,
+            SavedAtUtc = SavedAtUtc,
+            GenerationSequence = sequence,
+            OriginalFilePath = metadataPayloadLength == 0
+                ? null
+                : new string('x', metadataPayloadLength)
+        };
+        File.WriteAllText(
+            Path.Combine(directory, "session.json"),
+            JsonSerializer.Serialize(metadata));
+        return directory;
     }
 
     private static GostDocument CreateDocument(string text)
@@ -744,6 +1122,14 @@ public sealed class RecoveryStorageServiceTests : IDisposable
 
         internal Exception? EnumerateDirectoriesException { get; init; }
 
+        internal IReadOnlyList<string>? DirectoryEnumerationOverride
+        {
+            get;
+            init;
+        }
+
+        internal int? ThrowAfterDirectoryCount { get; init; }
+
         public void CreateDirectory(string path) =>
             _inner.CreateDirectory(path);
 
@@ -764,6 +1150,9 @@ public sealed class RecoveryStorageServiceTests : IDisposable
 
         public bool FileExists(string path) => _inner.FileExists(path);
 
+        public long GetFileLength(string path) =>
+            _inner.GetFileLength(path);
+
         public bool DirectoryExists(string path) =>
             _inner.DirectoryExists(path);
 
@@ -777,12 +1166,27 @@ public sealed class RecoveryStorageServiceTests : IDisposable
 
         public IEnumerable<string> EnumerateDirectories(string path)
         {
-            if (EnumerateDirectoriesException is not null)
+            IEnumerable<string> directories =
+                DirectoryEnumerationOverride ??
+                _inner.EnumerateDirectories(path);
+            int yielded = 0;
+            foreach (string directory in directories)
+            {
+                if (ThrowAfterDirectoryCount == yielded &&
+                    EnumerateDirectoriesException is not null)
+                {
+                    throw EnumerateDirectoriesException;
+                }
+
+                yielded++;
+                yield return directory;
+            }
+
+            if (EnumerateDirectoriesException is not null &&
+                ThrowAfterDirectoryCount is null)
             {
                 throw EnumerateDirectoriesException;
             }
-
-            return _inner.EnumerateDirectories(path);
         }
 
         public void DeleteFile(string path) => _inner.DeleteFile(path);
@@ -843,5 +1247,46 @@ public sealed class RecoveryStorageServiceTests : IDisposable
             Stream stream,
             CancellationToken cancellationToken = default) =>
             _inner.SaveAsync(snapshot, stream, cancellationToken);
+    }
+
+    private sealed class CountingFailingArchiveService : IArchiveService
+    {
+        public int LoadCalls { get; private set; }
+
+        public GostDocument CreateNew() => throw new NotSupportedException();
+
+        public Task<GostDocument> LoadAsync(string filePath)
+        {
+            LoadCalls++;
+            return Task.FromException<GostDocument>(
+                new InvalidDataException("Synthetic package."));
+        }
+
+        public Task<GostDocument> LoadAsync(Stream stream) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            GostDocument document,
+            string filePath,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            DocumentPersistenceSnapshot snapshot,
+            string filePath,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            GostDocument document,
+            Stream stream,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task SaveAsync(
+            DocumentPersistenceSnapshot snapshot,
+            Stream stream,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

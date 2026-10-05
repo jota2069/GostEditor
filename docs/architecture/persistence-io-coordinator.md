@@ -10,7 +10,8 @@ The coordinator complements, but does not replace, the atomic file commit and
 revision snapshot layers:
 
 1. an operation obtains coordinator ownership;
-2. it captures the document and revision while it owns the coordinator;
+2. it validates that the request still belongs to the same document identity,
+   then captures the document and revision while it owns the coordinator;
 3. it performs the I/O;
 4. it publishes session state only after successful completion;
 5. disposing the ownership lease allows the next operation to run.
@@ -19,9 +20,9 @@ revision snapshot layers:
 
 | Operation | When ownership is unavailable | Snapshot rule |
 | --- | --- | --- |
-| Manual Save | Waits, observing its cancellation token | Captured after ownership |
-| Save As | Waits, observing its cancellation token | Captured after ownership |
-| Open | Waits; shutdown prevents late publication | Loaded document is published while ownership is held |
+| Manual Save | Waits, observing its cancellation token | Request identity/path is captured before waiting; snapshot is captured after validation and ownership |
+| Save As | Waits, observing its cancellation token | Request identity/path and target fingerprint are captured before waiting; snapshot is captured after validation and ownership |
+| Open | Waits; shutdown prevents late publication | Starting identity/revision is validated before cleanup and publication while ownership is held |
 | Autosave | Skips the current attempt; a later timer tick may retry | Captured only after successful non-blocking ownership |
 | DOCX export | Waits, observing its cancellation token | Deep revision snapshot captured after ownership |
 | Recovery clear/reset | Waits | Runs under the same ownership boundary |
@@ -29,8 +30,16 @@ revision snapshot layers:
 Only one of these operations can own the coordinator at a time. Waiting user
 operations enter a FIFO queue, so overlapping Save/Save As/Open/export requests run
 in request order. No snapshot is captured while an operation is merely waiting.
-Consequently a queued save cannot later publish a snapshot that was already
-stale when it entered the queue.
+Consequently a queued operation whose document was replaced, whose path changed
+or whose request revision changed is rejected instead of mixing an old graph
+with a new session. Edits after a Save snapshot remain supported by the normal
+revision/savepoint contract.
+
+Open, New and recovery Restore publish the editor graph, view-model graph and
+session baseline as one application transaction. An exception from editor load,
+view-model synchronization, navigation or session notification restores the
+previous graph and session state; rollback failures are attached to the primary
+exception as diagnostics and never replace it.
 
 Autosave deliberately does not queue. A pending autosave must not delay a user
 Save, Save As, Open or export, and skipping one timer tick does not lose live document
@@ -62,6 +71,9 @@ their caller intentionally requests removal independent of the savepoint.
   cancellation, so a failed operation cannot permanently block later work.
 - Failure or cancellation does not advance `SavedRevision` or change the
   current path because `DocumentSaveService` publishes them only after commit.
+- DOCX output is built through `AtomicFileCommitter`; a failed export preserves
+  an existing destination and successful output is published only after the
+  generated package is closed.
 
 ## Shutdown lifecycle
 

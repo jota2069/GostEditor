@@ -15,12 +15,26 @@ identifier. A corrupt pointer, incomplete generation or corrupt package is
 recorded as an issue and cannot invalidate another independently valid copy.
 Legacy root-level recovery remains supported.
 
-All immutable generation directories are inspected, including complete orphans
-left by an interrupted pointer publication. The valid candidate with the newest
-`SavedAtUtc` is offered to the user; the current generation wins an exact-time
-tie. This recovers a newer complete orphan without silently discarding it, while
-still falling back to an older retained generation when the current one is
-damaged.
+The valid generation named by `current.json` is authoritative and is loaded
+first. Complete orphans are considered only if the pointer or its generation is
+unusable. Published generations carry a monotonic `GenerationSequence`; fallback
+selection uses that sequence rather than wall-clock time. Old metadata without a
+sequence remains readable and uses `SavedAtUtc` only as a compatibility fallback.
+Moving the system clock backwards therefore cannot make an older sequenced
+generation win.
+
+Inspection is resource-bounded. It indexes metadata before loading document
+graphs, considers at most 64 generation directories, limits each metadata file
+to 64 KiB, the aggregate metadata index to 1 MiB and indexed packages to 1 GiB,
+and attempts to materialize at most three fallback documents. Limit violations
+produce a `Corrupted` result with diagnostics and leave all artifacts intact.
+The authoritative current package is still subject to the normal `.gost` input
+limits.
+
+Without a valid authoritative current generation, fallback selection requires a
+complete bounded index. If directory enumeration fails after yielding only a
+prefix, startup returns `Corrupted`; it never labels an older visible prefix as
+the newest recovery.
 
 Autosave starts only after one of these terminal startup outcomes:
 
@@ -42,4 +56,4 @@ discoverable as an orphan on the next inspection.
 
 The inspection result contains the selected document and metadata together, so
 the UI does not resolve `current.json` independently for each file. External
-process conflicts and hostile-file resource limits remain separate later work.
+process conflicts remain separate from recovery selection.

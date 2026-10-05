@@ -253,6 +253,66 @@ public class ExportServiceTests
     }
 
     [Fact]
+    public async Task ExportToDocx_WhenExportFails_PreservesExistingDestination()
+    {
+        string outputPath = CreateOutputPath();
+        byte[] original = "existing docx"u8.ToArray();
+        await File.WriteAllBytesAsync(outputPath, original);
+
+        try
+        {
+            GostDocument document = CreateImageOnlyDocument(
+                out ImagePlacementInfo placement);
+            StubImageService imageService = new(
+                (_, paragraphIndex) =>
+                    ImageResult<ResolvedImagePlacement>.Failure(
+                        ImageErrorCode.ImageNotFound,
+                        "Injected export failure.",
+                        placement.ImageId,
+                        paragraphIndex));
+
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                new ExportService(imageService)
+                    .ExportToDocxAsync(document, outputPath));
+
+            Assert.Equal(original, await File.ReadAllBytesAsync(outputPath));
+            Assert.Empty(Directory.EnumerateFiles(
+                Path.GetDirectoryName(outputPath)!,
+                Path.GetFileName(outputPath) + ".*.tmp"));
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
+    public async Task ExportToDocx_WhenExportSucceeds_AtomicallyReplacesDestination()
+    {
+        string outputPath = CreateOutputPath();
+        byte[] original = "existing docx"u8.ToArray();
+        await File.WriteAllBytesAsync(outputPath, original);
+
+        try
+        {
+            await new ExportService().ExportToDocxAsync(
+                CreateDocumentWithNonImageContent(),
+                outputPath);
+
+            Assert.NotEqual(original, await File.ReadAllBytesAsync(outputPath));
+            using ZipArchive package = ZipFile.OpenRead(outputPath);
+            Assert.NotNull(package.GetEntry("word/document.xml"));
+            Assert.Empty(Directory.EnumerateFiles(
+                Path.GetDirectoryName(outputPath)!,
+                Path.GetFileName(outputPath) + ".*.tmp"));
+        }
+        finally
+        {
+            DeleteIfExists(outputPath);
+        }
+    }
+
+    [Fact]
     public void Constructor_WithNullImageService_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new ExportService(null!));

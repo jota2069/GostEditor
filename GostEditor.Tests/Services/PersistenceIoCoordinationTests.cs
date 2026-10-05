@@ -20,10 +20,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate firstWrite = new();
         ControlledArchiveService archive = new(snapshotGate: firstWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("revision one");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("revision one");
         string path = session.CurrentFilePath!;
 
         Task<DocumentSaveResult> first = saves.SaveAsync(document, path);
@@ -60,10 +60,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate firstWrite = new();
         ControlledArchiveService archive = new(snapshotGate: firstWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("old path");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("old path");
         string oldPath = session.CurrentFilePath!;
         string newPath = _temporaryDirectory.GetPath("save-as.gost");
 
@@ -100,11 +100,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate manualWrite = new();
         ControlledArchiveService archive = new(snapshotGate: manualWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("manual");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
         using AutoSaveService autoSave = CreateAutoSave(archive, session, coordinator, "manual-first");
-        GostDocument document = CreateDocument("manual");
         int providerCalls = 0;
 
         Task<DocumentSaveResult> save = saves.SaveAsync(
@@ -138,11 +138,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate autoWrite = new();
         ControlledArchiveService archive = new(documentGate: autoWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("shared revision");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         using AutoSaveService autoSave = CreateAutoSave(archive, session, coordinator, "auto-first");
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("shared revision");
 
         Task<bool> recovery = autoSave.SaveIfNeededAsync(() => document);
         await autoWrite.WaitUntilReachedAsync();
@@ -175,11 +175,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate saveAsWrite = new();
         ControlledArchiveService archive = new(snapshotGate: saveAsWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("save as");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
         using AutoSaveService autoSave = CreateAutoSave(archive, session, coordinator, "save-as-first");
-        GostDocument document = CreateDocument("save as");
         string oldPath = session.CurrentFilePath!;
         string newPath = _temporaryDirectory.GetPath("new.gost");
 
@@ -206,7 +206,8 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate autoWrite = new();
         ControlledArchiveService archive = new(documentGate: autoWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("save as after recovery");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         using AutoSaveService autoSave = CreateAutoSave(
             archive,
@@ -214,7 +215,6 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
             coordinator,
             "auto-before-save-as");
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("save as after recovery");
         string oldPath = session.CurrentFilePath!;
         string newPath = _temporaryDirectory.GetPath("after-auto.gost");
 
@@ -245,7 +245,8 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate autoWrite = new();
         ControlledArchiveService archive = new(documentGate: autoWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("new recovery");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         long manuallySavedRevision = session.ChangeVersion;
         session.MarkSaved(
             session.CurrentFilePath!,
@@ -260,7 +261,7 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
             "guarded-cleanup");
 
         Task<bool> recovery = autoSave.SaveIfNeededAsync(
-            () => CreateDocument("new recovery"));
+            () => document);
         await autoWrite.WaitUntilReachedAsync();
         Task<bool> cleanup = autoSave.ClearRecoveryAsync(manuallySavedRevision);
 
@@ -285,11 +286,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         ManualAsyncGate saveWrite = new();
         ControlledArchiveService archive = new(snapshotGate: saveWrite);
         ControlledExportService exporter = new();
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("before save");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
         DocumentExportService exports = new(exporter, session, coordinator);
-        GostDocument document = CreateDocument("before save");
 
         Task<DocumentSaveResult> save = saves.SaveAsync(
             document,
@@ -327,11 +328,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         ManualAsyncGate exportWrite = new();
         ControlledArchiveService archive = new();
         ControlledExportService exporter = new(exportWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("exported revision");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
         DocumentExportService exports = new(exporter, session, coordinator);
-        GostDocument document = CreateDocument("exported revision");
 
         Task<DocumentExportResult> export = exports.ExportToDocxAsync(
             document,
@@ -369,11 +370,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         ManualAsyncGate exportWrite = new();
         ControlledArchiveService archive = new();
         ControlledExportService exporter = new(exportWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("fifo");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentExportService exports = new(exporter, session, coordinator);
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("fifo");
         string oldPath = session.CurrentFilePath!;
         string newPath = _temporaryDirectory.GetPath("fifo-save-as.gost");
 
@@ -410,11 +411,11 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         ControlledArchiveService archive = new();
         ControlledExportService exporter = new(
             failure: new IOException("export failed"));
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("after export failure");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentExportService exports = new(exporter, session, coordinator);
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("after export failure");
 
         IOException failure = await Assert.ThrowsAsync<IOException>(() =>
             exports.ExportToDocxAsync(
@@ -438,10 +439,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         ControlledArchiveService archive = new(
             snapshotGate: firstWrite,
             firstSnapshotFailure: new IOException("first failed"));
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("retry");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("retry");
 
         Task<DocumentSaveResult> first = saves.SaveAsync(
             document,
@@ -467,7 +468,8 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate autoWrite = new();
         ControlledArchiveService archive = new(documentGate: autoWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("cancel autosave");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         using AutoSaveService autoSave = CreateAutoSave(
             archive,
@@ -475,7 +477,6 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
             coordinator,
             "cancelled-auto");
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("cancel autosave");
         using CancellationTokenSource cancellation = new();
 
         Task<bool> cancelled = autoSave.SaveIfNeededAsync(
@@ -502,10 +503,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate firstWrite = new();
         ControlledArchiveService archive = new(snapshotGate: firstWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("cancel waiting");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("cancel waiting");
 
         Task<DocumentSaveResult> first = saves.SaveAsync(
             document,
@@ -538,10 +539,10 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
     {
         ManualAsyncGate ownedWrite = new();
         ControlledArchiveService archive = new(snapshotGate: ownedWrite);
-        DocumentSessionState session = CreateDirtyOpenedSession();
+        GostDocument document = CreateDocument("cancel owned");
+        DocumentSessionState session = CreateDirtyOpenedSession(document);
         PersistenceIoCoordinator coordinator = new();
         DocumentSaveService saves = CreateSaveService(archive, session, coordinator);
-        GostDocument document = CreateDocument("cancel owned");
         using CancellationTokenSource cancellation = new();
 
         Task<DocumentSaveResult> cancelled = saves.SaveAsync(
@@ -569,10 +570,13 @@ public sealed class PersistenceIoCoordinationTests : IDisposable
         _temporaryDirectory.Dispose();
     }
 
-    private DocumentSessionState CreateDirtyOpenedSession()
+    private DocumentSessionState CreateDirtyOpenedSession(
+        GostDocument document)
     {
         DocumentSessionState session = new();
-        session.MarkOpened(_temporaryDirectory.GetPath("original.gost"));
+        session.MarkOpened(
+            document,
+            _temporaryDirectory.GetPath("original.gost"));
         session.RecordMutation();
         return session;
     }

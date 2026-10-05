@@ -13,10 +13,11 @@ public class PersistedMutationTrackingTests
     public void ViewModelMutations_UpdateLiveDocumentAndRevision()
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(new GostDocument());
         MainWindowViewModel viewModel = CreateViewModel(session);
         GostDocument document = new();
-        viewModel.CurrentDocument = document;
+        viewModel.SetCurrentDocument(document);
+        session.StartNew(document);
         long revision = session.ChangeVersion;
 
         viewModel.WorkTitle = "New title";
@@ -70,9 +71,11 @@ public class PersistedMutationTrackingTests
     public void ClearingAlreadyEmptyPersistedCollections_IsNotAMutation()
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(new GostDocument());
         MainWindowViewModel viewModel = CreateViewModel(session);
-        viewModel.CurrentDocument = new GostDocument();
+        GostDocument document = new();
+        viewModel.SetCurrentDocument(document);
+        session.StartNew(document);
         long revision = session.ChangeVersion;
 
         viewModel.ClearCodeListingsCommand.Execute(null);
@@ -88,9 +91,11 @@ public class PersistedMutationTrackingTests
     public void DerivedDisplayNumberNotification_IsNotPersistedMutation()
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(new GostDocument());
         MainWindowViewModel viewModel = CreateViewModel(session);
-        viewModel.CurrentDocument = new GostDocument();
+        GostDocument document = new();
+        viewModel.SetCurrentDocument(document);
+        session.StartNew(document);
         BibliographySourceViewModel source = new()
         {
             Source = new BibliographySource { Description = "Source" }
@@ -112,7 +117,7 @@ public class PersistedMutationTrackingTests
     public void EditorMutationSignal_TracksTextFormattingImagesUndoAndRedo()
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(new GostDocument());
         GostEditor.Core.TextEngine.DocumentEditor editor = new();
         editor.DocumentChanged += (_, _) => session.RecordMutation();
         long revision = session.ChangeVersion;
@@ -141,7 +146,7 @@ public class PersistedMutationTrackingTests
     public void PersistedSettingsMutation_UsesSessionMutationContract()
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(new GostDocument());
         GostDocument document = new();
         long revision = session.ChangeVersion;
 

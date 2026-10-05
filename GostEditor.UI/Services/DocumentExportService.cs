@@ -34,6 +34,9 @@ public sealed class DocumentExportService
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
 
+        DocumentSessionCheckpoint request =
+            _session.CaptureCheckpoint(document);
+
         using PersistenceIoCoordinator.PersistenceIoLease ownership =
             await _ioCoordinator.AcquireAsync(
                 PersistenceIoOperation.Export,
@@ -42,6 +45,7 @@ public sealed class DocumentExportService
         CancellationToken operationCancellation =
             ownership.CancellationToken;
         operationCancellation.ThrowIfCancellationRequested();
+        _session.EnsureCurrent(request);
 
         long revision = _session.ChangeVersion;
         DocumentPersistenceSnapshot snapshot =

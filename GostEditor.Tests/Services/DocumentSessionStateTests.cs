@@ -1,3 +1,4 @@
+using GostEditor.Core.Models;
 using GostEditor.UI.Services;
 
 namespace GostEditor.Tests.Services;
@@ -52,7 +53,7 @@ public class DocumentSessionStateTests
 
         session.MarkDirty();
         session.MarkDirty();
-        session.MarkOpened(path);
+        session.MarkOpened(new GostDocument(), path);
 
         Assert.False(session.IsDirty);
         Assert.False(session.IsRecovered);
@@ -97,7 +98,7 @@ public class DocumentSessionStateTests
         DocumentSessionState session = new DocumentSessionState();
         string path = Path.Combine(Path.GetTempPath(), "original.gost");
 
-        session.MarkRecovered(path);
+        session.MarkRecovered(new GostDocument(), path);
 
         Assert.True(session.IsDirty);
         Assert.True(session.IsRecovered);
@@ -113,9 +114,9 @@ public class DocumentSessionStateTests
         DocumentSessionState session = new DocumentSessionState();
         string path = Path.Combine(Path.GetTempPath(), "old.gost");
 
-        session.MarkRecovered(path);
+        session.MarkRecovered(new GostDocument(), path);
         session.MarkDirty();
-        session.StartNew();
+        session.StartNew(new GostDocument());
 
         Assert.False(session.IsDirty);
         Assert.False(session.IsRecovered);
@@ -168,16 +169,38 @@ public class DocumentSessionStateTests
         DocumentSessionState session = new();
         List<long> revisions = new();
 
-        session.StartNew();
+        session.StartNew(new GostDocument());
         revisions.Add(session.ChangeVersion);
         session.RecordMutation();
         revisions.Add(session.ChangeVersion);
-        session.MarkOpened(Path.Combine(Path.GetTempPath(), "opened.gost"));
+        session.MarkOpened(
+            new GostDocument(),
+            Path.Combine(Path.GetTempPath(), "opened.gost"));
         revisions.Add(session.ChangeVersion);
-        session.MarkRecovered(null);
+        session.MarkRecovered(new GostDocument(), null);
         revisions.Add(session.ChangeVersion);
 
         Assert.Equal(revisions.Order(), revisions);
         Assert.Equal(revisions.Distinct().Count(), revisions.Count);
+    }
+
+    [Fact]
+    public void DocumentCheckpoint_DetectsReplacementEvenWhenRevisionMatches()
+    {
+        GostDocument first = new();
+        GostDocument second = new();
+        DocumentSessionState session = new();
+        session.StartNew(first);
+        DocumentSessionCheckpoint checkpoint =
+            session.CaptureCheckpoint(first);
+        long originalRevision = session.ChangeVersion;
+
+        session.ActivateDocument(second);
+
+        Assert.Equal(originalRevision, session.ChangeVersion);
+        Assert.False(session.IsCurrent(checkpoint));
+        Assert.Throws<DocumentSessionChangedException>(
+            () => session.EnsureCurrent(checkpoint));
+        Assert.True(session.DocumentGeneration > checkpoint.DocumentGeneration);
     }
 }

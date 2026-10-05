@@ -58,9 +58,20 @@ public sealed class DocumentSaveService
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
 
-        PersistenceIoOperation operation = IsSaveAs(filePath)
+        DocumentSessionCheckpoint request =
+            _session.CaptureCheckpoint(document);
+        PersistenceIoOperation operation = IsSaveAs(
+            request.CurrentFilePath,
+            filePath)
             ? PersistenceIoOperation.SaveAs
             : PersistenceIoOperation.ManualSave;
+        FileContentFingerprint? requestedTargetFingerprint =
+            !overwriteExternalChanges &&
+            operation == PersistenceIoOperation.SaveAs
+                ? await CaptureTargetFingerprintAsync(
+                    filePath,
+                    cancellationToken)
+                : null;
 
         using PersistenceIoCoordinator.PersistenceIoLease ownership =
             await _ioCoordinator.AcquireAsync(operation, cancellationToken);
@@ -68,15 +79,21 @@ public sealed class DocumentSaveService
         CancellationToken operationCancellation =
             ownership.CancellationToken;
         operationCancellation.ThrowIfCancellationRequested();
+        _session.EnsureUnchanged(request);
 
         FileContentFingerprint? expectedFingerprint =
             _session.FileFingerprint;
-        bool verifyExternalVersion =
-            operation == PersistenceIoOperation.ManualSave &&
-            !overwriteExternalChanges;
+        bool verifyExternalVersion = !overwriteExternalChanges;
         if (verifyExternalVersion)
         {
-            if (!_session.HasFileFingerprintBaseline)
+            if (operation == PersistenceIoOperation.SaveAs)
+            {
+                await EnsureExternalVersionUnchangedAsync(
+                    filePath,
+                    requestedTargetFingerprint,
+                    operationCancellation);
+            }
+            else if (!_session.HasFileFingerprintBaseline)
             {
                 FileContentFingerprint? unknownBaselineFile;
                 try
@@ -116,7 +133,7 @@ public sealed class DocumentSaveService
         DocumentPersistenceSnapshot snapshot =
             DocumentPersistenceSnapshot.Capture(
                 document,
-                _session.ChangeVersion,
+                request.ChangeVersion,
                 savedAt.UtcDateTime);
 
         FileContentFingerprint? committedFingerprint;
@@ -129,7 +146,9 @@ public sealed class DocumentSaveService
                 verifyExternalVersion
                     ? token => EnsureExternalVersionUnchangedAsync(
                         filePath,
-                        expectedFingerprint,
+                        operation == PersistenceIoOperation.SaveAs
+                            ? requestedTargetFingerprint
+                            : expectedFingerprint,
                         token)
                     : null,
                 operationCancellation);
@@ -161,12 +180,17 @@ public sealed class DocumentSaveService
             }
         }
 
-        _session.MarkSaved(
-            filePath,
-            savedAt,
-            snapshot.Revision,
-            committedFingerprint);
-        bool isCurrentRevision =
+        bool sessionUpdated = _session.IsCurrent(request);
+        if (sessionUpdated)
+        {
+            _session.MarkSaved(
+                filePath,
+                savedAt,
+                snapshot.Revision,
+                committedFingerprint);
+        }
+
+        bool isCurrentRevision = sessionUpdated &&
             _session.ChangeVersion == snapshot.Revision;
 
         if (isCurrentRevision)
@@ -179,12 +203,14 @@ public sealed class DocumentSaveService
         return new DocumentSaveResult(
             snapshot.Revision,
             isCurrentRevision,
-            savedAt);
+            savedAt,
+            sessionUpdated);
     }
 
-    private bool IsSaveAs(string filePath)
+    private static bool IsSaveAs(
+        string? currentPath,
+        string filePath)
     {
-        string? currentPath = _session.CurrentFilePath;
         if (string.IsNullOrWhiteSpace(currentPath))
         {
             return true;
@@ -198,6 +224,26 @@ public sealed class DocumentSaveService
             Path.GetFullPath(currentPath),
             Path.GetFullPath(filePath),
             comparison);
+    }
+
+    private async Task<FileContentFingerprint?> CaptureTargetFingerprintAsync(
+        string filePath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _fingerprintService.TryCaptureAsync(
+                filePath,
+                cancellationToken);
+        }
+        catch (IOException exception)
+        {
+            throw new ExternalFileChangedException(filePath, exception);
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new ExternalFileChangedException(filePath, exception);
+        }
     }
 
     private async Task EnsureExternalVersionUnchangedAsync(
@@ -231,4 +277,5 @@ public sealed class DocumentSaveService
 public sealed record DocumentSaveResult(
     long SavedRevision,
     bool IsCurrentRevision,
-    DateTimeOffset SavedAt);
+    DateTimeOffset SavedAt,
+    bool SessionUpdated = true);

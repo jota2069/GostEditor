@@ -18,6 +18,11 @@ public sealed class RecoveryStorageService
     private const string PointerFileName = "current.json";
     private const string GenerationPrefix = "generation-";
     private const string StagingPrefix = ".generation-";
+    internal const int MaxGenerationCandidates = 64;
+    internal const int MaxMaterializationAttempts = 3;
+    internal const long MaxMetadataBytes = 64 * 1024;
+    internal const long MaxAggregateMetadataBytes = 1024L * 1024;
+    internal const long MaxAggregatePackageBytes = 1024L * 1024 * 1024;
 
     private readonly IArchiveService _archiveService;
     private readonly IAtomicFileCommitter _fileCommitter;
@@ -108,9 +113,12 @@ public sealed class RecoveryStorageService
     public async Task<RecoveryStartupResult> InspectStartupAsync()
     {
         List<RecoveryStartupIssue> issues = new();
-        List<RecoveryStartupCandidate> candidates = new();
+        List<RecoveryCandidateDescriptor> candidates = new();
         HashSet<Guid> inspectedGenerations = new();
         bool hasArtifacts = false;
+        long aggregatePackageBytes = 0;
+        long aggregateMetadataBytes = 0;
+        int generationDirectoryCount = 0;
 
         RecoveryGenerationPointer? currentPointer = null;
         if (_fileSystem.FileExists(PointerFilePath))
@@ -118,13 +126,11 @@ public sealed class RecoveryStorageService
             hasArtifacts = true;
             try
             {
-                await using Stream pointerStream =
-                    _fileSystem.OpenRead(PointerFilePath);
-                RecoveryGenerationPointer? pointer =
-                    await JsonSerializer.DeserializeAsync<
-                        RecoveryGenerationPointer>(
-                        pointerStream,
-                        _jsonOptions);
+                EnsureMetadataWithinLimit(PointerFilePath);
+                (RecoveryGenerationPointer? pointer, _) =
+                    await ReadBoundedJsonAsync<RecoveryGenerationPointer>(
+                        PointerFilePath,
+                        MaxMetadataBytes);
                 currentPointer = new RecoveryGenerationPointer
                 {
                     GenerationId = ValidatePointer(pointer)
@@ -141,11 +147,23 @@ public sealed class RecoveryStorageService
         if (currentPointer is not null)
         {
             inspectedGenerations.Add(currentPointer.GenerationId);
-            await InspectGenerationAsync(
+            RecoveryCandidateDescriptor? current =
+                await InspectGenerationMetadataAsync(
                 currentPointer.GenerationId,
                 RecoveryCandidateKind.CurrentGeneration,
-                candidates,
                 issues);
+            if (current is not null)
+            {
+                RecoveryStartupCandidate? loaded =
+                    await TryLoadCandidateAsync(current, issues);
+                if (loaded is not null)
+                {
+                    return CreateRecoverableResult(
+                        loaded,
+                        recoverableCandidateCount: 1,
+                        issues);
+                }
+            }
         }
 
         try
@@ -157,18 +175,65 @@ public sealed class RecoveryStorageService
                              RecoveryDirectoryPath))
                 {
                     string name = Path.GetFileName(directory);
-                    if (!TryParseGenerationId(name, out Guid generationId) ||
-                        !inspectedGenerations.Add(generationId))
+                    if (!TryParseGenerationId(name, out Guid generationId))
                     {
                         continue;
                     }
 
                     hasArtifacts = true;
-                    await InspectGenerationAsync(
+                    generationDirectoryCount++;
+                    if (generationDirectoryCount > MaxGenerationCandidates)
+                    {
+                        issues.Add(new RecoveryStartupIssue(
+                            RecoveryDirectoryPath,
+                            new InvalidDataException(
+                                $"Количество поколений recovery превышает " +
+                                $"лимит {MaxGenerationCandidates}.")));
+                        return CreateCorruptedResult(issues);
+                    }
+
+                    if (!inspectedGenerations.Add(generationId))
+                    {
+                        continue;
+                    }
+
+                    RecoveryCandidateDescriptor? candidate =
+                        await InspectGenerationMetadataAsync(
                         generationId,
                         RecoveryCandidateKind.OtherGeneration,
-                        candidates,
                         issues);
+                    if (candidate is null)
+                    {
+                        continue;
+                    }
+
+                    if (candidate.PackageLength < 0 ||
+                        aggregatePackageBytes >
+                        MaxAggregatePackageBytes - candidate.PackageLength)
+                    {
+                        issues.Add(new RecoveryStartupIssue(
+                            candidate.PackagePath,
+                            new InvalidDataException(
+                                "Совокупный размер recovery превышает " +
+                                $"лимит {MaxAggregatePackageBytes} байт.")));
+                        return CreateCorruptedResult(issues);
+                    }
+
+                    aggregatePackageBytes += candidate.PackageLength;
+                    if (candidate.MetadataLength < 0 ||
+                        aggregateMetadataBytes >
+                        MaxAggregateMetadataBytes - candidate.MetadataLength)
+                    {
+                        issues.Add(new RecoveryStartupIssue(
+                            candidate.MetadataPath,
+                            new InvalidDataException(
+                                "Совокупный размер метаданных recovery " +
+                                $"превышает лимит {MaxAggregateMetadataBytes} байт.")));
+                        return CreateCorruptedResult(issues);
+                    }
+
+                    aggregateMetadataBytes += candidate.MetadataLength;
+                    candidates.Add(candidate);
                 }
             }
         }
@@ -178,30 +243,74 @@ public sealed class RecoveryStorageService
             issues.Add(new RecoveryStartupIssue(
                 RecoveryDirectoryPath,
                 exception));
+            return CreateCorruptedResult(issues);
         }
 
         if (_fileSystem.FileExists(LegacyRecoveryFilePath))
         {
             hasArtifacts = true;
-            await InspectLegacyAsync(candidates, issues);
+            RecoveryCandidateDescriptor? legacy =
+                await InspectLegacyMetadataAsync(issues);
+            if (legacy is not null)
+            {
+                if (legacy.PackageLength < 0 ||
+                    aggregatePackageBytes >
+                    MaxAggregatePackageBytes - legacy.PackageLength)
+                {
+                    issues.Add(new RecoveryStartupIssue(
+                        legacy.PackagePath,
+                        new InvalidDataException(
+                            "Совокупный размер recovery превышает " +
+                            $"лимит {MaxAggregatePackageBytes} байт.")));
+                    return CreateCorruptedResult(issues);
+                }
+
+                if (legacy.MetadataLength < 0 ||
+                    aggregateMetadataBytes >
+                    MaxAggregateMetadataBytes - legacy.MetadataLength)
+                {
+                    issues.Add(new RecoveryStartupIssue(
+                        legacy.MetadataPath,
+                        new InvalidDataException(
+                            "Совокупный размер метаданных recovery " +
+                            $"превышает лимит {MaxAggregateMetadataBytes} байт.")));
+                    return CreateCorruptedResult(issues);
+                }
+
+                candidates.Add(legacy);
+            }
         }
 
-        RecoveryStartupCandidate? selected = candidates
-            .OrderByDescending(candidate => candidate.Metadata?.SavedAtUtc)
-            .ThenBy(candidate => candidate.Kind)
-            .FirstOrDefault();
-
-        if (selected is not null)
+        int attempts = 0;
+        foreach (RecoveryCandidateDescriptor candidate in candidates
+                     .OrderByDescending(item =>
+                         item.Metadata?.GenerationSequence.HasValue == true)
+                     .ThenByDescending(item =>
+                         item.Metadata?.GenerationSequence ?? long.MinValue)
+                     .ThenByDescending(item =>
+                         item.Metadata?.SavedAtUtc ?? DateTimeOffset.MinValue)
+                     .ThenBy(item => item.Kind))
         {
-            return new RecoveryStartupResult
+            if (attempts >= MaxMaterializationAttempts)
             {
-                State = RecoveryStartupState.Recoverable,
-                Document = selected.Document,
-                Metadata = selected.Metadata,
-                CandidateKind = selected.Kind,
-                RecoverableCandidateCount = candidates.Count,
-                Issues = issues
-            };
+                issues.Add(new RecoveryStartupIssue(
+                    RecoveryDirectoryPath,
+                    new InvalidDataException(
+                        "Достигнут лимит попыток загрузки recovery: " +
+                        MaxMaterializationAttempts + ".")));
+                break;
+            }
+
+            attempts++;
+            RecoveryStartupCandidate? loaded =
+                await TryLoadCandidateAsync(candidate, issues);
+            if (loaded is not null)
+            {
+                return CreateRecoverableResult(
+                    loaded,
+                    candidates.Count,
+                    issues);
+            }
         }
 
         return new RecoveryStartupResult
@@ -212,6 +321,28 @@ public sealed class RecoveryStorageService
             Issues = issues
         };
     }
+
+    private static RecoveryStartupResult CreateRecoverableResult(
+        RecoveryStartupCandidate selected,
+        int recoverableCandidateCount,
+        IReadOnlyList<RecoveryStartupIssue> issues) =>
+        new()
+        {
+            State = RecoveryStartupState.Recoverable,
+            Document = selected.Document,
+            Metadata = selected.Metadata,
+            CandidateKind = selected.Kind,
+            RecoverableCandidateCount = recoverableCandidateCount,
+            Issues = issues
+        };
+
+    private static RecoveryStartupResult CreateCorruptedResult(
+        IReadOnlyList<RecoveryStartupIssue> issues) =>
+        new()
+        {
+            State = RecoveryStartupState.Corrupted,
+            Issues = issues
+        };
 
     private string LegacyRecoveryFilePath =>
         Path.Combine(RecoveryDirectoryPath, RecoveryFileName);
@@ -240,7 +371,9 @@ public sealed class RecoveryStorageService
         {
             SessionId = generationId,
             OriginalFilePath = NormalizeOptionalPath(originalFilePath),
-            SavedAtUtc = _timeProvider.GetUtcNow()
+            SavedAtUtc = _timeProvider.GetUtcNow(),
+            GenerationSequence =
+                await GetNextGenerationSequenceAsync(previousPointer)
         };
 
         _fileSystem.CreateDirectory(stagingDirectory);
@@ -418,10 +551,10 @@ public sealed class RecoveryStorageService
         await _fileSystem.FlushToDiskAsync(stream, cancellationToken);
     }
 
-    private async Task InspectGenerationAsync(
+    private async Task<RecoveryCandidateDescriptor?>
+        InspectGenerationMetadataAsync(
         Guid generationId,
         RecoveryCandidateKind kind,
-        ICollection<RecoveryStartupCandidate> candidates,
         ICollection<RecoveryStartupIssue> issues)
     {
         RecoveryGenerationPaths paths =
@@ -436,66 +569,134 @@ public sealed class RecoveryStorageService
                     "Поколение recovery содержит неполный набор файлов.");
             }
 
-            await using Stream metadataStream =
-                _fileSystem.OpenRead(paths.MetadataPath);
-            RecoveryMetadata? metadata =
-                await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
-                    metadataStream,
-                    _jsonOptions);
+            EnsureMetadataWithinLimit(paths.MetadataPath);
+
+            (RecoveryMetadata? metadata, long metadataLength) =
+                await ReadBoundedJsonAsync<RecoveryMetadata>(
+                    paths.MetadataPath,
+                    MaxMetadataBytes);
 
             if (metadata is null ||
                 metadata.Version != RecoveryMetadata.CurrentVersion ||
-                metadata.SessionId != generationId)
+                metadata.SessionId != generationId ||
+                metadata.GenerationSequence is <= 0)
             {
                 throw new InvalidDataException(
                     "Метаданные recovery не соответствуют поколению.");
             }
 
-            GostDocument document =
-                await _archiveService.LoadAsync(paths.PackagePath);
-            candidates.Add(new RecoveryStartupCandidate(
+            return new RecoveryCandidateDescriptor(
                 kind,
-                document,
-                metadata));
+                paths.PackagePath,
+                paths.MetadataPath,
+                metadata,
+                _fileSystem.GetFileLength(paths.PackagePath),
+                metadataLength);
         }
         catch (Exception exception)
         {
             issues.Add(new RecoveryStartupIssue(
                 Path.GetDirectoryName(paths.PackagePath)!,
                 exception));
+            return null;
         }
     }
 
-    private async Task InspectLegacyAsync(
-        ICollection<RecoveryStartupCandidate> candidates,
+    private async Task<RecoveryCandidateDescriptor?>
+        InspectLegacyMetadataAsync(
         ICollection<RecoveryStartupIssue> issues)
     {
         try
         {
             RecoveryMetadata? metadata = null;
+            long metadataLength = 0;
             if (_fileSystem.FileExists(LegacyMetadataFilePath))
             {
-                await using Stream metadataStream =
-                    _fileSystem.OpenRead(LegacyMetadataFilePath);
-                metadata =
-                    await JsonSerializer.DeserializeAsync<RecoveryMetadata>(
-                        metadataStream,
-                        _jsonOptions);
+                EnsureMetadataWithinLimit(LegacyMetadataFilePath);
+                (metadata, metadataLength) =
+                    await ReadBoundedJsonAsync<RecoveryMetadata>(
+                        LegacyMetadataFilePath,
+                        MaxMetadataBytes);
             }
 
-            GostDocument document =
-                await _archiveService.LoadAsync(LegacyRecoveryFilePath);
-            candidates.Add(new RecoveryStartupCandidate(
+            return new RecoveryCandidateDescriptor(
                 RecoveryCandidateKind.Legacy,
-                document,
-                metadata));
+                LegacyRecoveryFilePath,
+                LegacyMetadataFilePath,
+                metadata,
+                _fileSystem.GetFileLength(LegacyRecoveryFilePath),
+                metadataLength);
         }
         catch (Exception exception)
         {
             issues.Add(new RecoveryStartupIssue(
                 LegacyRecoveryFilePath,
                 exception));
+            return null;
         }
+    }
+
+    private async Task<RecoveryStartupCandidate?> TryLoadCandidateAsync(
+        RecoveryCandidateDescriptor candidate,
+        ICollection<RecoveryStartupIssue> issues)
+    {
+        try
+        {
+            GostDocument document =
+                await _archiveService.LoadAsync(candidate.PackagePath);
+            return new RecoveryStartupCandidate(
+                candidate.Kind,
+                document,
+                candidate.Metadata);
+        }
+        catch (Exception exception)
+        {
+            issues.Add(new RecoveryStartupIssue(
+                candidate.PackagePath,
+                exception));
+            return null;
+        }
+    }
+
+    private void EnsureMetadataWithinLimit(string metadataPath)
+    {
+        long length = _fileSystem.GetFileLength(metadataPath);
+        if (length < 0 || length > MaxMetadataBytes)
+        {
+            throw new InvalidDataException(
+                $"Метаданные recovery превышают лимит {MaxMetadataBytes} байт.");
+        }
+    }
+
+    private async Task<(T? Value, long Length)> ReadBoundedJsonAsync<T>(
+        string path,
+        long maximumLength)
+    {
+        await using Stream source = _fileSystem.OpenRead(path);
+        await using MemoryStream buffer = new();
+        byte[] chunk = new byte[8192];
+        while (true)
+        {
+            int read = await source.ReadAsync(chunk);
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (buffer.Length > maximumLength - read)
+            {
+                throw new InvalidDataException(
+                    $"JSON recovery превышает лимит {maximumLength} байт.");
+            }
+
+            await buffer.WriteAsync(chunk.AsMemory(0, read));
+        }
+
+        buffer.Position = 0;
+        T? value = await JsonSerializer.DeserializeAsync<T>(
+            buffer,
+            _jsonOptions);
+        return (value, buffer.Length);
     }
 
     private async Task<RecoveryGenerationPaths> ResolveCurrentGenerationAsync()
@@ -560,6 +761,47 @@ public sealed class RecoveryStorageService
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    private async Task<long> GetNextGenerationSequenceAsync(
+        RecoveryGenerationPointer? previousPointer)
+    {
+        if (previousPointer is null)
+        {
+            return 1;
+        }
+
+        string metadataPath = CreateGenerationPaths(
+            previousPointer.GenerationId).MetadataPath;
+        try
+        {
+            if (!_fileSystem.FileExists(metadataPath))
+            {
+                return 1;
+            }
+
+            EnsureMetadataWithinLimit(metadataPath);
+            (RecoveryMetadata? previous, _) =
+                await ReadBoundedJsonAsync<RecoveryMetadata>(
+                    metadataPath,
+                    MaxMetadataBytes);
+            long previousSequence = previous?.GenerationSequence ?? 0;
+            if (previousSequence < 0)
+            {
+                throw new InvalidDataException(
+                    "Последовательность опубликованного recovery некорректна.");
+            }
+
+            return checked(previousSequence + 1);
+        }
+        catch (Exception exception) when (
+            exception is IOException or
+            UnauthorizedAccessException or
+            JsonException)
+        {
+            RecordDiagnostic("generation sequence", exception);
+            return 1;
         }
     }
 
@@ -737,4 +979,12 @@ public sealed class RecoveryStorageService
         RecoveryCandidateKind Kind,
         GostDocument Document,
         RecoveryMetadata? Metadata);
+
+    private sealed record RecoveryCandidateDescriptor(
+        RecoveryCandidateKind Kind,
+        string PackagePath,
+        string MetadataPath,
+        RecoveryMetadata? Metadata,
+        long PackageLength,
+        long MetadataLength);
 }

@@ -14,10 +14,13 @@ public sealed class AutoSaveServiceTests : IDisposable
     private readonly DocumentSessionState _session;
     private readonly RecoveryStorageService _recoveryStorage;
     private readonly AutoSaveService _autoSave;
+    private readonly GostDocument _document;
 
     public AutoSaveServiceTests()
     {
         _session = new DocumentSessionState();
+        _document = CreateDocument("Начальный документ");
+        _session.StartNew(_document);
 
         _recoveryStorage = new RecoveryStorageService(
             new ArchiveService(),
@@ -34,7 +37,7 @@ public sealed class AutoSaveServiceTests : IDisposable
     public async Task SaveIfNeededAsync_WhenSessionIsClean_DoesNothing()
     {
         bool saved = await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Чистый документ"));
+            () => SetDocumentText("Чистый документ"));
 
         Assert.False(saved);
         Assert.False(_recoveryStorage.HasRecovery);
@@ -47,7 +50,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         bool saved = await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Черновик"));
+            () => SetDocumentText("Черновик"));
 
         Assert.True(saved);
         Assert.True(_recoveryStorage.HasRecovery);
@@ -70,14 +73,14 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         Assert.True(await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Первая копия")));
+            () => SetDocumentText("Первая копия")));
 
         RecoveryMetadata firstMetadata =
             Assert.IsType<RecoveryMetadata>(
                 await _recoveryStorage.LoadMetadataAsync());
 
         bool savedAgain = await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Не должна сохраниться"));
+            () => SetDocumentText("Не должна сохраниться"));
 
         RecoveryMetadata secondMetadata =
             Assert.IsType<RecoveryMetadata>(
@@ -102,7 +105,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         Assert.True(await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Первая версия")));
+            () => SetDocumentText("Первая версия")));
 
         RecoveryMetadata firstMetadata =
             Assert.IsType<RecoveryMetadata>(
@@ -111,7 +114,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         Assert.True(await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Вторая версия")));
+            () => SetDocumentText("Вторая версия")));
 
         RecoveryMetadata secondMetadata =
             Assert.IsType<RecoveryMetadata>(
@@ -122,7 +125,7 @@ public sealed class AutoSaveServiceTests : IDisposable
             secondMetadata.SessionId);
 
         Assert.Equal(
-            2,
+            _session.ChangeVersion,
             _autoSave.LastSavedChangeVersion);
 
         GostDocument recovered =
@@ -139,7 +142,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         Assert.True(await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Для удаления")));
+            () => SetDocumentText("Для удаления")));
 
         await _autoSave.ClearRecoveryAsync();
 
@@ -156,7 +159,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         _session.MarkDirty();
 
         Assert.True(await _autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Для сброса")));
+            () => SetDocumentText("Для сброса")));
 
         await _autoSave.ResetAsync();
 
@@ -185,6 +188,8 @@ public sealed class AutoSaveServiceTests : IDisposable
             archiveService,
             _temporaryDirectory.GetPath("overlap"));
         DocumentSessionState session = new();
+        GostDocument document = CreateDocument("Первая копия");
+        session.StartNew(document);
         using AutoSaveService autoSave = new(
             recoveryStorage,
             session,
@@ -195,7 +200,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         session.MarkDirty();
 
         Task<bool> firstSave = autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Первая копия"));
+            () => document);
         ExceptionDispatchInfo? primaryFailure = null;
         ExceptionDispatchInfo? operationFailure = null;
 
@@ -204,7 +209,7 @@ public sealed class AutoSaveServiceTests : IDisposable
             await saveGate.WaitUntilReachedAsync(timeout.Token);
 
             bool secondSaved = await autoSave.SaveIfNeededAsync(
-                    () => CreateDocument("Вторая копия"))
+                    () => document)
                 .WaitAsync(timeout.Token);
 
             Assert.False(secondSaved);
@@ -242,6 +247,8 @@ public sealed class AutoSaveServiceTests : IDisposable
             archiveService,
             _temporaryDirectory.GetPath("late-overlap"));
         DocumentSessionState session = new();
+        GostDocument document = CreateDocument("Поздняя копия");
+        session.StartNew(document);
         using AutoSaveService autoSave = new(
             recoveryStorage,
             session,
@@ -252,7 +259,7 @@ public sealed class AutoSaveServiceTests : IDisposable
         session.MarkDirty();
 
         Task<bool> firstSave = autoSave.SaveIfNeededAsync(
-            () => CreateDocument("Поздняя копия"));
+            () => document);
         ExceptionDispatchInfo? primaryFailure = null;
         ExceptionDispatchInfo? operationFailure = null;
 
@@ -319,6 +326,16 @@ public sealed class AutoSaveServiceTests : IDisposable
                 }
             }
         };
+    }
+
+    private GostDocument SetDocumentText(string text)
+    {
+        _document.Paragraphs.Clear();
+        _document.Paragraphs.Add(new Paragraph
+        {
+            Runs = { new TextRun(text) }
+        });
+        return _document;
     }
 
     private static async Task<ExceptionDispatchInfo?> ReleaseAndObserveAsync(
