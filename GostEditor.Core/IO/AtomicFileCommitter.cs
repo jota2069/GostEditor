@@ -355,7 +355,9 @@ internal sealed class PhysicalAtomicFileSystem : IAtomicFileSystem
             new FileStreamOptions
             {
                 Mode = FileMode.CreateNew,
-                Access = FileAccess.Write,
+                // Some package writers (including the Open XML SDK) need to
+                // read ZIP metadata back while finalizing the package.
+                Access = FileAccess.ReadWrite,
                 Share = FileShare.None,
                 BufferSize = 4096,
                 Options = FileOptions.Asynchronous | FileOptions.WriteThrough
