@@ -30,7 +30,7 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore GostEditor.sln
+        run: dotnet restore GostEditor.sln --locked-mode
 
       - name: Verify formatting of changed C# files
         shell: bash

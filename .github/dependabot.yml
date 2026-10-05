@@ -1,0 +1,43 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    target-branch: master
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 8
+    groups:
+      avalonia:
+        patterns:
+          - "Avalonia*"
+        update-types:
+          - minor
+          - patch
+      dotnet-libraries:
+        patterns:
+          - "CommunityToolkit.*"
+          - "Microsoft.Extensions.*"
+          - "Newtonsoft.Json"
+        update-types:
+          - minor
+          - patch
+      native-rendering:
+        patterns:
+          - "SkiaSharp*"
+          - "HarfBuzzSharp*"
+        update-types:
+          - minor
+          - patch
+      test-tooling:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "coverlet.*"
+          - "xunit*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: "Avalonia*"
+        update-types:
+          - "version-update:semver-major"
