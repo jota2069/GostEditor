@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using DocumentFormat.OpenXml.Packaging;
 using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using GostEditor.Core.Services;
@@ -514,12 +515,9 @@ public class ArchiveServiceTests
             .ExportToDocxAsync(reloaded, outputPath);
 
         Assert.True(File.Exists(outputPath));
-        using ZipArchive docx = ZipFile.OpenRead(outputPath);
-        Assert.Contains(
-            docx.Entries,
-            entry => entry.FullName.StartsWith(
-                "word/media/",
-                StringComparison.Ordinal));
+        using WordprocessingDocument docx =
+            WordprocessingDocument.Open(outputPath, isEditable: false);
+        Assert.Single(docx.MainDocumentPart!.ImageParts);
     }
 
     [Fact]
