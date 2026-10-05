@@ -13,4 +13,6 @@ public sealed record RecoveryMetadata
     public string? OriginalFilePath { get; init; }
 
     public DateTimeOffset SavedAtUtc { get; init; }
+
+    public long? GenerationSequence { get; init; }
 }

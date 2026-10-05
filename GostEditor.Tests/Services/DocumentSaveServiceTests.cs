@@ -17,8 +17,8 @@ public class DocumentSaveServiceTests
     [Fact]
     public async Task SaveCurrentRevision_CommitsSnapshotAndMarksSessionClean()
     {
-        DocumentSessionState session = CreateDirtySession();
         GostDocument document = CreateDocument("current");
+        DocumentSessionState session = CreateDirtySession(document);
         CapturingArchiveService archive = new();
         DocumentSaveService service = CreateService(archive, session);
         string path = Path.Combine(Path.GetTempPath(), "current.gost");
@@ -37,13 +37,15 @@ public class DocumentSaveServiceTests
     [Fact]
     public async Task EditDuringBlockedSave_PersistsCapturedRevisionAndRemainsDirty()
     {
-        DocumentSessionState session = new();
-        session.MarkOpened(Path.Combine(Path.GetTempPath(), "old.gost"));
-        session.RecordMutation();
-        long capturedRevision = session.ChangeVersion;
         DateTime originalModifiedAt = new(
             2026, 8, 1, 10, 0, 0, DateTimeKind.Utc);
         GostDocument document = CreateDocument("before snapshot", originalModifiedAt);
+        DocumentSessionState session = new();
+        session.MarkOpened(
+            document,
+            Path.Combine(Path.GetTempPath(), "old.gost"));
+        session.RecordMutation();
+        long capturedRevision = session.ChangeVersion;
         ManualAsyncGate gate = new();
         CapturingArchiveService archive = new(gate);
         DocumentSaveService service = CreateService(archive, session);
@@ -72,11 +74,11 @@ public class DocumentSaveServiceTests
     [Fact]
     public async Task FailedSave_DoesNotMoveSavepointOrModifyLiveSaveMetadata()
     {
-        DocumentSessionState session = CreateDirtySession();
-        long savedRevision = session.SavedRevision;
         DateTime modifiedAt = new(
             2026, 8, 1, 10, 0, 0, DateTimeKind.Utc);
         GostDocument document = CreateDocument("failed", modifiedAt);
+        DocumentSessionState session = CreateDirtySession(document);
+        long savedRevision = session.SavedRevision;
         CapturingArchiveService archive = new(
             failure: new IOException("commit failed"));
         DocumentSaveService service = CreateService(archive, session);
@@ -95,11 +97,11 @@ public class DocumentSaveServiceTests
     [Fact]
     public async Task CancelledSave_DoesNotMoveSavepointOrModifyLiveSaveMetadata()
     {
-        DocumentSessionState session = CreateDirtySession();
-        long savedRevision = session.SavedRevision;
         DateTime modifiedAt = new(
             2026, 8, 1, 10, 0, 0, DateTimeKind.Utc);
         GostDocument document = CreateDocument("cancelled", modifiedAt);
+        DocumentSessionState session = CreateDirtySession(document);
+        long savedRevision = session.SavedRevision;
         ManualAsyncGate gate = new();
         CapturingArchiveService archive = new(gate);
         DocumentSaveService service = CreateService(archive, session);
@@ -124,15 +126,18 @@ public class DocumentSaveServiceTests
     [Fact]
     public async Task SaveAs_UsesSnapshotRevisionForNewPath()
     {
+        GostDocument document = CreateDocument("save as");
         DocumentSessionState session = new();
-        session.MarkOpened(Path.Combine(Path.GetTempPath(), "old.gost"));
+        session.MarkOpened(
+            document,
+            Path.Combine(Path.GetTempPath(), "old.gost"));
         session.RecordMutation();
         CapturingArchiveService archive = new();
         DocumentSaveService service = CreateService(archive, session);
         string newPath = Path.Combine(Path.GetTempPath(), "new.gost");
 
         DocumentSaveResult result = await service.SaveAsync(
-            CreateDocument("save as"),
+            document,
             newPath);
 
         Assert.True(result.IsCurrentRevision);
@@ -152,14 +157,15 @@ public class DocumentSaveServiceTests
             FileContentFingerprint>(
             await new FileContentFingerprintService()
                 .TryCaptureAsync(path));
+        GostDocument local = CreateDocument("local");
         DocumentSessionState session = new();
-        session.MarkOpened(path, baseline);
+        session.MarkOpened(local, path, baseline);
         session.RecordMutation();
         await archive.SaveAsync(CreateDocument("external"), path);
         DocumentSaveService service = CreateService(archive, session);
 
         await Assert.ThrowsAsync<ExternalFileChangedException>(() =>
-            service.SaveAsync(CreateDocument("local"), path));
+            service.SaveAsync(local, path));
 
         GostDocument persisted = await archive.LoadAsync(path);
         Assert.Equal(
@@ -181,14 +187,15 @@ public class DocumentSaveServiceTests
             FileContentFingerprint>(
             await new FileContentFingerprintService()
                 .TryCaptureAsync(path));
+        GostDocument local = CreateDocument("local");
         DocumentSessionState session = new();
-        session.MarkOpened(path, baseline);
+        session.MarkOpened(local, path, baseline);
         session.RecordMutation();
         File.Delete(path);
         DocumentSaveService service = CreateService(archive, session);
 
         await Assert.ThrowsAsync<ExternalFileChangedException>(() =>
-            service.SaveAsync(CreateDocument("local"), path));
+            service.SaveAsync(local, path));
 
         Assert.False(File.Exists(path));
         Assert.True(session.IsDirty);
@@ -205,14 +212,15 @@ public class DocumentSaveServiceTests
             FileContentFingerprint>(
             await new FileContentFingerprintService()
                 .TryCaptureAsync(path));
+        GostDocument local = CreateDocument("local");
         DocumentSessionState session = new();
-        session.MarkOpened(path, baseline);
+        session.MarkOpened(local, path, baseline);
         session.RecordMutation();
         await archive.SaveAsync(CreateDocument("external"), path);
         DocumentSaveService service = CreateService(archive, session);
 
         DocumentSaveResult result = await service.SaveAsync(
-            CreateDocument("local"),
+            local,
             path,
             overwriteExternalChanges: true);
 
@@ -236,8 +244,9 @@ public class DocumentSaveServiceTests
             FileContentFingerprint>(
             await new FileContentFingerprintService()
                 .TryCaptureAsync(path));
+        GostDocument local = CreateDocument("local");
         DocumentSessionState session = new();
-        session.MarkOpened(path, baseline);
+        session.MarkOpened(local, path, baseline);
         session.RecordMutation();
         ManualAsyncGate beforeCommit = new();
         ControlledFingerprintService fingerprints = new(beforeCommit);
@@ -249,7 +258,7 @@ public class DocumentSaveServiceTests
             fingerprints);
 
         Task<DocumentSaveResult> save = service.SaveAsync(
-            CreateDocument("local"),
+            local,
             path);
         await beforeCommit.WaitUntilReachedAsync();
         await archive.SaveAsync(CreateDocument("external"), path);
@@ -300,12 +309,13 @@ public class DocumentSaveServiceTests
         string path = temporaryDirectory.GetPath("original.gost");
         ArchiveService archive = new();
         await archive.SaveAsync(CreateDocument("external"), path);
+        GostDocument recovered = CreateDocument("recovered");
         DocumentSessionState session = new();
-        session.MarkRecovered(path);
+        session.MarkRecovered(recovered, path);
         DocumentSaveService service = CreateService(archive, session);
 
         await Assert.ThrowsAsync<ExternalFileChangedException>(() =>
-            service.SaveAsync(CreateDocument("recovered"), path));
+            service.SaveAsync(recovered, path));
 
         Assert.True(session.IsDirty);
         Assert.False(session.HasFileFingerprintBaseline);
@@ -330,11 +340,12 @@ public class DocumentSaveServiceTests
             new GostArchivePackageReader(),
             new GostArchivePackageWriter(),
             committer);
-        DocumentSessionState session = CreateDirtySession();
+        GostDocument local = CreateDocument("local");
+        DocumentSessionState session = CreateDirtySession(local);
         DocumentSaveService service = CreateService(archive, session);
 
         DocumentSaveResult result = await service.SaveAsync(
-            CreateDocument("local"),
+            local,
             path);
 
         Assert.True(result.IsCurrentRevision);
@@ -350,13 +361,14 @@ public class DocumentSaveServiceTests
                 .TryCaptureAsync(path));
         Assert.NotEqual(actual, session.FileFingerprint);
         await Assert.ThrowsAsync<ExternalFileChangedException>(() =>
-            service.SaveAsync(CreateDocument("next"), path));
+            service.SaveAsync(local, path));
     }
 
-    private static DocumentSessionState CreateDirtySession()
+    private static DocumentSessionState CreateDirtySession(
+        GostDocument document)
     {
         DocumentSessionState session = new();
-        session.StartNew();
+        session.StartNew(document);
         session.RecordMutation();
         return session;
     }

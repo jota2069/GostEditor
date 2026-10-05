@@ -22,6 +22,8 @@ internal interface IRecoveryFileSystem
 
     bool FileExists(string path);
 
+    long GetFileLength(string path);
+
     bool DirectoryExists(string path);
 
     string ReadAllText(string path);
@@ -79,6 +81,8 @@ internal sealed class PhysicalRecoveryFileSystem : IRecoveryFileSystem
     }
 
     public bool FileExists(string path) => File.Exists(path);
+
+    public long GetFileLength(string path) => new FileInfo(path).Length;
 
     public bool DirectoryExists(string path) => Directory.Exists(path);
 

@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private bool _isUpdatingUi;
     private bool _isCloseConfirmed;
     private bool _isClosePromptActive;
+    private bool _isPublishingDocument;
     private readonly AutoSaveService? _autoSaveService;
     private readonly RecoveryStorageService? _recoveryStorageService;
     private readonly PersistenceShutdownService? _persistenceShutdownService;
@@ -203,7 +204,7 @@ public partial class MainWindow : Window
                 try
                 {
                     await _autoSaveService.ResetAsync();
-                    viewModel.Session.StartNew();
+                    viewModel.Session.StartNew(viewModel.CurrentDocument);
                     viewModel.StatusMessage =
                         "Аварийная копия удалена";
                     StartAutoSave(viewModel);
@@ -237,16 +238,12 @@ public partial class MainWindow : Window
 
         try
         {
-            viewModel.CurrentDocument =
-                recoveredDocument;
-
-            MainEditor.LoadDocument(
-                recoveredDocument);
-
-            viewModel.SyncNavigation();
-
-            viewModel.Session.MarkRecovered(
-                metadata?.OriginalFilePath);
+            PublishDocument(
+                viewModel,
+                recoveredDocument,
+                () => viewModel.Session.MarkRecovered(
+                    recoveredDocument,
+                    metadata?.OriginalFilePath));
 
             viewModel.StatusMessage = ignoredDamagedArtifacts == 0
                 ? "Аварийная копия восстановлена"
@@ -295,7 +292,7 @@ public partial class MainWindow : Window
             {
                 await _autoSaveService!.ResetAsync();
 
-                viewModel.Session.StartNew();
+                viewModel.Session.StartNew(viewModel.CurrentDocument);
                 viewModel.StatusMessage =
                     "Повреждённая аварийная копия удалена";
 
@@ -331,6 +328,11 @@ public partial class MainWindow : Window
 
     private void OnEditorContentChanged()
     {
+        if (_isPublishingDocument)
+        {
+            return;
+        }
+
         if (DataContext is not MainWindowViewModel viewModel)
         {
             return;
@@ -502,34 +504,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        try
-        {
-            await _autoSaveService.ClearRecoveryAsync(
-                expectedCleanRevision);
-        }
-        catch (Exception exception)
-        {
-            Debug.WriteLine(
-                $"[AUTOSAVE] Не удалось удалить аварийную копию: {exception}");
-        }
-    }
-
-    private async Task ResetAutoSaveRecoveryAsync()
-    {
-        if (_autoSaveService is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _autoSaveService.ResetAsync();
-        }
-        catch (Exception exception)
-        {
-            Debug.WriteLine(
-                $"[AUTOSAVE] Не удалось сбросить аварийную копию: {exception}");
-        }
+        await _autoSaveService.ClearRecoveryAsync(
+            expectedCleanRevision);
     }
 
     private GostDocument GetDocumentFromEditor()
@@ -853,6 +829,12 @@ public partial class MainWindow : Window
         {
             if ((e.KeyModifiers & KeyModifiers.Control) != 0 && e.Key == Key.S)
             {
+                if (DataContext is MainWindowViewModel { IsBusy: true })
+                {
+                    e.Handled = true;
+                    return;
+                }
+
                 await SaveDocumentToFileAsync();
                 e.Handled = true;
             }
@@ -889,6 +871,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        GostDocument openingDocument =
+            SyncDocumentFromViewModel(viewModel);
+        DocumentSessionCheckpoint openRequest =
+            viewModel.Session.CaptureCheckpoint(openingDocument);
+
         viewModel.IsBusy = true;
         viewModel.StatusMessage = "Загрузка...";
 
@@ -924,13 +911,20 @@ public partial class MainWindow : Window
                     viewModel.ArchiveService,
                     selectedFile.OpenReadAsync,
                     _persistenceIoCoordinator,
+                    viewModel.Session,
+                    openRequest,
+                    _autoSaveService is null
+                        ? null
+                        : () =>
+                        {
+                            _autoSaveService.ResetWhileOwned();
+                            return Task.CompletedTask;
+                        },
                     (loadedDocument, fingerprint) => PublishOpenedDocument(
                         viewModel,
                         loadedDocument,
                         filePath,
                         fingerprint));
-
-                await ResetAutoSaveRecoveryAsync();
 
                 viewModel.StatusMessage = CreateLoadStatus(diagnostics);
             }
@@ -956,10 +950,13 @@ public partial class MainWindow : Window
         string filePath,
         FileContentFingerprint fileFingerprint)
     {
-        viewModel.CurrentDocument = loadedDocument;
-        MainEditor!.LoadDocument(loadedDocument);
-        viewModel.SyncNavigation();
-        viewModel.Session.MarkOpened(filePath, fileFingerprint);
+        PublishDocument(
+            viewModel,
+            loadedDocument,
+            () => viewModel.Session.MarkOpened(
+                loadedDocument,
+                filePath,
+                fileFingerprint));
     }
 
     private static string CreateLoadStatus(
@@ -993,6 +990,9 @@ public partial class MainWindow : Window
             archiveService,
             openStreamAsync,
             ioCoordinator,
+            session: null,
+            request: null,
+            beforePublishAsync: null,
             (document, _) => publishDocument(document),
             cancellationToken);
     }
@@ -1002,6 +1002,28 @@ public partial class MainWindow : Window
         IArchiveService archiveService,
         Func<Task<Stream>> openStreamAsync,
         PersistenceIoCoordinator? ioCoordinator,
+        Action<GostDocument, FileContentFingerprint> publishDocument,
+        CancellationToken cancellationToken = default)
+    {
+        return await LoadDocumentForOpenAsync(
+            archiveService,
+            openStreamAsync,
+            ioCoordinator,
+            session: null,
+            request: null,
+            beforePublishAsync: null,
+            publishDocument,
+            cancellationToken);
+    }
+
+    internal static async Task<IReadOnlyList<GostArchiveDiagnostic>>
+        LoadDocumentForOpenAsync(
+        IArchiveService archiveService,
+        Func<Task<Stream>> openStreamAsync,
+        PersistenceIoCoordinator? ioCoordinator,
+        DocumentSessionState? session,
+        DocumentSessionCheckpoint? request,
+        Func<Task>? beforePublishAsync,
         Action<GostDocument, FileContentFingerprint> publishDocument,
         CancellationToken cancellationToken = default)
     {
@@ -1020,6 +1042,12 @@ public partial class MainWindow : Window
                     archiveService,
                     uncoordinatedStream,
                     cancellationToken);
+            ValidateOpenRequest(session, request);
+            if (beforePublishAsync is not null)
+            {
+                await beforePublishAsync();
+                ValidateOpenRequest(session, request);
+            }
             publishDocument(document, fingerprint);
             return diagnostics;
         }
@@ -1042,8 +1070,32 @@ public partial class MainWindow : Window
                 ownership.CancellationToken);
 
         ownership.CancellationToken.ThrowIfCancellationRequested();
+        ValidateOpenRequest(session, request);
+        if (beforePublishAsync is not null)
+        {
+            await beforePublishAsync();
+            ValidateOpenRequest(session, request);
+        }
         publishDocument(loadedDocument, coordinatedFingerprint);
         return coordinatedDiagnostics;
+    }
+
+    private static void ValidateOpenRequest(
+        DocumentSessionState? session,
+        DocumentSessionCheckpoint? request)
+    {
+        if (session is null && request is null)
+        {
+            return;
+        }
+
+        if (session is null || request is null)
+        {
+            throw new ArgumentException(
+                "Session и checkpoint должны передаваться вместе.");
+        }
+
+        session.EnsureUnchanged(request);
     }
 
     private static async Task<(
@@ -1124,7 +1176,8 @@ public partial class MainWindow : Window
 
     private async Task<bool> SaveDocumentToFileAsync(
         bool forceSaveAs = false,
-        bool overwriteExternalChanges = false)
+        bool overwriteExternalChanges = false,
+        string? requestedFilePath = null)
     {
         if (DataContext is not MainWindowViewModel viewModel ||
             MainEditor?.CurrentDocument is null)
@@ -1134,12 +1187,13 @@ public partial class MainWindow : Window
 
         viewModel.IsBusy = true;
         viewModel.StatusMessage = "Сохранение...";
+        string? filePath = requestedFilePath ??
+            viewModel.Session.CurrentFilePath;
 
         try
         {
-            string? filePath = viewModel.Session.CurrentFilePath;
-
-            if (forceSaveAs || string.IsNullOrWhiteSpace(filePath))
+            if ((forceSaveAs && requestedFilePath is null) ||
+                string.IsNullOrWhiteSpace(filePath))
             {
                 IStorageFile? file = await StorageProvider.SaveFilePickerAsync(
                     new FilePickerSaveOptions
@@ -1179,15 +1233,23 @@ public partial class MainWindow : Window
                     filePath,
                     overwriteExternalChanges: overwriteExternalChanges);
 
+            Exception? recoveryCleanupFailure = null;
             if (saveResult.IsCurrentRevision)
             {
-                await ClearAutoSaveRecoveryAsync(
-                    saveResult.SavedRevision);
+                recoveryCleanupFailure =
+                    await TryClearRecoveryAfterSaveAsync(
+                        _autoSaveService,
+                        saveResult.SavedRevision);
             }
 
-            viewModel.StatusMessage = viewModel.Session.IsDirty
-                ? "Сохранена предыдущая версия; есть новые изменения"
-                : "Документ сохранён";
+            viewModel.StatusMessage = !saveResult.SessionUpdated
+                ? "Сохранена копия предыдущего документа; " +
+                  "активный документ изменился"
+                : recoveryCleanupFailure is not null
+                    ? "Документ сохранён, но аварийную копию удалить не удалось"
+                    : viewModel.Session.IsDirty
+                        ? "Сохранена предыдущая версия; есть новые изменения"
+                        : "Документ сохранён";
             return CanCloseAfterSave(saveResult, viewModel.Session);
         }
         catch (ExternalFileChangedException exception)
@@ -1201,7 +1263,9 @@ public partial class MainWindow : Window
             {
                 ExternalFileConflictDecision.Overwrite =>
                     await SaveDocumentToFileAsync(
-                        overwriteExternalChanges: true),
+                        forceSaveAs,
+                        overwriteExternalChanges: true,
+                        requestedFilePath: filePath),
                 ExternalFileConflictDecision.SaveCopy =>
                     await SaveDocumentToFileAsync(forceSaveAs: true),
                 _ => false
@@ -1294,15 +1358,201 @@ public partial class MainWindow : Window
         }
 
         GostDocument newDocument = new();
+        GostDocument currentDocument = SyncDocumentFromViewModel(viewModel);
 
-        viewModel.CurrentDocument = newDocument;
-        MainEditor.LoadDocument(newDocument);
-        viewModel.SyncNavigation();
-        viewModel.Session.StartNew();
+        try
+        {
+            await ResetRecoveryAndReplaceDocumentAsync(
+                viewModel.Session,
+                currentDocument,
+                newDocument,
+                _persistenceIoCoordinator,
+                _autoSaveService,
+                document => PublishNewDocument(viewModel, document));
 
-        await ResetAutoSaveRecoveryAsync();
+            viewModel.StatusMessage = "Создан новый документ";
+        }
+        catch (Exception exception)
+        {
+            viewModel.StatusMessage =
+                $"Не удалось создать документ: {exception.Message}";
+            Debug.WriteLine(
+                $"[MAINWINDOW] Ошибка создания документа: {exception}");
+        }
+    }
 
-        viewModel.StatusMessage = "Создан новый документ";
+    internal static async Task ResetRecoveryAndReplaceDocumentAsync(
+        DocumentSessionState session,
+        GostDocument currentDocument,
+        GostDocument replacementDocument,
+        PersistenceIoCoordinator? ioCoordinator,
+        AutoSaveService? autoSaveService,
+        Action<GostDocument> publishDocument,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(currentDocument);
+        ArgumentNullException.ThrowIfNull(replacementDocument);
+        ArgumentNullException.ThrowIfNull(publishDocument);
+        DocumentSessionCheckpoint request =
+            session.CaptureCheckpoint(currentDocument);
+
+        if (ioCoordinator is null)
+        {
+            if (autoSaveService is not null)
+            {
+                await autoSaveService.ResetAsync(cancellationToken);
+            }
+
+            session.EnsureUnchanged(request);
+            publishDocument(replacementDocument);
+            return;
+        }
+
+        using PersistenceIoCoordinator.PersistenceIoLease ownership =
+            await ioCoordinator.AcquireAsync(
+                PersistenceIoOperation.Open,
+                cancellationToken);
+        session.EnsureUnchanged(request);
+        autoSaveService?.ResetWhileOwned();
+        session.EnsureUnchanged(request);
+        publishDocument(replacementDocument);
+    }
+
+    internal static async Task<Exception?> TryClearRecoveryAfterSaveAsync(
+        AutoSaveService? autoSaveService,
+        long savedRevision)
+    {
+        if (autoSaveService is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            await autoSaveService.ClearRecoveryAsync(savedRevision);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(
+                "[AUTOSAVE] Документ сохранён, но recovery не удалена: " +
+                exception);
+            return exception;
+        }
+    }
+
+    private void PublishNewDocument(
+        MainWindowViewModel viewModel,
+        GostDocument newDocument)
+    {
+        PublishDocument(
+            viewModel,
+            newDocument,
+            () => viewModel.Session.StartNew(newDocument));
+    }
+
+    private void PublishDocument(
+        MainWindowViewModel viewModel,
+        GostDocument document,
+        Action publishSession)
+    {
+        GostDocument previousViewModelDocument =
+            viewModel.CurrentDocument;
+        GostDocument? previousEditorDocument =
+            MainEditor?.CurrentDocument;
+
+        bool wasPublishingDocument = _isPublishingDocument;
+        _isPublishingDocument = true;
+        try
+        {
+            PublishDocumentAtomically(
+                viewModel.Session,
+                () =>
+                {
+                    MainEditor!.LoadDocument(document);
+                    viewModel.SetCurrentDocument(document);
+                    viewModel.SyncNavigation();
+                },
+                primaryException =>
+                {
+                    TryPublicationRollback(
+                        () => viewModel.SetCurrentDocument(
+                            previousViewModelDocument),
+                        primaryException,
+                        "view-model rollback");
+                    if (previousEditorDocument is not null)
+                    {
+                        TryPublicationRollback(
+                            () => MainEditor!.LoadDocument(
+                                previousEditorDocument),
+                            primaryException,
+                            "editor rollback");
+                    }
+
+                    TryPublicationRollback(
+                        viewModel.SyncNavigation,
+                        primaryException,
+                        "navigation rollback");
+                },
+                publishSession);
+        }
+        finally
+        {
+            _isPublishingDocument = wasPublishingDocument;
+        }
+    }
+
+    internal static void PublishDocumentAtomically(
+        DocumentSessionState session,
+        Action publishUi,
+        Action<Exception> rollbackUi,
+        Action publishSession)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(publishUi);
+        ArgumentNullException.ThrowIfNull(rollbackUi);
+        ArgumentNullException.ThrowIfNull(publishSession);
+        DocumentSessionSnapshot previousSession = session.CaptureState();
+
+        try
+        {
+            publishUi();
+            publishSession();
+        }
+        catch (Exception primaryException)
+        {
+            session.RestoreState(previousSession, primaryException);
+            try
+            {
+                rollbackUi(primaryException);
+            }
+            catch (Exception rollbackException)
+            {
+                primaryException.Data[
+                    "GostEditor.DocumentPublication.UiRollback"] =
+                    rollbackException;
+            }
+
+            throw;
+        }
+    }
+
+    private static void TryPublicationRollback(
+        Action rollback,
+        Exception primaryException,
+        string operation)
+    {
+        try
+        {
+            rollback();
+        }
+        catch (Exception rollbackException)
+        {
+            primaryException.Data[
+                $"GostEditor.DocumentPublication.{operation}"] =
+                rollbackException;
+        }
     }
 
     private async void OnInsertImageClick(object? sender, RoutedEventArgs e)

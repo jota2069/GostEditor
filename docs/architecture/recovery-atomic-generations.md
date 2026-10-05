@@ -27,6 +27,11 @@ The generation is not current yet. `current.json` is then published through the
 same `AtomicFileCommitter` used by normal document saves. This one atomic pointer
 commit is the visibility boundary for the package/metadata pair.
 
+Every newly published metadata record also receives a monotonic
+`GenerationSequence` derived from the previously published generation. The
+sequence is independent of `SavedAtUtc`; timestamp rollback cannot reverse
+recovery ordering. Metadata written before this field existed remains supported.
+
 If any step before pointer commit fails, the previous pointer is unchanged. A
 complete but unreferenced generation may remain as a recovery artifact and is
 never mistaken for the current generation. Cleanup after a successful publish
@@ -34,11 +39,18 @@ keeps the current and immediately previous committed generations. If the old
 pointer cannot be read, generation cleanup is conservative and preserves every
 potentially useful generation.
 
-Cleanup is strictly best-effort. A cleanup or directory-enumeration failure is
+Post-publish retention cleanup is strictly best-effort. A cleanup or
+directory-enumeration failure is
 recorded as an internal diagnostic and cannot replace the primary write or
 pointer-publication exception. Once the pointer has been committed, cleanup
 failure also cannot turn the successful recovery save into a reported failure;
 extra generations or staging artifacts are retained instead.
+
+Explicit lifecycle deletion is different: New, Open, Discard and close-discard
+use strict semantic deletion. A deletion failure is propagated and the caller
+must not claim that recovery was removed or start a replacement lifecycle.
+Cleanup after an already committed manual Save cannot undo that Save; its
+failure is surfaced as a warning while the recovery artifacts remain.
 
 ## Reading and compatibility
 

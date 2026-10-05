@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.IO;
 using GostEditor.Core.Models;
 using GostEditor.Core.Serialization;
 using SkiaSharp;
@@ -23,15 +24,24 @@ public class ExportService : IExportService
     private const double DipToPoints = 72D / 96D;
 
     private readonly IImageService _imageService;
+    private readonly IAtomicFileCommitter _fileCommitter;
 
     public ExportService()
-        : this(new ImageService())
+        : this(new ImageService(), new AtomicFileCommitter())
     {
     }
 
     public ExportService(IImageService imageService)
+        : this(imageService, new AtomicFileCommitter())
+    {
+    }
+
+    internal ExportService(
+        IImageService imageService,
+        IAtomicFileCommitter fileCommitter)
     {
         _imageService = imageService ?? throw new ArgumentNullException(nameof(imageService));
+        _fileCommitter = fileCommitter ?? throw new ArgumentNullException(nameof(fileCommitter));
     }
 
     public Task ExportToDocxAsync(
@@ -60,16 +70,24 @@ public class ExportService : IExportService
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
 
         return Task.Run(
-            () => BuildDocument(snapshot.Document, outputPath),
+            () => _fileCommitter.WriteAsync(
+                outputPath,
+                (stream, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    BuildDocument(snapshot.Document, stream);
+                    return Task.CompletedTask;
+                },
+                cancellationToken),
             cancellationToken);
     }
 
-    private void BuildDocument(GostDocument document, string outputPath)
+    private void BuildDocument(GostDocument document, Stream output)
     {
         Debug.WriteLine($"[EXPORT] Начало экспорта. Параграфов: {document.Paragraphs.Count}");
 
-        using FileStream fs = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
-        DocX doc = DocX.Create(fs);
+        using NonClosingStream nonClosingOutput = new(output);
+        DocX doc = DocX.Create(nonClosingOutput);
 
         try
         {
@@ -104,6 +122,42 @@ public class ExportService : IExportService
         {
             doc.Dispose();
         }
+    }
+
+    private sealed class NonClosingStream(Stream inner) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            inner.FlushAsync(cancellationToken);
+        public override int Read(byte[] buffer, int offset, int count) =>
+            inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) =>
+            inner.Seek(offset, origin);
+        public override void SetLength(long value) => inner.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) =>
+            inner.Write(buffer, offset, count);
+        public override void Write(ReadOnlySpan<byte> buffer) =>
+            inner.Write(buffer);
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            inner.WriteAsync(buffer, cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+        }
+
+        public override ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private void ApplyPageSettings(DocX doc)
