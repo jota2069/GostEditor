@@ -6,6 +6,7 @@
 *.sln text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+eng/release/notices/Avalonia-NOTICE.md -whitespace
 *.png binary
 *.jpg binary
 *.ico binary

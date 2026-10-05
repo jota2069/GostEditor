@@ -66,6 +66,38 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
           --results-directory TestResults
 
+      - name: Test release compliance policy
+        run: python3 -m unittest eng/release/test_generate_compliance.py
+
+      - name: Publish supported release targets
+        shell: bash
+        run: |
+          for rid in linux-x64 win-x64; do
+            dotnet publish GostEditor.UI/GostEditor.UI.csproj \
+              --configuration Release \
+              --runtime "$rid" \
+              --no-restore \
+              --output "$RUNNER_TEMP/gosteditor-release/$rid"
+          done
+
+      - name: Validate licenses and generate SBOM
+        shell: bash
+        run: |
+          for rid in linux-x64 win-x64; do
+            python3 eng/release/generate_compliance.py \
+              --rid "$rid" \
+              --publish-dir "$RUNNER_TEMP/gosteditor-release/$rid" \
+              --output-dir "$RUNNER_TEMP/gosteditor-compliance/$rid"
+          done
+
+      - name: Upload release compliance artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-compliance
+          path: ${{ runner.temp }}/gosteditor-compliance
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
