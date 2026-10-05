@@ -10,9 +10,9 @@
       },
       "DocX": {
         "type": "Direct",
-        "requested": "[5.0.0, )",
-        "resolved": "5.0.0",
-        "contentHash": "LgYjzqlc6NoscU30wesopUDtkOKK5NIK/67ukSO2AexLbxiSB39L8rn8gOj9Z7Lx20LHHq71V1dqHtCBrAmuFQ==",
+        "requested": "[5.2.0, )",
+        "resolved": "5.2.0",
+        "contentHash": "BNo3gAaDp01yx7DbM5pehmFv98TvdqfyxqtZUFo6HlGDeRJzn9JXB+UN26EmFukyOnLw1fC+8SLh660wBNpsCw==",
         "dependencies": {
           "SkiaSharp": "2.88.8",
           "System.IO.Packaging": "4.5.0"
