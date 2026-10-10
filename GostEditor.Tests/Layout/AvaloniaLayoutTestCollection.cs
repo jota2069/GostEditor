@@ -41,6 +41,8 @@ public sealed class AvaloniaLayoutIsolationTests
             typeof(DocumentEngineRevisionSignalTests));
         AssertUsesAvaloniaLayoutCollection(
             typeof(EditorFocusHitTestingTests));
+        AssertUsesAvaloniaLayoutCollection(
+            typeof(UnicodeInputNavigationLayoutTests));
     }
 
     private static void AssertUsesAvaloniaLayoutCollection(Type testClass)

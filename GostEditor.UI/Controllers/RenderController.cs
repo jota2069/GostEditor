@@ -102,6 +102,79 @@ public class RenderController
         Point point) =>
         _layoutManager.GetTextPositionFromPoint(page, point);
 
+    internal bool TryGetVerticalCaretPosition(
+        int lineDelta,
+        double? preferredX,
+        out DocumentPosition position,
+        out double resolvedPreferredX)
+    {
+        position = _editor.CaretPosition;
+        resolvedPreferredX = preferredX ?? 0;
+        if (lineDelta is not (-1 or 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(lineDelta));
+        }
+
+        List<(RenderedPage Page, TextLinePlacement Line)> lines = new();
+        foreach (RenderedPage page in CurrentPages)
+        {
+            foreach (TextLinePlacement line in page.Lines)
+            {
+                lines.Add((page, line));
+            }
+        }
+
+        int currentLineIndex = -1;
+        Rect currentCaretRect = default;
+        for (int index = 0; index < lines.Count; index++)
+        {
+            TextLinePlacement line = lines[index].Line;
+            if (line.ParagraphIndex !=
+                _editor.CaretPosition.ParagraphIndex)
+            {
+                continue;
+            }
+
+            Rect caretRect = line.ParentLayout.HitTestTextPosition(
+                _editor.CaretPosition.Offset + line.PrefixLength);
+            if (caretRect.Y >= line.InternalY - 0.1 &&
+                caretRect.Y < line.InternalY + line.Line.Height - 0.1)
+            {
+                currentLineIndex = index;
+                currentCaretRect = caretRect;
+                break;
+            }
+        }
+
+        if (currentLineIndex < 0)
+        {
+            return false;
+        }
+
+        resolvedPreferredX = preferredX ??
+            lines[currentLineIndex].Line.Location.X + currentCaretRect.X;
+        int targetLineIndex = currentLineIndex + lineDelta;
+        if (targetLineIndex < 0 || targetLineIndex >= lines.Count)
+        {
+            return false;
+        }
+
+        (RenderedPage targetPage, TextLinePlacement targetLine) =
+            lines[targetLineIndex];
+        DocumentPosition? target = _layoutManager.GetTextPositionFromPoint(
+            targetPage,
+            new Point(
+                resolvedPreferredX,
+                targetLine.Location.Y + targetLine.Line.Height / 2));
+        if (!target.HasValue)
+        {
+            return false;
+        }
+
+        position = target.Value;
+        return true;
+    }
+
 
     private void OnDocumentChanged(
         object? sender,

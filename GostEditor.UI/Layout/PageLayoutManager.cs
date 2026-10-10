@@ -102,7 +102,7 @@ public class PageLayoutManager
         {
             cancellationToken.ThrowIfCancellationRequested();
             Paragraph paragraph = editor.Document.Paragraphs[pIndex];
-            int paragraphTextLength = paragraph.GetPlainText().Length;
+            string paragraphText = paragraph.GetPlainText();
 
             if (paragraph.PageBreakBefore &&
                 (currentPage.Lines.Count > 0 ||
@@ -255,7 +255,7 @@ public class PageLayoutManager
                         textLayoutInternalY,
                         layout,
                         prefixCharsCount,
-                        paragraphTextLength));
+                        paragraphText));
 
                 foreach (Rect rectangle in selectionRects)
                 {
@@ -654,6 +654,15 @@ public class PageLayoutManager
             hitTest.TextPosition - targetLine.PrefixLength,
             0,
             targetLine.ParagraphTextLength);
+        if (targetLine.ParagraphText is not null)
+        {
+            clickedOffset = TextBoundaryService.Default.Normalize(
+                targetLine.ParagraphText,
+                clickedOffset,
+                hitTest.IsTrailing
+                    ? TextBoundaryAffinity.Forward
+                    : TextBoundaryAffinity.Backward);
+        }
 
         return new DocumentPosition(
             targetLine.ParagraphIndex,

@@ -14,6 +14,8 @@ public class TextInputController
 {
     private readonly DocumentEditor _editor;
     private readonly RenderController _renderController;
+    private double? _preferredHorizontalX;
+    private DocumentPosition? _lastVerticalCaret;
 
     public TextInputController(DocumentEditor editor, RenderController renderController)
     {
@@ -23,8 +25,16 @@ public class TextInputController
 
     public async Task HandleTextInputAsync(string text, IClipboard? clipboard)
     {
-        if (string.IsNullOrEmpty(text)) return;
+        if (string.IsNullOrEmpty(text) ||
+            !_editor.TextBoundaries.IsValidUtf16(text))
+        {
+            return;
+        }
 
+        // Avalonia TextInput payloads are the composition boundary here: this
+        // path accepts committed text only and does not emulate platform IME
+        // pre-edit state. Separate committed chunks are re-segmented by Core.
+        ResetVerticalNavigation();
         _editor.SelectedImageParagraphIndex = null;
         _editor.InsertText(text);
         _renderController.RefreshView();
@@ -39,8 +49,6 @@ public class TextInputController
         bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
 
-        DocumentPosition? oldAnchor = _editor.SelectionAnchor;
-
         if (isCtrl)
         {
             switch (e.Key)
@@ -51,11 +59,13 @@ public class TextInputController
                     e.Handled = true;
                     return;
                 case Key.Z:
+                    ResetVerticalNavigation();
                     _editor.History.Undo();
                     _renderController.RefreshView();
                     e.Handled = true;
                     return;
                 case Key.Y:
+                    ResetVerticalNavigation();
                     _editor.History.Redo();
                     _renderController.RefreshView();
                     e.Handled = true;
@@ -81,7 +91,7 @@ public class TextInputController
             }
         }
 
-        bool handled = await HandleNavigationKeyAsync(e.Key, oldAnchor, isShift);
+        bool handled = await HandleNavigationKeyAsync(e.Key, isShift);
         if (handled)
         {
             _renderController.RefreshView();
@@ -89,61 +99,86 @@ public class TextInputController
         }
     }
 
-    private Task<bool> HandleNavigationKeyAsync(Key key, DocumentPosition? oldAnchor, bool isShift)
+    internal Task<bool> HandleNavigationKeyAsync(
+        Key key,
+        bool isShift)
     {
         bool handled = true;
 
-        DocumentPosition? anchorToKeep = isShift ? (oldAnchor ?? _editor.CaretPosition) : null;
-
         switch (key)
         {
-            case Key.Back: _editor.Backspace(); break;
+            case Key.Back:
+                ResetVerticalNavigation();
+                _editor.Backspace();
+                break;
             case Key.Delete:
+                ResetVerticalNavigation();
                 if (_editor.SelectedImageParagraphIndex.HasValue)
                 {
                     _editor.RemoveImage(_editor.SelectedImageParagraphIndex.Value);
                 }
-                else if (_editor.HasSelection)
-                {
-                    _editor.DeleteSelection();
-                }
                 else
                 {
-                    DocumentPosition oldPosition = _editor.CaretPosition;
-                    _editor.MoveRight();
-                    if (_editor.CaretPosition.CompareTo(oldPosition) != 0)
-                    {
-                        _editor.Backspace();
-                    }
+                    _editor.DeleteForward();
                 }
                 break;
-            case Key.Enter: _editor.InsertNewLine(); break;
+            case Key.Enter:
+                ResetVerticalNavigation();
+                _editor.InsertNewLine();
+                break;
             case Key.Left:
-                _editor.MoveLeft();
-                _editor.SelectionAnchor = isShift ? anchorToKeep : _editor.CaretPosition;
+                ResetVerticalNavigation();
+                _editor.MoveLeft(isShift);
                 break;
             case Key.Right:
-                _editor.MoveRight();
-                _editor.SelectionAnchor = isShift ? anchorToKeep : _editor.CaretPosition;
+                ResetVerticalNavigation();
+                _editor.MoveRight(isShift);
                 break;
             case Key.Up:
-                _editor.MoveLeft();
-                _editor.SelectionAnchor = isShift ? anchorToKeep : _editor.CaretPosition;
+                MoveVertical(-1, isShift);
                 break;
             case Key.Down:
-                _editor.MoveRight();
-                _editor.SelectionAnchor = isShift ? anchorToKeep : _editor.CaretPosition;
+                MoveVertical(1, isShift);
                 break;
             default: handled = false; break;
         }
         return Task.FromResult(handled);
     }
 
+    private void MoveVertical(int lineDelta, bool extendSelection)
+    {
+        if (!_lastVerticalCaret.HasValue ||
+            !_lastVerticalCaret.Value.Equals(_editor.CaretPosition))
+        {
+            _preferredHorizontalX = null;
+        }
+
+        if (_renderController.TryGetVerticalCaretPosition(
+                lineDelta,
+                _preferredHorizontalX,
+                out DocumentPosition target,
+                out double resolvedPreferredX))
+        {
+            _preferredHorizontalX = resolvedPreferredX;
+            _editor.MoveCaret(target, extendSelection);
+        }
+
+        _lastVerticalCaret = _editor.CaretPosition;
+    }
+
+    private void ResetVerticalNavigation()
+    {
+        _preferredHorizontalX = null;
+        _lastVerticalCaret = null;
+    }
+
     private async Task HandlePasteAsync(IClipboard clipboard)
     {
         string? text = await clipboard.GetTextAsync();
-        if (!string.IsNullOrEmpty(text))
+        if (!string.IsNullOrEmpty(text) &&
+            _editor.TextBoundaries.IsValidUtf16(text))
         {
+            ResetVerticalNavigation();
             _editor.SelectedImageParagraphIndex = null;
             _editor.PasteText(text);
             _renderController.RefreshView();

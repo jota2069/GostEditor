@@ -14,10 +14,25 @@ namespace GostEditor.Core.TextEngine;
 
 public partial class DocumentEditor
 {
+    private DocumentPosition _caretPosition;
+    private DocumentPosition? _selectionAnchor;
+
     public GostDocument Document { get; private set; }
     public IImageService ImageService { get; }
-    public DocumentPosition CaretPosition { get; set; }
-    public DocumentPosition? SelectionAnchor { get; set; }
+    public TextBoundaryService TextBoundaries { get; } =
+        TextBoundaryService.Default;
+    public DocumentPosition CaretPosition
+    {
+        get => _caretPosition;
+        set => _caretPosition = NormalizePosition(value);
+    }
+    public DocumentPosition? SelectionAnchor
+    {
+        get => _selectionAnchor;
+        set => _selectionAnchor = value.HasValue
+            ? NormalizePosition(value.Value)
+            : null;
+    }
     public int? SelectedImageParagraphIndex { get; set; }
 
     public CommandManager History { get; } = new CommandManager();
@@ -70,6 +85,27 @@ public partial class DocumentEditor
             DocumentChangeKind.Metrics |
             DocumentChangeKind.Paint |
             DocumentChangeKind.Resources);
+    }
+
+    public DocumentPosition NormalizePosition(
+        DocumentPosition position,
+        TextBoundaryAffinity affinity = TextBoundaryAffinity.Nearest)
+    {
+        if (Document.Paragraphs.Count == 0)
+        {
+            return new DocumentPosition(0, 0);
+        }
+
+        int paragraphIndex = Math.Clamp(
+            position.ParagraphIndex,
+            0,
+            Document.Paragraphs.Count - 1);
+        string text = Document.Paragraphs[paragraphIndex].GetPlainText();
+        int offset = TextBoundaries.Normalize(
+            text,
+            position.Offset,
+            affinity);
+        return new DocumentPosition(paragraphIndex, offset);
     }
 
     public DocumentEditingSession CreateStructuredEditingSession() =>
