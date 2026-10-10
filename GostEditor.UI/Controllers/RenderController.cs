@@ -92,6 +92,16 @@ public class RenderController
         }
     }
 
+    internal DocumentHitResult? HitTest(
+        RenderedPage page,
+        Point point) =>
+        _layoutManager.GetPositionFromPoint(page, point);
+
+    internal DocumentPosition? HitTestText(
+        RenderedPage page,
+        Point point) =>
+        _layoutManager.GetTextPositionFromPoint(page, point);
+
 
     private void OnDocumentChanged(
         object? sender,

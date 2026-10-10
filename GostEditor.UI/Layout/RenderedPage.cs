@@ -60,8 +60,34 @@ public class TextLinePlacement
     public double InternalY { get; }
     public TextLayout ParentLayout { get; }
     public int PrefixLength { get; }
+    public int ParagraphTextLength { get; }
 
-    public TextLinePlacement(TextLine line, Point location, int paragraphIndex, double internalY, TextLayout parentLayout, int prefixLength)
+    public TextLinePlacement(
+        TextLine line,
+        Point location,
+        int paragraphIndex,
+        double internalY,
+        TextLayout parentLayout,
+        int prefixLength)
+        : this(
+            line,
+            location,
+            paragraphIndex,
+            internalY,
+            parentLayout,
+            prefixLength,
+            int.MaxValue)
+    {
+    }
+
+    public TextLinePlacement(
+        TextLine line,
+        Point location,
+        int paragraphIndex,
+        double internalY,
+        TextLayout parentLayout,
+        int prefixLength,
+        int paragraphTextLength)
     {
         Line = line;
         Location = location;
@@ -69,6 +95,7 @@ public class TextLinePlacement
         InternalY = internalY;
         ParentLayout = parentLayout;
         PrefixLength = prefixLength;
+        ParagraphTextLength = paragraphTextLength;
     }
 }
 
