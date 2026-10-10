@@ -11,6 +11,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
@@ -33,6 +34,7 @@ public partial class DocumentEngineView : UserControl
     private PageLayoutManager _layoutManager = null!;
     private IImageService _imageService = null!;
     private bool _isConfigured;
+    private bool _inputFocusRequested;
 
     public event EventHandler<CaretStyleChangedEventArgs>? CaretStyleChanged;
     public event Action? ContentChanged;
@@ -66,7 +68,9 @@ public partial class DocumentEngineView : UserControl
         _renderController = new RenderController(_editor, _layoutManager, defaultTypeface);
         _selectionController = new SelectionController(_editor);
         _textInputController = new TextInputController(_editor, _renderController);
-        _mouseController = new MouseController(_editor, _renderController);
+        _mouseController = new MouseController(
+            _editor,
+            _renderController);
         _imageController = new ImageController(_editor, _renderController, _layoutManager);
 
         _editor.DocumentChanged += (_, _) => ContentChanged?.Invoke();
@@ -92,6 +96,22 @@ public partial class DocumentEngineView : UserControl
         if (_isConfigured &&
             this.FindControl<StackPanel>("PagesStackPanel") is { } pagesPanel)
             _renderController.AttachUi(pagesPanel);
+    }
+
+    protected override void OnAttachedToVisualTree(
+        VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        TryApplyRequestedInputFocus();
+        Dispatcher.UIThread.Post(
+            TryApplyRequestedInputFocus,
+            DispatcherPriority.Loaded);
+    }
+
+    protected override void OnGotFocus(GotFocusEventArgs e)
+    {
+        base.OnGotFocus(e);
+        _inputFocusRequested = false;
     }
 
     private void OnGlobalPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -120,6 +140,8 @@ public partial class DocumentEngineView : UserControl
 
                 if (props.IsLeftButtonPressed)
                 {
+                    RequestInputFocus();
+
                     // Обрабатываем клик по картинке (выделение или ресайз)
                     if (_imageController.TryHandleLeftClick(pageData, point, e, stack, pageControl))
                     {
@@ -130,7 +152,6 @@ public partial class DocumentEngineView : UserControl
                     // Иначе обычное выделение текста
                     bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
                     _mouseController.HandlePointerPressed(pageIndex, point, isShift);
-                    Focus();
                     e.Pointer.Capture(pageControl);
                     e.Handled = true;
                 }
@@ -180,6 +201,27 @@ public partial class DocumentEngineView : UserControl
         _renderController.ResetDocumentVisualState();
         _editor.LoadDocument(document);
         _renderController.RefreshView();
+        RequestInputFocus();
+    }
+
+    internal bool IsInputFocusRequested => _inputFocusRequested;
+    internal DocumentPosition CurrentCaretPosition => _editor.CaretPosition;
+
+    private void RequestInputFocus()
+    {
+        _inputFocusRequested = true;
+        TryApplyRequestedInputFocus();
+        Dispatcher.UIThread.Post(
+            TryApplyRequestedInputFocus,
+            DispatcherPriority.Loaded);
+    }
+
+    private void TryApplyRequestedInputFocus()
+    {
+        if (_inputFocusRequested && Focus())
+        {
+            _inputFocusRequested = false;
+        }
     }
 
     private async void OnTextInputAsync(object? sender, TextInputEventArgs e)

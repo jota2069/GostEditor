@@ -102,6 +102,7 @@ public class PageLayoutManager
         {
             cancellationToken.ThrowIfCancellationRequested();
             Paragraph paragraph = editor.Document.Paragraphs[pIndex];
+            int paragraphTextLength = paragraph.GetPlainText().Length;
 
             if (paragraph.PageBreakBefore &&
                 (currentPage.Lines.Count > 0 ||
@@ -253,7 +254,8 @@ public class PageLayoutManager
                         pIndex,
                         textLayoutInternalY,
                         layout,
-                        prefixCharsCount));
+                        prefixCharsCount,
+                        paragraphTextLength));
 
                 foreach (Rect rectangle in selectionRects)
                 {
@@ -582,6 +584,8 @@ public class PageLayoutManager
         RenderedPage page,
         Point clickPoint)
     {
+        ArgumentNullException.ThrowIfNull(page);
+
         foreach (ImagePlacement image in page.Images)
         {
             if (image.Bounds.Contains(clickPoint))
@@ -589,6 +593,20 @@ public class PageLayoutManager
                 return new DocumentHitResult(image.ParagraphIndex);
             }
         }
+
+        DocumentPosition? textPosition = GetTextPositionFromPoint(
+            page,
+            clickPoint);
+        return textPosition.HasValue
+            ? new DocumentHitResult(textPosition.Value)
+            : null;
+    }
+
+    internal DocumentPosition? GetTextPositionFromPoint(
+        RenderedPage page,
+        Point clickPoint)
+    {
+        ArgumentNullException.ThrowIfNull(page);
 
         if (page.Lines.Count == 0)
         {
@@ -602,10 +620,10 @@ public class PageLayoutManager
         {
             double lineTop = line.Location.Y;
             double lineBottom =
-                line.Location.Y + line.Line.Height * 1.5;
+                line.Location.Y + line.Line.Height;
 
             if (clickPoint.Y >= lineTop &&
-                clickPoint.Y <= lineBottom)
+                clickPoint.Y < lineBottom)
             {
                 targetLine = line;
                 break;
@@ -632,14 +650,14 @@ public class PageLayoutManager
             targetLine.ParentLayout.HitTestPoint(
                 new Point(layoutX, layoutY));
 
-        int clickedOffset = Math.Max(
+        int clickedOffset = Math.Clamp(
+            hitTest.TextPosition - targetLine.PrefixLength,
             0,
-            hitTest.TextPosition - targetLine.PrefixLength);
+            targetLine.ParagraphTextLength);
 
-        return new DocumentHitResult(
-            new DocumentPosition(
-                targetLine.ParagraphIndex,
-                clickedOffset));
+        return new DocumentPosition(
+            targetLine.ParagraphIndex,
+            clickedOffset);
     }
 
     private sealed record CachedParagraphLayout(

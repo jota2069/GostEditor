@@ -39,6 +39,8 @@ public sealed class AvaloniaLayoutIsolationTests
         AssertUsesAvaloniaLayoutCollection(typeof(IncrementalPageLayoutTests));
         AssertUsesAvaloniaLayoutCollection(
             typeof(DocumentEngineRevisionSignalTests));
+        AssertUsesAvaloniaLayoutCollection(
+            typeof(EditorFocusHitTestingTests));
     }
 
     private static void AssertUsesAvaloniaLayoutCollection(Type testClass)
