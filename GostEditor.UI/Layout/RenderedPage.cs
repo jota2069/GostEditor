@@ -61,6 +61,7 @@ public class TextLinePlacement
     public TextLayout ParentLayout { get; }
     public int PrefixLength { get; }
     public int ParagraphTextLength { get; }
+    public string? ParagraphText { get; }
 
     public TextLinePlacement(
         TextLine line,
@@ -96,6 +97,26 @@ public class TextLinePlacement
         ParentLayout = parentLayout;
         PrefixLength = prefixLength;
         ParagraphTextLength = paragraphTextLength;
+    }
+
+    public TextLinePlacement(
+        TextLine line,
+        Point location,
+        int paragraphIndex,
+        double internalY,
+        TextLayout parentLayout,
+        int prefixLength,
+        string paragraphText)
+    {
+        ArgumentNullException.ThrowIfNull(paragraphText);
+        Line = line;
+        Location = location;
+        ParagraphIndex = paragraphIndex;
+        InternalY = internalY;
+        ParentLayout = parentLayout;
+        PrefixLength = prefixLength;
+        ParagraphTextLength = paragraphText.Length;
+        ParagraphText = paragraphText;
     }
 }
 

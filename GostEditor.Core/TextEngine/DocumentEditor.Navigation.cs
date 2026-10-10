@@ -93,32 +93,78 @@ public partial class DocumentEditor
         SelectedImageParagraphIndex = null;
     }
 
-    public void MoveLeft()
+    public void MoveLeft() => MoveLeft(extendSelection: false);
+
+    public void MoveLeft(bool extendSelection)
     {
-        ClearSelection();
+        if (!extendSelection && HasSelection)
+        {
+            (DocumentPosition start, _) = GetNormalizedSelection();
+            MoveCaret(start, extendSelection: false);
+            return;
+        }
+
+        DocumentPosition destination = CaretPosition;
         if (CaretPosition.Offset > 0)
         {
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset - 1);
+            string text = Document.Paragraphs[
+                CaretPosition.ParagraphIndex].GetPlainText();
+            destination = new DocumentPosition(
+                CaretPosition.ParagraphIndex,
+                TextBoundaries.Previous(text, CaretPosition.Offset));
         }
         else if (CaretPosition.ParagraphIndex > 0)
         {
             int prevIdx = CaretPosition.ParagraphIndex - 1;
-            CaretPosition = new DocumentPosition(prevIdx, Document.Paragraphs[prevIdx].GetPlainText().Length);
+            destination = new DocumentPosition(
+                prevIdx,
+                Document.Paragraphs[prevIdx].GetPlainText().Length);
         }
+
+        MoveCaret(destination, extendSelection);
     }
 
-    public void MoveRight()
+    public void MoveRight() => MoveRight(extendSelection: false);
+
+    public void MoveRight(bool extendSelection)
     {
-        ClearSelection();
+        if (!extendSelection && HasSelection)
+        {
+            (_, DocumentPosition end) = GetNormalizedSelection();
+            MoveCaret(end, extendSelection: false);
+            return;
+        }
+
+        DocumentPosition destination = CaretPosition;
         int currentLength = Document.Paragraphs[CaretPosition.ParagraphIndex].GetPlainText().Length;
         if (CaretPosition.Offset < currentLength)
         {
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset + 1);
+            string text = Document.Paragraphs[
+                CaretPosition.ParagraphIndex].GetPlainText();
+            destination = new DocumentPosition(
+                CaretPosition.ParagraphIndex,
+                TextBoundaries.Next(text, CaretPosition.Offset));
         }
         else if (CaretPosition.ParagraphIndex < Document.Paragraphs.Count - 1)
         {
-            CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex + 1, 0);
+            destination = new DocumentPosition(
+                CaretPosition.ParagraphIndex + 1,
+                0);
         }
+
+        MoveCaret(destination, extendSelection);
+    }
+
+    public void MoveCaret(
+        DocumentPosition destination,
+        bool extendSelection)
+    {
+        DocumentPosition? anchor = extendSelection
+            ? SelectionAnchor ?? CaretPosition
+            : null;
+        CaretPosition = destination;
+        SelectionAnchor = anchor;
+        SelectedImageParagraphIndex = null;
     }
 
     public string GetSelectedText()

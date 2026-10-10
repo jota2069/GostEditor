@@ -12,6 +12,7 @@ public partial class DocumentEditor
     public void InsertText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        TextBoundaries.EnsureValidUtf16(text, nameof(text));
 
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
@@ -191,29 +192,89 @@ public partial class DocumentEditor
                 return;
             }
 
-            Paragraph p = Document.Paragraphs[CaretPosition.ParagraphIndex];
-            int currentOffset = 0;
-
-            foreach (TextRun run in p.Runs)
-            {
-                if (CaretPosition.Offset <= currentOffset + run.Text.Length)
-                {
-                    int deleteIdx = CaretPosition.Offset - currentOffset - 1;
-                    if (deleteIdx >= 0)
-                    {
-                        run.Text = run.Text.Remove(deleteIdx, 1);
-                        CaretPosition = new DocumentPosition(CaretPosition.ParagraphIndex, CaretPosition.Offset - 1);
-                    }
-                    break;
-                }
-                currentOffset += run.Text.Length;
-            }
+            string text = Document.Paragraphs[
+                CaretPosition.ParagraphIndex].GetPlainText();
+            DocumentPosition end = CaretPosition;
+            DocumentPosition start = new(
+                end.ParagraphIndex,
+                TextBoundaries.Previous(text, end.Offset));
+            DeleteRangeInternal(start, end);
+            CaretPosition = start;
         },
             DocumentChangeKind.Structure |
             DocumentChangeKind.Metrics |
             DocumentChangeKind.Paint,
             captureImages: captureImages
         );
+    }
+
+    public void DeleteForward()
+    {
+        int mutationStartParagraph;
+        int mutationBeforeCount;
+        if (HasSelection)
+        {
+            (DocumentPosition start, DocumentPosition end) =
+                GetNormalizedSelection();
+            mutationStartParagraph = start.ParagraphIndex;
+            mutationBeforeCount =
+                end.ParagraphIndex - start.ParagraphIndex + 1;
+        }
+        else
+        {
+            mutationStartParagraph = CaretPosition.ParagraphIndex;
+            int currentLength = Document.Paragraphs[
+                CaretPosition.ParagraphIndex].GetPlainText().Length;
+            mutationBeforeCount =
+                CaretPosition.Offset == currentLength &&
+                CaretPosition.ParagraphIndex < Document.Paragraphs.Count - 1
+                    ? 2
+                    : 1;
+        }
+
+        bool captureImages = SelectionContainsImage();
+        ExecuteParagraphMutation(
+            mutationStartParagraph,
+            mutationBeforeCount,
+            () =>
+            {
+                if (HasSelection)
+                {
+                    DeleteSelection();
+                    return;
+                }
+
+                int paragraphIndex = CaretPosition.ParagraphIndex;
+                Paragraph paragraph = Document.Paragraphs[paragraphIndex];
+                string text = paragraph.GetPlainText();
+                if (CaretPosition.Offset < text.Length)
+                {
+                    DocumentPosition start = CaretPosition;
+                    DocumentPosition end = new(
+                        paragraphIndex,
+                        TextBoundaries.Next(text, start.Offset));
+                    DeleteRangeInternal(start, end);
+                    return;
+                }
+
+                if (paragraphIndex >= Document.Paragraphs.Count - 1)
+                {
+                    return;
+                }
+
+                Paragraph next = Document.Paragraphs[paragraphIndex + 1];
+                if (paragraph.IsImage || next.IsImage)
+                {
+                    return;
+                }
+
+                paragraph.Runs.AddRange(next.Runs);
+                Document.Paragraphs.RemoveAt(paragraphIndex + 1);
+            },
+            DocumentChangeKind.Structure |
+            DocumentChangeKind.Metrics |
+            DocumentChangeKind.Paint,
+            captureImages: captureImages);
     }
 
     private void SplitAt(int paragraphIndex, int offset)
@@ -280,6 +341,7 @@ public partial class DocumentEditor
     public void PasteText(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
+        TextBoundaries.EnsureValidUtf16(text, nameof(text));
 
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
@@ -350,6 +412,8 @@ public partial class DocumentEditor
 
     internal void DeleteRangeInternal(DocumentPosition start, DocumentPosition end)
     {
+        start = NormalizePosition(start, TextBoundaryAffinity.Backward);
+        end = NormalizePosition(end, TextBoundaryAffinity.Forward);
         SplitAt(end.ParagraphIndex, end.Offset);
         SplitAt(start.ParagraphIndex, start.Offset);
 
