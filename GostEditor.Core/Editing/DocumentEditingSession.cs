@@ -36,7 +36,17 @@ public sealed class DocumentEditingSession
 
     public LayoutInvalidationTracker InvalidationTracker { get; }
 
-    public long ChangeVersion => History.Version;
+    /// <summary>
+    /// Compatibility alias for <see cref="Revision"/>. It is not the
+    /// persistence revision owned by the active legacy document session.
+    /// </summary>
+    public long ChangeVersion => Revision;
+
+    /// <summary>
+    /// Monotonic revision of the canonical graph. This is intentionally
+    /// separate from the legacy persistence session revision until cutover.
+    /// </summary>
+    public long Revision => History.Version;
 
     public event EventHandler<OperationHistoryChangedEventArgs>? Changed;
 

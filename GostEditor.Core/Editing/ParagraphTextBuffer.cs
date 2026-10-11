@@ -59,7 +59,8 @@ internal static class ParagraphTextBuffer
     public static List<InlineNode> Slice(
         ParagraphBlock paragraph,
         int offset,
-        int length)
+        int length,
+        Func<DocumentNodeId>? createId = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
 
@@ -85,7 +86,12 @@ internal static class ParagraphTextBuffer
 
             int localStart = Math.Clamp(start - inlineStart, 0, inline.TextLength);
             int localEnd = Math.Clamp(end - inlineStart, 0, inline.TextLength);
-            AddInlineSlice(result, inline, localStart, localEnd);
+            AddInlineSlice(
+                result,
+                inline,
+                localStart,
+                localEnd,
+                createId);
         }
 
         return result;
@@ -107,7 +113,8 @@ internal static class ParagraphTextBuffer
         ParagraphBlock paragraph,
         int offset,
         string text,
-        TextStyle? style = null)
+        TextStyle? style = null,
+        Func<DocumentNodeId>? createId = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         if (string.IsNullOrEmpty(text))
@@ -135,16 +142,22 @@ internal static class ParagraphTextBuffer
                     0,
                     inline.TextLength);
 
-                AddInlineSlice(rebuilt, inline, 0, localOffset);
-                rebuilt.Add(new TextInline(text)
-                {
-                    Style = style.Clone()
-                });
+                AddInlineSlice(
+                    rebuilt,
+                    inline,
+                    0,
+                    localOffset,
+                    createId);
+                rebuilt.Add(new TextInline(
+                    CreateId(createId),
+                    text,
+                    style.Clone()));
                 AddInlineSlice(
                     rebuilt,
                     inline,
                     localOffset,
-                    inline.TextLength);
+                    inline.TextLength,
+                    createId);
                 inserted = true;
             }
             else
@@ -155,21 +168,22 @@ internal static class ParagraphTextBuffer
 
         if (!inserted)
         {
-            rebuilt.Add(new TextInline(text)
-            {
-                Style = style.Clone()
-            });
+            rebuilt.Add(new TextInline(
+                CreateId(createId),
+                text,
+                style.Clone()));
         }
 
         paragraph.Inlines.Clear();
         paragraph.Inlines.AddRange(rebuilt);
-        Normalize(paragraph);
+        Normalize(paragraph, createId);
     }
 
     public static void Delete(
         ParagraphBlock paragraph,
         int offset,
-        int length)
+        int length,
+        Func<DocumentNodeId>? createId = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         if (length <= 0 || paragraph.TextLength == 0)
@@ -201,20 +215,26 @@ internal static class ParagraphTextBuffer
 
             int localStart = Math.Clamp(start - inlineStart, 0, inline.TextLength);
             int localEnd = Math.Clamp(end - inlineStart, 0, inline.TextLength);
-            AddInlineSlice(rebuilt, inline, 0, localStart);
-            AddInlineSlice(rebuilt, inline, localEnd, inline.TextLength);
+            AddInlineSlice(rebuilt, inline, 0, localStart, createId);
+            AddInlineSlice(
+                rebuilt,
+                inline,
+                localEnd,
+                inline.TextLength,
+                createId);
         }
 
         paragraph.Inlines.Clear();
         paragraph.Inlines.AddRange(rebuilt);
-        Normalize(paragraph);
+        Normalize(paragraph, createId);
     }
 
     public static void ApplyStyle(
         ParagraphBlock paragraph,
         int offset,
         int length,
-        Action<TextStyle> change)
+        Action<TextStyle> change,
+        Func<DocumentNodeId>? createId = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         ArgumentNullException.ThrowIfNull(change);
@@ -243,31 +263,38 @@ internal static class ParagraphTextBuffer
 
             int localStart = Math.Clamp(start - inlineStart, 0, inline.TextLength);
             int localEnd = Math.Clamp(end - inlineStart, 0, inline.TextLength);
-            AddInlineSlice(rebuilt, inline, 0, localStart);
+            AddInlineSlice(rebuilt, inline, 0, localStart, createId);
             AddStyledInlineSlice(
                 rebuilt,
                 inline,
                 localStart,
                 localEnd,
-                change);
-            AddInlineSlice(rebuilt, inline, localEnd, inline.TextLength);
+                change,
+                createId);
+            AddInlineSlice(
+                rebuilt,
+                inline,
+                localEnd,
+                inline.TextLength,
+                createId);
         }
 
         paragraph.Inlines.Clear();
         paragraph.Inlines.AddRange(rebuilt);
-        Normalize(paragraph);
+        Normalize(paragraph, createId);
     }
 
     public static void ReplaceAll(
         ParagraphBlock paragraph,
-        IEnumerable<InlineNode> inlines)
+        IEnumerable<InlineNode> inlines,
+        Func<DocumentNodeId>? createId = null)
     {
         ArgumentNullException.ThrowIfNull(paragraph);
         ArgumentNullException.ThrowIfNull(inlines);
 
         paragraph.Inlines.Clear();
         paragraph.Inlines.AddRange(CloneInlines(inlines));
-        Normalize(paragraph);
+        Normalize(paragraph, createId);
     }
 
     private static TextStyle? GetStyle(InlineNode inline) => inline switch
@@ -282,7 +309,8 @@ internal static class ParagraphTextBuffer
         InlineNode inline,
         int start,
         int end,
-        Action<TextStyle> change)
+        Action<TextStyle> change,
+        Func<DocumentNodeId>? createId)
     {
         if (start >= end)
         {
@@ -292,28 +320,28 @@ internal static class ParagraphTextBuffer
         switch (inline)
         {
             case TextInline text:
-            {
-                TextStyle style = text.Style.Clone();
-                change(style);
-                target.Add(new TextInline(text.Text[start..end])
                 {
-                    Style = style
-                });
-                break;
-            }
+                    TextStyle style = text.Style.Clone();
+                    change(style);
+                    target.Add(new TextInline(
+                        CreateId(createId),
+                        text.Text[start..end],
+                        style));
+                    break;
+                }
 
             case LinkInline link:
-            {
-                TextStyle style = link.Style.Clone();
-                change(style);
-                target.Add(new LinkInline
                 {
-                    Text = link.Text[start..end],
-                    Target = link.Target,
-                    Style = style
-                });
-                break;
-            }
+                    TextStyle style = link.Style.Clone();
+                    change(style);
+                    target.Add(new LinkInline(CreateId(createId))
+                    {
+                        Text = link.Text[start..end],
+                        Target = link.Target,
+                        Style = style
+                    });
+                    break;
+                }
 
             case LineBreakInline when start == 0 && end == 1:
                 target.Add(CloneInline(inline));
@@ -325,7 +353,8 @@ internal static class ParagraphTextBuffer
         ICollection<InlineNode> target,
         InlineNode inline,
         int start,
-        int end)
+        int end,
+        Func<DocumentNodeId>? createId)
     {
         if (start >= end)
         {
@@ -335,14 +364,14 @@ internal static class ParagraphTextBuffer
         switch (inline)
         {
             case TextInline text:
-                target.Add(new TextInline(text.Text[start..end])
-                {
-                    Style = text.Style.Clone()
-                });
+                target.Add(new TextInline(
+                    CreateId(createId),
+                    text.Text[start..end],
+                    text.Style.Clone()));
                 break;
 
             case LinkInline link:
-                target.Add(new LinkInline
+                target.Add(new LinkInline(CreateId(createId))
                 {
                     Text = link.Text[start..end],
                     Target = link.Target,
@@ -351,12 +380,14 @@ internal static class ParagraphTextBuffer
                 break;
 
             case LineBreakInline when start == 0 && end == 1:
-                target.Add(new LineBreakInline());
+                target.Add(new LineBreakInline(CreateId(createId)));
                 break;
         }
     }
 
-    private static void Normalize(ParagraphBlock paragraph)
+    private static void Normalize(
+        ParagraphBlock paragraph,
+        Func<DocumentNodeId>? createId = null)
     {
         List<InlineNode> normalized = new();
 
@@ -392,6 +423,15 @@ internal static class ParagraphTextBuffer
 
         paragraph.Inlines.Clear();
         paragraph.Inlines.AddRange(normalized);
-        paragraph.EnsureEditableInline();
+        if (paragraph.Inlines.Count == 0)
+        {
+            paragraph.Inlines.Add(new TextInline(
+                CreateId(createId),
+                string.Empty));
+        }
     }
+
+    private static DocumentNodeId CreateId(
+        Func<DocumentNodeId>? createId) =>
+        createId?.Invoke() ?? DocumentNodeId.New();
 }

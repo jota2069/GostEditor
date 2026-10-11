@@ -20,6 +20,7 @@ public sealed class OperationHistoryChangedEventArgs : EventArgs
         Kind = kind;
         Operation = operation;
         Version = version;
+        TransactionId = operation?.TransactionId;
     }
 
     public OperationHistoryChangeKind Kind { get; }
@@ -27,6 +28,8 @@ public sealed class OperationHistoryChangedEventArgs : EventArgs
     public IEditOperation? Operation { get; }
 
     public long Version { get; }
+
+    public Guid? TransactionId { get; }
 }
 
 public sealed class OperationHistory
@@ -105,14 +108,21 @@ public sealed class OperationHistory
 
         _undo.Clear();
         _redo.Clear();
-        RaiseChanged(OperationHistoryChangeKind.Cleared, null);
+        RaiseChanged(
+            OperationHistoryChangeKind.Cleared,
+            null,
+            incrementRevision: false);
     }
 
     private void RaiseChanged(
         OperationHistoryChangeKind kind,
-        IEditOperation? operation)
+        IEditOperation? operation,
+        bool incrementRevision = true)
     {
-        Version++;
+        if (incrementRevision)
+        {
+            Version = checked(Version + 1);
+        }
         InvokeSafely(Changed, EventArgs.Empty);
         InvokeSafely(
             DetailedChanged,

@@ -10,17 +10,31 @@ public sealed class SplitParagraphOperation : IEditOperation
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
     private readonly DocumentNodeId _newParagraphId;
+    private readonly Func<DocumentNodeId>? _createId;
     private List<InlineNode>? _originalInlines;
     private ParagraphProperties? _originalProperties;
+    private List<InlineNode>? _leftAfter;
+    private List<InlineNode>? _rightAfter;
+    private ParagraphBlock? _newParagraph;
 
     public SplitParagraphOperation(
         DocumentNodeId paragraphId,
         int offset,
         DocumentNodeId? newParagraphId = null)
+        : this(paragraphId, offset, newParagraphId, null)
+    {
+    }
+
+    internal SplitParagraphOperation(
+        DocumentNodeId paragraphId,
+        int offset,
+        DocumentNodeId? newParagraphId,
+        Func<DocumentNodeId>? createId)
     {
         _paragraphId = paragraphId;
         _offset = offset;
         _newParagraphId = newParagraphId ?? DocumentNodeId.New();
+        _createId = createId;
     }
 
     public string Description => "Разделение абзаца";
@@ -46,24 +60,44 @@ public sealed class SplitParagraphOperation : IEditOperation
             paragraph.Inlines);
         _originalProperties ??= paragraph.Properties.Clone();
 
+        if (_newParagraph is not null)
+        {
+            ParagraphTextBuffer.Restore(
+                paragraph,
+                _leftAfter ?? throw new InvalidOperationException(
+                    "Операция не сохранила left snapshot."));
+            _newParagraph.Properties = paragraph.Properties.Clone();
+            ParagraphTextBuffer.Restore(
+                _newParagraph,
+                _rightAfter ?? throw new InvalidOperationException(
+                    "Операция не сохранила right snapshot."));
+            section.Blocks.Insert(index + 1, _newParagraph);
+            context.InvalidationTracker.InvalidateStructure(index);
+            return;
+        }
+
         int offset = Math.Clamp(_offset, 0, paragraph.TextLength);
         List<InlineNode> left = ParagraphTextBuffer.Slice(
             paragraph,
             0,
-            offset);
+            offset,
+            _createId);
         List<InlineNode> right = ParagraphTextBuffer.Slice(
             paragraph,
             offset,
-            paragraph.TextLength - offset);
+            paragraph.TextLength - offset,
+            _createId);
 
-        ParagraphTextBuffer.ReplaceAll(paragraph, left);
+        ParagraphTextBuffer.ReplaceAll(paragraph, left, _createId);
 
-        ParagraphBlock newParagraph = new(_newParagraphId)
+        _newParagraph = new ParagraphBlock(_newParagraphId)
         {
             Properties = paragraph.Properties.Clone()
         };
-        ParagraphTextBuffer.ReplaceAll(newParagraph, right);
-        section.Blocks.Insert(index + 1, newParagraph);
+        ParagraphTextBuffer.ReplaceAll(_newParagraph, right, _createId);
+        _leftAfter = ParagraphTextBuffer.CloneInlines(paragraph.Inlines);
+        _rightAfter = ParagraphTextBuffer.CloneInlines(_newParagraph.Inlines);
+        section.Blocks.Insert(index + 1, _newParagraph);
 
         context.InvalidationTracker.InvalidateStructure(index);
     }

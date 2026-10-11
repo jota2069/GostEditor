@@ -10,12 +10,23 @@ public sealed class DeleteTextOperation : IEditOperation
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
     private readonly int _length;
+    private readonly Func<DocumentNodeId>? _createId;
     private List<InlineNode>? _before;
+    private List<InlineNode>? _after;
 
     public DeleteTextOperation(
         DocumentNodeId paragraphId,
         int offset,
         int length)
+        : this(paragraphId, offset, length, null)
+    {
+    }
+
+    internal DeleteTextOperation(
+        DocumentNodeId paragraphId,
+        int offset,
+        int length,
+        Func<DocumentNodeId>? createId)
     {
         if (length <= 0)
         {
@@ -27,6 +38,7 @@ public sealed class DeleteTextOperation : IEditOperation
         _paragraphId = paragraphId;
         _offset = offset;
         _length = length;
+        _createId = createId;
     }
 
     public string Description => "Удаление текста";
@@ -40,11 +52,21 @@ public sealed class DeleteTextOperation : IEditOperation
     public void Apply(DocumentEditingContext context)
     {
         ParagraphBlock paragraph = context.GetRequiredParagraph(_paragraphId);
+        if (_after is not null)
+        {
+            ParagraphTextBuffer.Restore(paragraph, _after);
+            Invalidate(context);
+            return;
+        }
+
         _before ??= ParagraphTextBuffer.CloneInlines(paragraph.Inlines);
-        ParagraphTextBuffer.Delete(paragraph, _offset, _length);
-        context.InvalidationTracker.Invalidate(
-            _paragraphId,
-            LayoutInvalidationKind.Metrics | LayoutInvalidationKind.Paint);
+        ParagraphTextBuffer.Delete(
+            paragraph,
+            _offset,
+            _length,
+            _createId);
+        _after = ParagraphTextBuffer.CloneInlines(paragraph.Inlines);
+        Invalidate(context);
     }
 
     public void Revert(DocumentEditingContext context)
@@ -54,8 +76,11 @@ public sealed class DeleteTextOperation : IEditOperation
             paragraph,
             _before ?? throw new InvalidOperationException(
                 "Операция ещё не была выполнена."));
+        Invalidate(context);
+    }
+
+    private void Invalidate(DocumentEditingContext context) =>
         context.InvalidationTracker.Invalidate(
             _paragraphId,
             LayoutInvalidationKind.Metrics | LayoutInvalidationKind.Paint);
-    }
 }

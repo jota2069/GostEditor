@@ -18,6 +18,16 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
         DocumentRange range,
         string replacement,
         TextStyle? style = null)
+        : this(document, range, replacement, style, null)
+    {
+    }
+
+    internal ReplaceTextRangeOperation(
+        DocumentRoot document,
+        DocumentRange range,
+        string replacement,
+        TextStyle? style,
+        Func<DocumentNodeId>? createId)
     {
         ArgumentNullException.ThrowIfNull(document);
         replacement ??= string.Empty;
@@ -27,7 +37,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
             document,
             normalized,
             replacement,
-            style);
+            style,
+            createId);
         ResultLocation = new DocumentLocation(
             normalized.Start.BlockId,
             normalized.Start.Offset + replacement.Length);
@@ -53,12 +64,13 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
         DocumentRoot document,
         DocumentRange range,
         string replacement,
-        TextStyle? style)
+        TextStyle? style,
+        Func<DocumentNodeId>? createId)
     {
         EditTransaction transaction = new("Замена диапазона текста");
         if (!range.IsCollapsed)
         {
-            AddDeleteOperations(document, range, transaction);
+            AddDeleteOperations(document, range, transaction, createId);
         }
 
         if (replacement.Length > 0)
@@ -67,7 +79,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
                 range.Start.BlockId,
                 range.Start.Offset,
                 replacement,
-                style));
+                style,
+                createId));
         }
 
         return transaction;
@@ -76,7 +89,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
     private static void AddDeleteOperations(
         DocumentRoot document,
         DocumentRange range,
-        EditTransaction transaction)
+        EditTransaction transaction,
+        Func<DocumentNodeId>? createId)
     {
         if (range.Start.BlockId == range.End.BlockId)
         {
@@ -86,7 +100,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
                 transaction.Add(new DeleteTextOperation(
                     range.Start.BlockId,
                     range.Start.Offset,
-                    length));
+                    length,
+                    createId));
             }
 
             return;
@@ -111,7 +126,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
             transaction.Add(new DeleteTextOperation(
                 start.Paragraph.Id,
                 range.Start.Offset,
-                startTailLength));
+                startTailLength,
+                createId));
         }
 
         for (int index = start.Index + 1; index < end.Index; index++)
@@ -125,7 +141,8 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
             transaction.Add(new DeleteTextOperation(
                 end.Paragraph.Id,
                 0,
-                range.End.Offset));
+                range.End.Offset,
+                createId));
         }
 
         transaction.Add(new MergeParagraphsOperation(
