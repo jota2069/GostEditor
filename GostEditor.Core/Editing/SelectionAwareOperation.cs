@@ -28,6 +28,9 @@ internal sealed class SelectionAwareOperation : IEditOperation
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         _inner.AffectedBlocks;
 
+    public DocumentIndexUpdateKind IndexUpdateKind =>
+        DocumentIndexUpdateKind.None;
+
     public void Apply(DocumentEditingContext context)
     {
         if (!_hasCompletedFirstApply)
@@ -38,6 +41,7 @@ internal sealed class SelectionAwareOperation : IEditOperation
             {
                 _inner.Apply(context);
                 innerApplied = true;
+                context.UpdateIndex(_inner);
                 _updateSelection();
                 _after = _selection.CaptureState();
                 _hasCompletedFirstApply = true;
@@ -46,8 +50,12 @@ internal sealed class SelectionAwareOperation : IEditOperation
             {
                 Compensate(
                     innerApplied
-                        ? () => _inner.Revert(context)
-                        : null,
+                        ? () =>
+                        {
+                            _inner.Revert(context);
+                            context.UpdateIndex(_inner);
+                        }
+                : null,
                     () => _selection.RestoreState(_before.Value),
                     exception);
                 _before = null;
@@ -60,14 +68,23 @@ internal sealed class SelectionAwareOperation : IEditOperation
             return;
         }
 
+        bool reapplied = false;
         try
         {
             _inner.Apply(context);
+            reapplied = true;
+            context.UpdateIndex(_inner);
         }
         catch (Exception exception)
         {
             Compensate(
-                null,
+                reapplied
+                    ? () =>
+                    {
+                        _inner.Revert(context);
+                        context.UpdateIndex(_inner);
+                    }
+            : null,
                 null,
                 exception);
             System.Runtime.ExceptionServices.ExceptionDispatchInfo
@@ -85,7 +102,11 @@ internal sealed class SelectionAwareOperation : IEditOperation
         catch (Exception exception)
         {
             Compensate(
-                () => _inner.Revert(context),
+                () =>
+                {
+                    _inner.Revert(context);
+                    context.UpdateIndex(_inner);
+                },
                 () => _selection.RestoreState(
                     _before ?? throw new InvalidOperationException(
                         "Операция ещё не была выполнена.")),
@@ -99,14 +120,23 @@ internal sealed class SelectionAwareOperation : IEditOperation
 
     public void Revert(DocumentEditingContext context)
     {
+        bool reverted = false;
         try
         {
             _inner.Revert(context);
+            reverted = true;
+            context.UpdateIndex(_inner);
         }
         catch (Exception exception)
         {
             Compensate(
-                null,
+                reverted
+                    ? () =>
+                    {
+                        _inner.Apply(context);
+                        context.UpdateIndex(_inner);
+                    }
+            : null,
                 null,
                 exception);
             System.Runtime.ExceptionServices.ExceptionDispatchInfo
@@ -124,7 +154,11 @@ internal sealed class SelectionAwareOperation : IEditOperation
         catch (Exception exception)
         {
             Compensate(
-                () => _inner.Apply(context),
+                () =>
+                {
+                    _inner.Apply(context);
+                    context.UpdateIndex(_inner);
+                },
                 () => _selection.RestoreState(
                     _after ?? throw new InvalidOperationException(
                         "Операция ещё не была выполнена.")),

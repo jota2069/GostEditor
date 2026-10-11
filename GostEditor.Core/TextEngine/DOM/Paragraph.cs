@@ -13,6 +13,8 @@ public enum GostAlignment
 
 public class Paragraph
 {
+    private byte[]? _imageData;
+
     public List<TextRun> Runs { get; set; } = new List<TextRun>();
 
     public double FirstLineIndent { get; set; } = 47.0;
@@ -38,7 +40,13 @@ public class Paragraph
     public bool IsImage => ImageId.HasValue;
 
     [Obsolete("Use ImageId and IImageService. Binary image data belongs to GostDocument.Images.")]
-    public byte[]? ImageData { get; set; }
+    public byte[]? ImageData
+    {
+        get => _imageData;
+        set => _imageData = value;
+    }
+
+    internal bool HasLegacyInlineImageData => _imageData is not null;
 
     public ParagraphStyle Style { get; set; } = ParagraphStyle.Normal;
 

@@ -25,6 +25,9 @@ public sealed class EditTransaction : IEditOperation
 
     public bool IsEmpty => _operations.Count == 0;
 
+    public DocumentIndexUpdateKind IndexUpdateKind =>
+        DocumentIndexUpdateKind.None;
+
     public void Add(IEditOperation operation)
     {
         ArgumentNullException.ThrowIfNull(operation);
@@ -40,6 +43,7 @@ public sealed class EditTransaction : IEditOperation
             {
                 _operations[index].Apply(context);
                 applied.Add(index);
+                context.UpdateIndex(_operations[index]);
             }
             catch (Exception primaryException)
             {
@@ -51,6 +55,7 @@ public sealed class EditTransaction : IEditOperation
                     try
                     {
                         _operations[applied[appliedIndex]].Revert(context);
+                        context.UpdateIndex(_operations[applied[appliedIndex]]);
                     }
                     catch (Exception rollbackException)
                     {
@@ -73,6 +78,7 @@ public sealed class EditTransaction : IEditOperation
             for (int index = _operations.Count - 1; index >= 0; index--)
             {
                 _operations[index].Revert(context);
+                context.UpdateIndex(_operations[index]);
                 reverted.Add(index);
             }
         }
@@ -84,6 +90,7 @@ public sealed class EditTransaction : IEditOperation
                 try
                 {
                     _operations[index].Apply(context);
+                    context.UpdateIndex(_operations[index]);
                 }
                 catch (Exception compensationException)
                 {

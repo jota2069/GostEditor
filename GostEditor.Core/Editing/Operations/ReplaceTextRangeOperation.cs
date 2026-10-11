@@ -40,6 +40,9 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         _transaction.AffectedBlocks;
 
+    public DocumentIndexUpdateKind IndexUpdateKind =>
+        DocumentIndexUpdateKind.None;
+
     public void Apply(DocumentEditingContext context) =>
         _transaction.Apply(context);
 

@@ -2,6 +2,7 @@ using GostEditor.Core.DocumentModel.Blocks;
 using GostEditor.Core.DocumentModel.Inlines;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
+using System.Text.Json;
 
 namespace GostEditor.Core.DocumentModel.Legacy;
 
@@ -11,13 +12,33 @@ namespace GostEditor.Core.DocumentModel.Legacy;
 /// </summary>
 public sealed class LegacyDocumentAdapter
 {
+    public const string LegacyCompatibilityExtension =
+        "org.gosteditor.compatibility.gost-v2";
+
+    private const string JsonMediaType = "application/json";
+
     public DocumentRoot ToDocumentModel(GostDocument source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        ValidateLegacySource(source);
+
+        LegacyCompatibilityData compatibility = new()
+        {
+            TitlePage = CloneTitlePage(source.TitlePage),
+            Modules = CloneModules(source.Modules),
+            Counters = CloneCounters(source.Counters),
+            CodeListings = CloneCodeListings(source.CodeListings),
+            BibliographySources = CloneBibliography(
+                source.BibliographySources)
+        };
 
         DocumentRoot target = new()
         {
-            Metadata = CopyMetadataFromLegacy(source)
+            Metadata = new DocumentMetadata
+            {
+                CreatedAtUtc = source.CreatedAt,
+                ModifiedAtUtc = source.ModifiedAt
+            }
         };
 
         foreach (ImageAttachment image in source.Images)
@@ -56,6 +77,8 @@ public sealed class LegacyDocumentAdapter
                     Caption = paragraph.GetPlainText()
                 };
                 section.Blocks.Add(figure);
+                compatibility.FigureCaptionRuns[figure.Id.ToString()] =
+                    CloneRuns(paragraph.Runs);
                 continue;
             }
 
@@ -90,6 +113,11 @@ public sealed class LegacyDocumentAdapter
         }
 
         target.Sections.Add(section);
+        target.Extensions.Set(
+            LegacyCompatibilityExtension,
+            schemaVersion: 1,
+            JsonMediaType,
+            JsonSerializer.SerializeToUtf8Bytes(compatibility));
         target.EnsureEditableStructure();
         return target;
     }
@@ -98,7 +126,8 @@ public sealed class LegacyDocumentAdapter
     {
         ArgumentNullException.ThrowIfNull(source);
 
-        ValidateLegacyProjection(source);
+        LegacyCompatibilityData compatibility =
+            ValidateLegacyProjection(source);
 
         DocumentSection section = source.Sections.FirstOrDefault()
             ?? new DocumentSection();
@@ -106,12 +135,12 @@ public sealed class LegacyDocumentAdapter
 
         GostDocument target = new()
         {
-            TitlePage = CloneTitlePage(source.Metadata.TitlePage),
-            Modules = CloneModules(source.Metadata.Modules),
-            Counters = CloneCounters(source.Metadata.Counters),
-            CodeListings = CloneCodeListings(source.Metadata.CodeListings),
+            TitlePage = CloneTitlePage(compatibility.TitlePage),
+            Modules = CloneModules(compatibility.Modules),
+            Counters = CloneCounters(compatibility.Counters),
+            CodeListings = CloneCodeListings(compatibility.CodeListings),
             BibliographySources = CloneBibliography(
-                source.Metadata.BibliographySources),
+                compatibility.BibliographySources),
             CreatedAt = source.Metadata.CreatedAtUtc,
             ModifiedAt = source.Metadata.ModifiedAtUtc,
             PageWidth = pageSettings.Width,
@@ -122,7 +151,7 @@ public sealed class LegacyDocumentAdapter
             MarginBottom = pageSettings.MarginBottom
         };
 
-        foreach (ImageResource image in source.Resources.Images.Values)
+        foreach (ImageResource image in source.Resources.ImagesInOrder)
         {
             target.MutableImages.Add(new ImageAttachment(
                 image.Id,
@@ -142,7 +171,9 @@ public sealed class LegacyDocumentAdapter
                     break;
 
                 case FigureBlock figure:
-                    target.Paragraphs.Add(ToLegacyFigure(figure));
+                    target.Paragraphs.Add(ToLegacyFigure(
+                        figure,
+                        compatibility));
                     break;
 
                 case PageBreakBlock:
@@ -157,6 +188,14 @@ public sealed class LegacyDocumentAdapter
                     break;
 
                 case CodeBlock code:
+                    if (!string.IsNullOrEmpty(code.Language) ||
+                        !string.IsNullOrEmpty(code.Caption))
+                    {
+                        throw new NotSupportedException(
+                            "Language и caption блока кода нельзя без потерь " +
+                            "сохранить в текущую модель .gost v2.");
+                    }
+
                     target.Paragraphs.Add(new Paragraph
                     {
                         Style = ParagraphStyle.Code,
@@ -180,14 +219,18 @@ public sealed class LegacyDocumentAdapter
             target.Paragraphs.Add(new Paragraph());
         }
 
-        target.Counters.ImagesCount = target.Paragraphs.Count(
-            paragraph => paragraph.IsImage);
-
         return target;
     }
 
-    private static void ValidateLegacyProjection(DocumentRoot source)
+    private static LegacyCompatibilityData ValidateLegacyProjection(
+        DocumentRoot source)
     {
+        DocumentGraphValidationReport graph = source.Validate();
+        if (!graph.IsValid)
+        {
+            throw new InvalidDocumentGraphException(graph);
+        }
+
         if (source.Sections.Count > 1)
         {
             throw new NotSupportedException(
@@ -202,6 +245,49 @@ public sealed class LegacyDocumentAdapter
                 throw new NotSupportedException(
                     "Текущая модель .gost v2 не поддерживает колонтитулы.");
             }
+        }
+
+        string? unsupportedExtension = source.Extensions.Parts.Keys.FirstOrDefault(
+            key => !string.Equals(
+                key,
+                LegacyCompatibilityExtension,
+                StringComparison.Ordinal));
+        if (unsupportedExtension is not null)
+        {
+            throw new NotSupportedException(
+                $"Extension {unsupportedExtension} нельзя без потерь " +
+                "сохранить в текущую модель .gost v2.");
+        }
+
+        if (!source.Extensions.TryGet(
+                LegacyCompatibilityExtension,
+                out DocumentExtensionPart? part))
+        {
+            return new LegacyCompatibilityData();
+        }
+
+        if (part is null || part.SchemaVersion != 1 ||
+            !string.Equals(part.MediaType, JsonMediaType, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Legacy compatibility extension имеет неподдерживаемый contract.");
+        }
+
+        try
+        {
+            LegacyCompatibilityData result =
+                JsonSerializer.Deserialize<LegacyCompatibilityData>(
+                    part.Data.Span)
+                ?? throw new InvalidDataException(
+                    "Legacy compatibility extension пуст.");
+            ValidateCompatibilityData(result);
+            return result;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                "Legacy compatibility extension содержит некорректный JSON.",
+                exception);
         }
     }
 
@@ -221,6 +307,13 @@ public sealed class LegacyDocumentAdapter
             switch (inline)
             {
                 case TextInline text:
+                    if (!string.IsNullOrWhiteSpace(text.Style.FontFamily))
+                    {
+                        throw new NotSupportedException(
+                            "FontFamily нельзя без потерь сохранить в " +
+                            "текущую модель .gost v2.");
+                    }
+
                     paragraph.Runs.Add(new TextRun
                     {
                         Text = text.Text,
@@ -255,7 +348,9 @@ public sealed class LegacyDocumentAdapter
         return paragraph;
     }
 
-    private static Paragraph ToLegacyFigure(FigureBlock source)
+    private static Paragraph ToLegacyFigure(
+        FigureBlock source,
+        LegacyCompatibilityData compatibility)
     {
         Paragraph paragraph = new()
         {
@@ -266,26 +361,23 @@ public sealed class LegacyDocumentAdapter
             Alignment = GostAlignment.Center
         };
 
-        if (!string.IsNullOrEmpty(source.Caption))
+        if (compatibility.FigureCaptionRuns.TryGetValue(
+                source.Id.ToString(),
+                out List<LegacyRunCompatibilityData>? runs) &&
+            string.Equals(
+                source.Caption,
+                string.Concat(runs.Select(run => run.Text)),
+                StringComparison.Ordinal))
+        {
+            paragraph.Runs = RestoreRuns(runs);
+        }
+        else if (!string.IsNullOrEmpty(source.Caption))
         {
             paragraph.Runs.Add(new TextRun(source.Caption));
         }
 
         return paragraph;
     }
-
-    private static DocumentMetadata CopyMetadataFromLegacy(GostDocument source) =>
-        new()
-        {
-            TitlePage = CloneTitlePage(source.TitlePage),
-            Modules = CloneModules(source.Modules),
-            Counters = CloneCounters(source.Counters),
-            CodeListings = CloneCodeListings(source.CodeListings),
-            BibliographySources = CloneBibliography(
-                source.BibliographySources),
-            CreatedAtUtc = source.CreatedAt,
-            ModifiedAtUtc = source.ModifiedAt
-        };
 
     private static TitlePageInfo CloneTitlePage(TitlePageInfo source) => new()
     {
@@ -345,4 +437,152 @@ public sealed class LegacyDocumentAdapter
             IsSelected = item.IsSelected,
             Order = item.Order
         }).ToList();
+
+    private static List<LegacyRunCompatibilityData> CloneRuns(
+        IEnumerable<TextRun> source) =>
+        source.Select(run => new LegacyRunCompatibilityData
+        {
+            Text = run.Text,
+            IsBold = run.IsBold,
+            IsItalic = run.IsItalic,
+            Color = run.Color,
+            FontSize = run.FontSize
+        }).ToList();
+
+    private static List<TextRun> RestoreRuns(
+        IEnumerable<LegacyRunCompatibilityData> source) =>
+        source.Select(run => new TextRun
+        {
+            Text = run.Text,
+            IsBold = run.IsBold,
+            IsItalic = run.IsItalic,
+            Color = run.Color,
+            FontSize = run.FontSize
+        }).ToList();
+
+    private static void ValidateLegacySource(GostDocument source)
+    {
+        if (source.TitlePage is null || source.Modules is null ||
+            source.Counters is null || source.Paragraphs is null ||
+            source.CodeListings is null || source.BibliographySources is null)
+        {
+            throw new InvalidDataException(
+                "Legacy document содержит null в обязательном поле.");
+        }
+
+        ValidateLegacyMetadata(
+            source.TitlePage,
+            source.CodeListings,
+            source.BibliographySources);
+
+        for (int paragraphIndex = 0;
+             paragraphIndex < source.Paragraphs.Count;
+             paragraphIndex++)
+        {
+            Paragraph? paragraph = source.Paragraphs[paragraphIndex];
+            if (paragraph is null || paragraph.Runs is null)
+            {
+                throw new InvalidDataException(
+                    $"Legacy paragraph {paragraphIndex} содержит null.");
+            }
+
+            if (paragraph.HasLegacyInlineImageData)
+            {
+                throw new NotSupportedException(
+                    $"Legacy paragraph {paragraphIndex} содержит obsolete " +
+                    "inline ImageData; используйте resource catalog.");
+            }
+
+            for (int runIndex = 0; runIndex < paragraph.Runs.Count; runIndex++)
+            {
+                TextRun? run = paragraph.Runs[runIndex];
+                if (run is null || run.Text is null)
+                {
+                    throw new InvalidDataException(
+                        $"Legacy paragraph {paragraphIndex}, run {runIndex} " +
+                        "содержит null.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateCompatibilityData(LegacyCompatibilityData data)
+    {
+        if (data.TitlePage is null || data.Modules is null ||
+            data.Counters is null || data.CodeListings is null ||
+            data.BibliographySources is null ||
+            data.FigureCaptionRuns is null)
+        {
+            throw new InvalidDataException(
+                "Legacy compatibility extension содержит null в " +
+                "обязательном поле.");
+        }
+
+        ValidateLegacyMetadata(
+            data.TitlePage,
+            data.CodeListings,
+            data.BibliographySources);
+
+        foreach ((string nodeId, List<LegacyRunCompatibilityData>? runs) in
+                 data.FigureCaptionRuns)
+        {
+            if (!Guid.TryParse(nodeId, out _) || runs is null ||
+                runs.Any(run => run is null || run.Text is null))
+            {
+                throw new InvalidDataException(
+                    "Legacy compatibility extension содержит некорректные " +
+                    "caption runs.");
+            }
+        }
+    }
+
+    private static void ValidateLegacyMetadata(
+        TitlePageInfo titlePage,
+        IEnumerable<CodeListing?> codeListings,
+        IEnumerable<BibliographySource?> bibliographySources)
+    {
+        if (titlePage.University is null || titlePage.Department is null ||
+            titlePage.Discipline is null || titlePage.WorkType is null ||
+            titlePage.WorkTitle is null || titlePage.StudentName is null ||
+            titlePage.GroupNumber is null || titlePage.TeacherName is null ||
+            titlePage.City is null || codeListings.Any(item =>
+                item is null || item.FileName is null ||
+                item.RelativePath is null || item.Language is null ||
+                item.Content is null) || bibliographySources.Any(item =>
+                item is null || item.Description is null))
+        {
+            throw new InvalidDataException(
+                "Legacy metadata содержит null в обязательном поле.");
+        }
+    }
+
+    private sealed class LegacyCompatibilityData
+    {
+        public TitlePageInfo TitlePage { get; set; } = new();
+
+        public DocumentModules Modules { get; set; } = new();
+
+        public List<CodeListing> CodeListings { get; set; } = new();
+
+        public List<BibliographySource> BibliographySources { get; set; } = new();
+
+        public DocumentCounters Counters { get; set; } = new();
+
+        public Dictionary<string, List<LegacyRunCompatibilityData>>
+            FigureCaptionRuns
+        { get; set; } = new(StringComparer.Ordinal);
+    }
+
+    private sealed class LegacyRunCompatibilityData
+    {
+        public string Text { get; set; } = string.Empty;
+
+        public bool IsBold { get; set; }
+
+        public bool IsItalic { get; set; }
+
+        public uint Color { get; set; }
+
+        public double FontSize { get; set; }
+    }
 }

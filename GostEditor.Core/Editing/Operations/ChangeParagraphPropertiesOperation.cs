@@ -24,6 +24,9 @@ public sealed class ChangeParagraphPropertiesOperation : IEditOperation
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _paragraphId };
 
+    public DocumentIndexUpdateKind IndexUpdateKind =>
+        DocumentIndexUpdateKind.None;
+
     public void Apply(DocumentEditingContext context)
     {
         ParagraphBlock paragraph = context.GetRequiredParagraph(_paragraphId);

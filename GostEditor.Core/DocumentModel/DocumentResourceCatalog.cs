@@ -5,8 +5,11 @@ namespace GostEditor.Core.DocumentModel;
 public sealed class DocumentResourceCatalog
 {
     private readonly Dictionary<Guid, ImageResource> _images = new();
+    private readonly List<ImageResource> _imagesInOrder = new();
 
     public IReadOnlyDictionary<Guid, ImageResource> Images => _images;
+
+    public IReadOnlyList<ImageResource> ImagesInOrder => _imagesInOrder;
 
     public void AddImage(ImageResource image)
     {
@@ -17,14 +20,29 @@ public sealed class DocumentResourceCatalog
             throw new InvalidOperationException(
                 $"Ресурс изображения {image.Id} уже существует.");
         }
+
+        _imagesInOrder.Add(image);
     }
 
     public bool TryGetImage(Guid id, out ImageResource? image) =>
         _images.TryGetValue(id, out image);
 
-    public bool RemoveImage(Guid id) => _images.Remove(id);
+    public bool RemoveImage(Guid id)
+    {
+        if (!_images.Remove(id, out ImageResource? image))
+        {
+            return false;
+        }
 
-    public void ClearImages() => _images.Clear();
+        _imagesInOrder.Remove(image);
+        return true;
+    }
+
+    public void ClearImages()
+    {
+        _images.Clear();
+        _imagesInOrder.Clear();
+    }
 }
 
 public sealed class ImageResource
