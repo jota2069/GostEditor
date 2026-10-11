@@ -6,14 +6,24 @@ public sealed class EditTransaction : IEditOperation
 {
     private readonly List<IEditOperation> _operations = new();
 
-    public EditTransaction(string description)
+    public EditTransaction(string description, Guid? transactionId = null)
     {
         Description = string.IsNullOrWhiteSpace(description)
             ? "Изменение документа"
             : description;
+        if (transactionId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Transaction ID не может быть пустым.",
+                nameof(transactionId));
+        }
+
+        TransactionId = transactionId;
     }
 
     public string Description { get; }
+
+    public Guid? TransactionId { get; }
 
     public IReadOnlyList<IEditOperation> Operations => _operations;
 

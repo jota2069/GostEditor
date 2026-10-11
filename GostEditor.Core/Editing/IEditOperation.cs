@@ -17,6 +17,8 @@ public interface IEditOperation
 
     DocumentIndexUpdateKind IndexUpdateKind => DocumentIndexUpdateKind.Full;
 
+    Guid? TransactionId => null;
+
     void Apply(DocumentEditingContext context);
 
     void Revert(DocumentEditingContext context);

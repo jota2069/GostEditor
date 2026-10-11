@@ -31,6 +31,8 @@ internal sealed class SelectionAwareOperation : IEditOperation
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.None;
 
+    public Guid? TransactionId => _inner.TransactionId;
+
     public void Apply(DocumentEditingContext context)
     {
         if (!_hasCompletedFirstApply)

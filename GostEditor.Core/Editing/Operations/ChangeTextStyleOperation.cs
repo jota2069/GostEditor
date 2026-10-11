@@ -11,13 +11,25 @@ public sealed class ChangeTextStyleOperation : IEditOperation
     private readonly int _offset;
     private readonly int _length;
     private readonly Action<TextStyle> _change;
+    private readonly Func<DocumentNodeId>? _createId;
     private List<InlineNode>? _before;
+    private List<InlineNode>? _after;
 
     public ChangeTextStyleOperation(
         DocumentNodeId paragraphId,
         int offset,
         int length,
         Action<TextStyle> change)
+        : this(paragraphId, offset, length, change, null)
+    {
+    }
+
+    internal ChangeTextStyleOperation(
+        DocumentNodeId paragraphId,
+        int offset,
+        int length,
+        Action<TextStyle> change,
+        Func<DocumentNodeId>? createId)
     {
         if (length <= 0)
         {
@@ -29,6 +41,7 @@ public sealed class ChangeTextStyleOperation : IEditOperation
         _length = length;
         _change = change
             ?? throw new ArgumentNullException(nameof(change));
+        _createId = createId;
     }
 
     public string Description => "Форматирование текста";
@@ -42,15 +55,22 @@ public sealed class ChangeTextStyleOperation : IEditOperation
     public void Apply(DocumentEditingContext context)
     {
         ParagraphBlock paragraph = context.GetRequiredParagraph(_paragraphId);
+        if (_after is not null)
+        {
+            ParagraphTextBuffer.Restore(paragraph, _after);
+            Invalidate(context);
+            return;
+        }
+
         _before ??= ParagraphTextBuffer.CloneInlines(paragraph.Inlines);
         ParagraphTextBuffer.ApplyStyle(
             paragraph,
             _offset,
             _length,
-            _change);
-        context.InvalidationTracker.Invalidate(
-            _paragraphId,
-            LayoutInvalidationKind.Metrics | LayoutInvalidationKind.Paint);
+            _change,
+            _createId);
+        _after = ParagraphTextBuffer.CloneInlines(paragraph.Inlines);
+        Invalidate(context);
     }
 
     public void Revert(DocumentEditingContext context)
@@ -60,8 +80,11 @@ public sealed class ChangeTextStyleOperation : IEditOperation
             paragraph,
             _before ?? throw new InvalidOperationException(
                 "Операция ещё не была выполнена."));
+        Invalidate(context);
+    }
+
+    private void Invalidate(DocumentEditingContext context) =>
         context.InvalidationTracker.Invalidate(
             _paragraphId,
             LayoutInvalidationKind.Metrics | LayoutInvalidationKind.Paint);
-    }
 }
