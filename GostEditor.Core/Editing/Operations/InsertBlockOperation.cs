@@ -33,10 +33,10 @@ public sealed class InsertBlockOperation : IEditOperation
             ?? throw new InvalidOperationException(
                 $"Секция {_sectionId} не найдена.");
 
-        if (section.Blocks.Any(block => block.Id == _block.Id))
+        if (context.Document.FindNode(_block.Id) is not null)
         {
             throw new InvalidOperationException(
-                $"Блок {_block.Id} уже находится в секции.");
+                $"Узел {_block.Id} уже находится в документе.");
         }
 
         int index = Math.Clamp(_index, 0, section.Blocks.Count);

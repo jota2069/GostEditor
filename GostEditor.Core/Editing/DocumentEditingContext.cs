@@ -45,4 +45,28 @@ public sealed class DocumentEditingContext
         throw new InvalidOperationException(
             $"Блок документа {id} не найден.");
     }
+
+    internal void UpdateIndex(IEditOperation operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        switch (operation.IndexUpdateKind)
+        {
+            case DocumentIndexUpdateKind.None:
+                break;
+
+            case DocumentIndexUpdateKind.AffectedParagraphs:
+                Document.RefreshParagraphIndexes(operation.AffectedBlocks);
+                break;
+
+            case DocumentIndexUpdateKind.Full:
+                Document.RebuildIndex();
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(operation),
+                    operation.IndexUpdateKind,
+                    "Неизвестный режим обновления document index.");
+        }
+    }
 }

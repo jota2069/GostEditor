@@ -34,6 +34,9 @@ public sealed class DeleteTextOperation : IEditOperation
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _paragraphId };
 
+    public DocumentIndexUpdateKind IndexUpdateKind =>
+        DocumentIndexUpdateKind.AffectedParagraphs;
+
     public void Apply(DocumentEditingContext context)
     {
         ParagraphBlock paragraph = context.GetRequiredParagraph(_paragraphId);

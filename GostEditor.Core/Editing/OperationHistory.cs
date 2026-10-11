@@ -60,7 +60,7 @@ public sealed class OperationHistory
     {
         ArgumentNullException.ThrowIfNull(operation);
 
-        operation.Apply(_context);
+        ApplyAndUpdateIndex(operation);
         _undo.Push(operation);
         _redo.Clear();
         RaiseChanged(OperationHistoryChangeKind.Executed, operation);
@@ -74,7 +74,7 @@ public sealed class OperationHistory
         }
 
         IEditOperation operation = _undo.Peek();
-        operation.Revert(_context);
+        RevertAndUpdateIndex(operation);
         _undo.Pop();
         _redo.Push(operation);
         RaiseChanged(OperationHistoryChangeKind.Undone, operation);
@@ -89,7 +89,7 @@ public sealed class OperationHistory
         }
 
         IEditOperation operation = _redo.Peek();
-        operation.Apply(_context);
+        ApplyAndUpdateIndex(operation);
         _redo.Pop();
         _undo.Push(operation);
         RaiseChanged(OperationHistoryChangeKind.Redone, operation);
@@ -117,6 +117,62 @@ public sealed class OperationHistory
         InvokeSafely(
             DetailedChanged,
             new OperationHistoryChangedEventArgs(kind, operation, Version));
+    }
+
+    private void ApplyAndUpdateIndex(IEditOperation operation)
+    {
+        bool applied = false;
+        try
+        {
+            operation.Apply(_context);
+            applied = true;
+            _context.UpdateIndex(operation);
+        }
+        catch (Exception primaryException) when (applied)
+        {
+            CompensateIndexFailure(
+                primaryException,
+                () => operation.Revert(_context),
+                operation);
+            throw;
+        }
+    }
+
+    private void RevertAndUpdateIndex(IEditOperation operation)
+    {
+        bool reverted = false;
+        try
+        {
+            operation.Revert(_context);
+            reverted = true;
+            _context.UpdateIndex(operation);
+        }
+        catch (Exception primaryException) when (reverted)
+        {
+            CompensateIndexFailure(
+                primaryException,
+                () => operation.Apply(_context),
+                operation);
+            throw;
+        }
+    }
+
+    private void CompensateIndexFailure(
+        Exception primaryException,
+        Action compensate,
+        IEditOperation operation)
+    {
+        try
+        {
+            compensate();
+            _context.UpdateIndex(operation);
+        }
+        catch (Exception rollbackException)
+        {
+            primaryException.Data[
+                "GostEditor.OperationHistory.IndexRollbackFailure"] =
+                rollbackException;
+        }
     }
 
     private void InvokeSafely(EventHandler? handlers, EventArgs args)
