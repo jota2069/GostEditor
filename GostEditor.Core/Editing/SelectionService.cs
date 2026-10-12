@@ -6,11 +6,15 @@ namespace GostEditor.Core.Editing;
 public sealed class SelectionService
 {
     private readonly DocumentRoot _document;
+    private readonly Action? _selectionChanged;
 
-    public SelectionService(DocumentRoot document)
+    public SelectionService(
+        DocumentRoot document,
+        Action? selectionChanged = null)
     {
         _document = document
             ?? throw new ArgumentNullException(nameof(document));
+        _selectionChanged = selectionChanged;
 
         _document.EnsureEditableStructure();
         ParagraphBlock? firstParagraph = _document.EnumerateBlocks()
@@ -33,6 +37,8 @@ public sealed class SelectionService
     public void MoveCaret(DocumentLocation location, bool extendSelection = false)
     {
         DocumentLocation normalized = NormalizeLocation(location);
+        DocumentLocation previousCaret = Caret;
+        DocumentLocation? previousAnchor = Anchor;
 
         if (extendSelection)
         {
@@ -44,16 +50,22 @@ public sealed class SelectionService
         }
 
         Caret = normalized;
+        NotifyIfChanged(previousCaret, previousAnchor);
     }
 
     public void SetSelection(DocumentLocation anchor, DocumentLocation caret)
     {
+        DocumentLocation previousCaret = Caret;
+        DocumentLocation? previousAnchor = Anchor;
         Anchor = NormalizeLocation(anchor);
         Caret = NormalizeLocation(caret);
+        NotifyIfChanged(previousCaret, previousAnchor);
     }
 
     public void SelectAll()
     {
+        DocumentLocation previousCaret = Caret;
+        DocumentLocation? previousAnchor = Anchor;
         ParagraphBlock first = _document.EnumerateBlocks()
             .OfType<ParagraphBlock>()
             .First();
@@ -62,9 +74,17 @@ public sealed class SelectionService
             .Last();
         Anchor = new DocumentLocation(first.Id, 0);
         Caret = new DocumentLocation(last.Id, last.TextLength);
+        NotifyIfChanged(previousCaret, previousAnchor);
     }
 
-    public void ClearSelection() => Anchor = null;
+    public void ClearSelection()
+    {
+        if (Anchor.HasValue)
+        {
+            Anchor = null;
+            _selectionChanged?.Invoke();
+        }
+    }
 
     internal SelectionState CaptureState() => new(Caret, Anchor);
 
@@ -106,6 +126,16 @@ public sealed class SelectionService
                 $"Позиция должна ссылаться на абзац {location.BlockId}.");
 
         return location.Clamp(paragraph.TextLength);
+    }
+
+    private void NotifyIfChanged(
+        DocumentLocation previousCaret,
+        DocumentLocation? previousAnchor)
+    {
+        if (Caret != previousCaret || Anchor != previousAnchor)
+        {
+            _selectionChanged?.Invoke();
+        }
     }
 }
 

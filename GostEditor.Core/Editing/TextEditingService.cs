@@ -18,6 +18,19 @@ public sealed class TextEditingService
         DocumentLocation location,
         string text,
         TextStyle? style = null)
+        => InsertText(location, text, style, TextCoalescingKind.None);
+
+    internal void InsertTyping(
+        DocumentLocation location,
+        string text,
+        TextStyle? style = null)
+        => InsertText(location, text, style, TextCoalescingKind.Typing);
+
+    private void InsertText(
+        DocumentLocation location,
+        string text,
+        TextStyle? style,
+        TextCoalescingKind kind)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -26,11 +39,22 @@ public sealed class TextEditingService
 
         DocumentLocation normalized =
             _session.Selection.NormalizeLocation(location);
-        InsertTextOperation operation = new(
-            normalized.BlockId,
-            normalized.Offset,
-            text,
-            style);
+        ParagraphBlock paragraph = (ParagraphBlock)_session.Document.FindBlock(
+            normalized.BlockId)!;
+        TextStyle effectiveStyle = style?.Clone() ??
+            ParagraphTextBuffer.GetStyleAt(paragraph, normalized.Offset);
+        IEditOperation operation = (IEditOperation?)
+            InlineTextDeltaOperation.TryCreateInsert(
+                paragraph,
+                normalized.Offset,
+                text,
+                effectiveStyle,
+                kind) ??
+            new InsertTextOperation(
+                normalized.BlockId,
+                normalized.Offset,
+                text,
+                effectiveStyle);
         _session.ExecuteWithSelection(
             operation,
             () => _session.Selection.MoveCaret(new DocumentLocation(
@@ -41,6 +65,18 @@ public sealed class TextEditingService
     public void DeleteText(
         DocumentLocation location,
         int length)
+        => DeleteText(location, length, TextCoalescingKind.None);
+
+    internal void DeleteBackward(DocumentLocation location, int length) =>
+        DeleteText(location, length, TextCoalescingKind.Backspace);
+
+    internal void DeleteForward(DocumentLocation location, int length) =>
+        DeleteText(location, length, TextCoalescingKind.DeleteForward);
+
+    private void DeleteText(
+        DocumentLocation location,
+        int length,
+        TextCoalescingKind kind)
     {
         if (length <= 0)
         {
@@ -59,10 +95,16 @@ public sealed class TextEditingService
             return;
         }
 
-        DeleteTextOperation operation = new(
-            normalized.BlockId,
-            normalized.Offset,
-            actualLength);
+        IEditOperation operation = (IEditOperation?)
+            InlineTextDeltaOperation.TryCreateDelete(
+                paragraph,
+                normalized.Offset,
+                actualLength,
+                kind) ??
+            new DeleteTextOperation(
+                normalized.BlockId,
+                normalized.Offset,
+                actualLength);
         _session.ExecuteWithSelection(
             operation,
             () => _session.Selection.MoveCaret(normalized));

@@ -34,6 +34,7 @@ public partial class DocumentEditor
             if (!normalized.Equals(_caretPosition))
             {
                 _typingStyleOverride = null;
+                _editingSession?.History.BreakCoalescing();
             }
 
             _caretPosition = normalized;
@@ -42,9 +43,18 @@ public partial class DocumentEditor
     public DocumentPosition? SelectionAnchor
     {
         get => _selectionAnchor;
-        set => _selectionAnchor = value.HasValue
-            ? NormalizePosition(value.Value)
-            : null;
+        set
+        {
+            DocumentPosition? normalized = value.HasValue
+                ? NormalizePosition(value.Value)
+                : null;
+            if (!Nullable.Equals(normalized, _selectionAnchor))
+            {
+                _editingSession?.History.BreakCoalescing();
+            }
+
+            _selectionAnchor = normalized;
+        }
     }
     public int? SelectedImageParagraphIndex { get; set; }
 
@@ -57,6 +67,9 @@ public partial class DocumentEditor
     public DocumentEditingSession ActiveEditingSession => _editingSession;
 
     public long CanonicalRevision => _editingSession.Revision;
+
+    public void BreakHistoryCoalescing() =>
+        _editingSession.History.BreakCoalescing();
 
     public event EventHandler<DocumentChangedEventArgs>? DocumentChanged;
 

@@ -32,7 +32,7 @@ public partial class DocumentEditor
                     }
                     else
                     {
-                        _editingSession.Text.InsertText(
+                        _editingSession.Text.InsertTyping(
                             _editingSession.Selection.Caret,
                             text,
                             style);
@@ -68,6 +68,19 @@ public partial class DocumentEditor
             DocumentChangeKind.Paint,
             captureImages: captureImages
         );
+    }
+
+    public void InsertCompositionText(string text)
+    {
+        BreakHistoryCoalescing();
+        try
+        {
+            InsertText(text);
+        }
+        finally
+        {
+            BreakHistoryCoalescing();
+        }
     }
 
     public void InsertNewLine()
@@ -249,7 +262,7 @@ public partial class DocumentEditor
                         int previous = TextBoundaries.Previous(
                             paragraph.GetPlainText(),
                             caret.Offset);
-                        _editingSession.Text.DeleteText(
+                        _editingSession.Text.DeleteBackward(
                             new DocumentLocation(caret.BlockId, previous),
                             caret.Offset - previous);
                         return;
@@ -387,7 +400,7 @@ public partial class DocumentEditor
                         int next = TextBoundaries.Next(
                             paragraph.GetPlainText(),
                             caret.Offset);
-                        _editingSession.Text.DeleteText(
+                        _editingSession.Text.DeleteForward(
                             caret,
                             next - caret.Offset);
                         return;

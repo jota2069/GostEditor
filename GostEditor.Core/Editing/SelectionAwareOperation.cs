@@ -2,7 +2,9 @@ using GostEditor.Core.DocumentModel;
 
 namespace GostEditor.Core.Editing;
 
-internal sealed class SelectionAwareOperation : IEditOperation
+internal sealed class SelectionAwareOperation :
+    IEditOperation,
+    IHistoryPayloadSize
 {
     private readonly IEditOperation _inner;
     private readonly SelectionService _selection;
@@ -32,6 +34,17 @@ internal sealed class SelectionAwareOperation : IEditOperation
         DocumentIndexUpdateKind.None;
 
     public Guid? TransactionId => _inner.TransactionId;
+
+    public bool SupportsCoalescing =>
+        _inner is IHistoryCoalescingOperation;
+
+    public HistoryCoalescingDescriptor CoalescingDescriptor =>
+        (_inner as IHistoryCoalescingOperation)?.CoalescingDescriptor ??
+        throw new InvalidOperationException(
+            "Операция не поддерживает history coalescing.");
+
+    public long EstimatedPayloadBytes => 128L +
+        HistoryPayloadSizer.Operation(_inner);
 
     public void Apply(DocumentEditingContext context)
     {

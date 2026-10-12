@@ -1,6 +1,7 @@
 #pragma warning disable CS0618 // Отключаем назойливые предупреждения буфера обмена для всего файла
 
 using System;
+using System.Globalization;
 using System.Threading.Tasks;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -16,6 +17,8 @@ public class TextInputController
     private readonly RenderController _renderController;
     private double? _preferredHorizontalX;
     private DocumentPosition? _lastVerticalCaret;
+    private Key? _directTextKey;
+    private bool _compositionPending;
 
     public TextInputController(DocumentEditor editor, RenderController renderController)
     {
@@ -31,15 +34,35 @@ public class TextInputController
             return;
         }
 
-        // Avalonia TextInput payloads are the composition boundary here: this
-        // path accepts committed text only and does not emulate platform IME
-        // pre-edit state. Separate committed chunks are re-segmented by Core.
+        bool isCompositionCommit = _compositionPending ||
+            !_directTextKey.HasValue ||
+            !IsSingleTextElement(text) ||
+            _directTextKey == Key.Space && text != " ";
+        _directTextKey = null;
+        _compositionPending = false;
         ResetVerticalNavigation();
         _editor.SelectedImageParagraphIndex = null;
-        _editor.InsertText(text);
+        if (isCompositionCommit)
+        {
+            _editor.InsertCompositionText(text);
+        }
+        else
+        {
+            _editor.InsertText(text);
+        }
         _renderController.RefreshView();
 
         await Task.CompletedTask;
+    }
+
+    internal void NotifyPreeditText(string? text)
+    {
+        if (!string.IsNullOrEmpty(text))
+        {
+            _compositionPending = true;
+        }
+
+        _editor.BreakHistoryCoalescing();
     }
 
     public async Task HandleKeyDownAsync(KeyEventArgs e, IClipboard? clipboard)
@@ -48,6 +71,10 @@ public class TextInputController
 
         bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        bool isAlt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+        _directTextKey = !isCtrl && !isAlt && IsTextProducingKey(e.Key)
+            ? e.Key
+            : null;
 
         if (isCtrl)
         {
@@ -98,6 +125,18 @@ public class TextInputController
             e.Handled = true;
         }
     }
+
+    private static bool IsTextProducingKey(Key key) =>
+        key is >= Key.A and <= Key.Z or
+            >= Key.D0 and <= Key.D9 or
+            >= Key.NumPad0 and <= Key.NumPad9 or
+            Key.Space or
+            Key.Oem1 or Key.Oem2 or Key.Oem3 or Key.Oem4 or Key.Oem5 or
+            Key.Oem6 or Key.Oem7 or Key.Oem8 or Key.Oem102 or
+            Key.OemComma or Key.OemMinus or Key.OemPeriod or Key.OemPlus;
+
+    private static bool IsSingleTextElement(string text) =>
+        StringInfo.GetNextTextElementLength(text) == text.Length;
 
     internal Task<bool> HandleNavigationKeyAsync(
         Key key,

@@ -131,6 +131,23 @@ public sealed class UnicodeInputNavigationLayoutTests
         Assert.False(context.Editor.History.CanUndo);
     }
 
+    [Fact]
+    public async Task TextInput_PreeditCommitIsIsolatedFromAdjacentTyping()
+    {
+        TestContext context = CreateContext(string.Empty);
+        context.Editor.InsertText("a");
+        context.Input.NotifyPreeditText("han");
+
+        await context.Input.HandleTextInputAsync("漢", clipboard: null);
+        context.Editor.InsertText("b");
+
+        Assert.Equal(3, context.Editor.History.UndoCount);
+        context.Editor.History.Undo();
+        Assert.Equal("a漢", context.Editor.Document.Paragraphs[0].GetPlainText());
+        context.Editor.History.Undo();
+        Assert.Equal("a", context.Editor.Document.Paragraphs[0].GetPlainText());
+    }
+
     private static async Task MoveAsync(
         TestContext context,
         Key key,

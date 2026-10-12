@@ -5,7 +5,10 @@ namespace GostEditor.Core.Editing;
 
 public sealed class DocumentEditingSession
 {
-    public DocumentEditingSession(DocumentRoot document)
+    public DocumentEditingSession(
+        DocumentRoot document,
+        OperationHistoryPolicy? historyPolicy = null,
+        TimeProvider? timeProvider = null)
     {
         Document = document
             ?? throw new ArgumentNullException(nameof(document));
@@ -15,9 +18,9 @@ public sealed class DocumentEditingSession
         Context = new DocumentEditingContext(
             Document,
             InvalidationTracker);
-        History = new OperationHistory(Context);
+        History = new OperationHistory(Context, historyPolicy, timeProvider);
         History.DetailedChanged += OnHistoryChanged;
-        Selection = new SelectionService(Document);
+        Selection = new SelectionService(Document, History.BreakCoalescing);
         Text = new TextEditingService(this);
         Formatting = new FormattingService(this);
     }

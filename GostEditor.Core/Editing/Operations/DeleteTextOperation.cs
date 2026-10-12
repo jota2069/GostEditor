@@ -5,7 +5,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class DeleteTextOperation : IEditOperation
+public sealed class DeleteTextOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
@@ -48,6 +48,10 @@ public sealed class DeleteTextOperation : IEditOperation
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.AffectedParagraphs;
+
+    public long EstimatedPayloadBytes => 192L +
+        HistoryPayloadSizer.Inlines(_before) +
+        HistoryPayloadSizer.Inlines(_after);
 
     public void Apply(DocumentEditingContext context)
     {

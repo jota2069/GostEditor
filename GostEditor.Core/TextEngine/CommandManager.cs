@@ -13,14 +13,43 @@ public class CommandManager
 {
     private readonly Stack<IEditorCommand> _undoStack = new();
     private readonly Stack<IEditorCommand> _redoStack = new();
+    private long _canonicalEvictionVersion;
 
-    public bool CanUndo => _undoStack.Count > 0;
+    public bool CanUndo
+    {
+        get
+        {
+            PruneUnavailableUndo();
+            return _undoStack.Count > 0;
+        }
+    }
 
-    public bool CanRedo => _redoStack.Count > 0;
+    public bool CanRedo
+    {
+        get
+        {
+            PruneUnavailableRedo();
+            return _redoStack.Count > 0;
+        }
+    }
 
-    public int UndoCount => _undoStack.Count;
+    public int UndoCount
+    {
+        get
+        {
+            PruneUnavailableUndo();
+            return _undoStack.Count;
+        }
+    }
 
-    public int RedoCount => _redoStack.Count;
+    public int RedoCount
+    {
+        get
+        {
+            PruneUnavailableRedo();
+            return _redoStack.Count;
+        }
+    }
 
     public event EventHandler? Changed;
 
@@ -77,6 +106,7 @@ public class CommandManager
 
     public void Undo()
     {
+        PruneUnavailableUndo();
         if (_undoStack.Count == 0)
         {
             return;
@@ -91,6 +121,7 @@ public class CommandManager
 
     public void Redo()
     {
+        PruneUnavailableRedo();
         if (_redoStack.Count == 0)
         {
             return;
@@ -112,9 +143,76 @@ public class CommandManager
 
     private void RecordExecutedCommand(IEditorCommand command)
     {
+        if (command is CanonicalDocumentCommand canonical)
+        {
+            if (canonical.HistoryEvictionVersion != _canonicalEvictionVersion)
+            {
+                PruneUnavailableCanonicalCommands(_undoStack, undo: true);
+                PruneUnavailableCanonicalCommands(_redoStack, undo: false);
+                _canonicalEvictionVersion = canonical.HistoryEvictionVersion;
+            }
+
+            if (!canonical.IsUndoable)
+            {
+                _redoStack.Clear();
+                RaiseChangedSafely();
+                return;
+            }
+
+            if (_undoStack.TryPeek(out IEditorCommand? previous) &&
+                previous is CanonicalDocumentCommand priorCanonical &&
+                canonical.SharesUndoGroup(priorCanonical))
+            {
+                _redoStack.Clear();
+                RaiseChangedSafely();
+                return;
+            }
+        }
+
         _undoStack.Push(command);
         _redoStack.Clear();
         RaiseChangedSafely();
+    }
+
+    private void PruneUnavailableUndo()
+    {
+        while (_undoStack.TryPeek(out IEditorCommand? command) &&
+               command is CanonicalDocumentCommand canonical &&
+               !canonical.IsUndoable)
+        {
+            _undoStack.Pop();
+        }
+    }
+
+    private void PruneUnavailableRedo()
+    {
+        while (_redoStack.TryPeek(out IEditorCommand? command) &&
+               command is CanonicalDocumentCommand canonical &&
+               !canonical.IsRedoable)
+        {
+            _redoStack.Pop();
+        }
+    }
+
+    private static void PruneUnavailableCanonicalCommands(
+        Stack<IEditorCommand> stack,
+        bool undo)
+    {
+        IEditorCommand[] retained = stack
+            .Where(command => command is not CanonicalDocumentCommand canonical ||
+                (undo ? canonical.IsUndoable : canonical.IsRedoable))
+            .Reverse()
+            .ToArray();
+        if (retained.Length == stack.Count)
+        {
+            return;
+        }
+
+        stack.Clear();
+        foreach (IEditorCommand command in retained)
+        {
+            stack.Push(command);
+        }
     }
 
     private static void UndoAfterDecisionFailure(

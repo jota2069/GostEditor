@@ -9,7 +9,9 @@ namespace GostEditor.Core.Editing.Operations;
 /// represented as one history item composed from reversible primitive
 /// operations.
 /// </summary>
-public sealed class ReplaceTextRangeOperation : IEditOperation
+public sealed class ReplaceTextRangeOperation :
+    IEditOperation,
+    IHistoryPayloadSize
 {
     private readonly EditTransaction _transaction;
 
@@ -53,6 +55,9 @@ public sealed class ReplaceTextRangeOperation : IEditOperation
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.None;
+
+    public long EstimatedPayloadBytes =>
+        128L + _transaction.EstimatedPayloadBytes;
 
     public void Apply(DocumentEditingContext context) =>
         _transaction.Apply(context);

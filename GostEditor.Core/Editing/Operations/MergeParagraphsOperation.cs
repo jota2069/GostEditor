@@ -5,7 +5,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class MergeParagraphsOperation : IEditOperation
+public sealed class MergeParagraphsOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _firstParagraphId;
     private readonly DocumentNodeId _secondParagraphId;
@@ -26,6 +26,10 @@ public sealed class MergeParagraphsOperation : IEditOperation
 
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _firstParagraphId, _secondParagraphId };
+
+    public long EstimatedPayloadBytes => 256L +
+        HistoryPayloadSizer.Inlines(_firstBefore) +
+        HistoryPayloadSizer.Block(_secondParagraph);
 
     public void Apply(DocumentEditingContext context)
     {
