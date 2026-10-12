@@ -303,7 +303,7 @@
           "DocumentFormat.OpenXml": "[3.5.1, )",
           "Microsoft.Extensions.DependencyInjection": "[10.0.3, )",
           "Newtonsoft.Json": "[13.0.4, )",
-          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[2.88.8, )"
+          "SkiaSharp.NativeAssets.Linux.NoDependencies": "[2.88.9, )"
         }
       },
       "gosteditor.ui": {
@@ -397,11 +397,11 @@
       },
       "SkiaSharp.NativeAssets.Linux.NoDependencies": {
         "type": "CentralTransitive",
-        "requested": "[2.88.8, )",
-        "resolved": "2.88.8",
-        "contentHash": "/DoKtdyvRgCC5GR/SH+ps3ZiOjmf0BYpAyrhWQELFOO1hdcqddrDVJjDNCOJ41vV+NlS5b3kcDoZZ7jLhFjyXg==",
+        "requested": "[2.88.9, )",
+        "resolved": "2.88.9",
+        "contentHash": "ZA9syMvIuoqxPhyFTgde/bNV6VMdeYT9gRdNQT5O+ZjPK+a/nVkKRrqBbn7EVA7XQiW+xIycyT4gW/sea9eh+w==",
         "dependencies": {
-          "SkiaSharp": "2.88.8"
+          "SkiaSharp": "2.88.9"
         }
       }
     }
