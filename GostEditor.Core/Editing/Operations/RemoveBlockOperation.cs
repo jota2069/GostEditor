@@ -4,7 +4,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class RemoveBlockOperation : IEditOperation
+public sealed class RemoveBlockOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _blockId;
     private BlockNode? _removed;
@@ -20,6 +20,9 @@ public sealed class RemoveBlockOperation : IEditOperation
 
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _blockId };
+
+    public long EstimatedPayloadBytes =>
+        128L + HistoryPayloadSizer.Block(_removed);
 
     public void Apply(DocumentEditingContext context)
     {

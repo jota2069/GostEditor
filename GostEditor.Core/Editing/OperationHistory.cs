@@ -34,15 +34,28 @@ public sealed class OperationHistoryChangedEventArgs : EventArgs
 
 public sealed class OperationHistory
 {
-    private readonly Stack<IEditOperation> _undo = new();
-    private readonly Stack<IEditOperation> _redo = new();
+    private readonly LinkedList<HistoryOperationGroup> _undo = new();
+    private readonly LinkedList<HistoryOperationGroup> _redo = new();
+    private readonly HashSet<Guid> _undoGroupIds = new();
+    private readonly HashSet<Guid> _redoGroupIds = new();
     private readonly DocumentEditingContext _context;
+    private readonly OperationHistoryPolicy _policy;
+    private readonly TimeProvider _timeProvider;
     private Action? _postApplyValidation;
+    private bool _coalescingBoundary;
+    private long _retainedPayloadBytes;
+    private bool _isApplyingOrReverting;
 
-    public OperationHistory(DocumentEditingContext context)
+    public OperationHistory(
+        DocumentEditingContext context,
+        OperationHistoryPolicy? policy = null,
+        TimeProvider? timeProvider = null)
     {
         _context = context
             ?? throw new ArgumentNullException(nameof(context));
+        _policy = policy ?? new OperationHistoryPolicy();
+        _policy.Validate();
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public bool CanUndo => _undo.Count > 0;
@@ -53,7 +66,19 @@ public sealed class OperationHistory
 
     public int RedoCount => _redo.Count;
 
+    public long RetainedPayloadBytes => _retainedPayloadBytes;
+
+    public Guid? LastUndoGroupId => _undo.Last?.Value.Id;
+
+    internal bool ContainsUndoGroup(Guid id) =>
+        _undoGroupIds.Contains(id);
+
+    internal bool ContainsRedoGroup(Guid id) =>
+        _redoGroupIds.Contains(id);
+
     public long Version { get; private set; }
+
+    internal long EvictionVersion { get; private set; }
 
     public event EventHandler? Changed;
 
@@ -66,8 +91,42 @@ public sealed class OperationHistory
 
         ApplyAndUpdateIndex(operation);
         ValidateOrRevert(operation);
-        _undo.Push(operation);
-        _redo.Clear();
+        DateTimeOffset executedAt = _timeProvider.GetUtcNow();
+        HistoryCoalescingDescriptor? descriptor = operation switch
+        {
+            SelectionAwareOperation selectionAware
+                when selectionAware.SupportsCoalescing =>
+                selectionAware.CoalescingDescriptor,
+            IHistoryCoalescingOperation coalescing =>
+                coalescing.CoalescingDescriptor,
+            _ => null
+        };
+        HistoryOperationGroup? previous = _undo.Last?.Value;
+        if (!_coalescingBoundary && descriptor.HasValue && previous is not null &&
+            previous.CanAppend(
+                descriptor.Value,
+                executedAt,
+                _policy.CoalescingWindow))
+        {
+            long previousSize = previous.EstimatedPayloadBytes;
+            previous.Append(operation, descriptor.Value, executedAt);
+            _retainedPayloadBytes +=
+                previous.EstimatedPayloadBytes - previousSize;
+        }
+        else
+        {
+            HistoryOperationGroup group = new(
+                operation,
+                descriptor,
+                executedAt);
+            _undo.AddLast(group);
+            _undoGroupIds.Add(group.Id);
+            _retainedPayloadBytes += group.EstimatedPayloadBytes;
+        }
+
+        _coalescingBoundary = !descriptor.HasValue;
+        ClearRedo();
+        EnforceBudget();
         RaiseChanged(OperationHistoryChangeKind.Executed, operation);
     }
 
@@ -78,10 +137,13 @@ public sealed class OperationHistory
             return false;
         }
 
-        IEditOperation operation = _undo.Peek();
+        HistoryOperationGroup operation = _undo.Last!.Value;
         RevertAndUpdateIndex(operation);
-        _undo.Pop();
-        _redo.Push(operation);
+        _undo.RemoveLast();
+        _redo.AddLast(operation);
+        _undoGroupIds.Remove(operation.Id);
+        _redoGroupIds.Add(operation.Id);
+        _coalescingBoundary = true;
         RaiseChanged(OperationHistoryChangeKind.Undone, operation);
         return true;
     }
@@ -93,11 +155,14 @@ public sealed class OperationHistory
             return false;
         }
 
-        IEditOperation operation = _redo.Peek();
+        HistoryOperationGroup operation = _redo.Last!.Value;
         ApplyAndUpdateIndex(operation);
         ValidateOrRevert(operation);
-        _redo.Pop();
-        _undo.Push(operation);
+        _redo.RemoveLast();
+        _undo.AddLast(operation);
+        _redoGroupIds.Remove(operation.Id);
+        _undoGroupIds.Add(operation.Id);
+        _coalescingBoundary = true;
         RaiseChanged(OperationHistoryChangeKind.Redone, operation);
         return true;
     }
@@ -111,6 +176,10 @@ public sealed class OperationHistory
 
         _undo.Clear();
         _redo.Clear();
+        _undoGroupIds.Clear();
+        _redoGroupIds.Clear();
+        _retainedPayloadBytes = 0;
+        _coalescingBoundary = true;
         RaiseChanged(
             OperationHistoryChangeKind.Cleared,
             null,
@@ -119,9 +188,10 @@ public sealed class OperationHistory
 
     internal void PublishCompatibilityMutation(bool discardRedo)
     {
+        _coalescingBoundary = true;
         if (discardRedo)
         {
-            _redo.Clear();
+            ClearRedo();
         }
 
         RaiseChanged(OperationHistoryChangeKind.Executed, null);
@@ -130,6 +200,54 @@ public sealed class OperationHistory
     internal void SetPostApplyValidation(Action validation) =>
         _postApplyValidation = validation ??
             throw new ArgumentNullException(nameof(validation));
+
+    public void BreakCoalescing()
+    {
+        if (!_isApplyingOrReverting)
+        {
+            _coalescingBoundary = true;
+        }
+    }
+
+    private void EnforceBudget()
+    {
+        while (_undo.Count > _policy.MaxUndoGroups ||
+               RetainedPayloadBytes > _policy.MaxRetainedBytes)
+        {
+            if (_undo.Count > 0)
+            {
+                _retainedPayloadBytes -=
+                    _undo.First!.Value.EstimatedPayloadBytes;
+                _undoGroupIds.Remove(_undo.First.Value.Id);
+                _undo.RemoveFirst();
+                EvictionVersion = checked(EvictionVersion + 1);
+                continue;
+            }
+
+            if (_redo.Count > 0)
+            {
+                _retainedPayloadBytes -=
+                    _redo.First!.Value.EstimatedPayloadBytes;
+                _redoGroupIds.Remove(_redo.First.Value.Id);
+                _redo.RemoveFirst();
+                EvictionVersion = checked(EvictionVersion + 1);
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    private void ClearRedo()
+    {
+        foreach (HistoryOperationGroup group in _redo)
+        {
+            _retainedPayloadBytes -= group.EstimatedPayloadBytes;
+        }
+
+        _redo.Clear();
+        _redoGroupIds.Clear();
+    }
 
     private void ValidateOrRevert(IEditOperation operation)
     {
@@ -180,6 +298,7 @@ public sealed class OperationHistory
     private void ApplyAndUpdateIndex(IEditOperation operation)
     {
         bool applied = false;
+        _isApplyingOrReverting = true;
         try
         {
             operation.Apply(_context);
@@ -194,11 +313,16 @@ public sealed class OperationHistory
                 operation);
             throw;
         }
+        finally
+        {
+            _isApplyingOrReverting = false;
+        }
     }
 
     private void RevertAndUpdateIndex(IEditOperation operation)
     {
         bool reverted = false;
+        _isApplyingOrReverting = true;
         try
         {
             operation.Revert(_context);
@@ -212,6 +336,10 @@ public sealed class OperationHistory
                 () => operation.Apply(_context),
                 operation);
             throw;
+        }
+        finally
+        {
+            _isApplyingOrReverting = false;
         }
     }
 

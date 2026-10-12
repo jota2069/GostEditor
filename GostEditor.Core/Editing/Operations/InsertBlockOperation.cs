@@ -4,7 +4,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class InsertBlockOperation : IEditOperation
+public sealed class InsertBlockOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _sectionId;
     private readonly int _index;
@@ -25,6 +25,9 @@ public sealed class InsertBlockOperation : IEditOperation
 
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _block.Id };
+
+    public long EstimatedPayloadBytes =>
+        128L + HistoryPayloadSizer.Block(_block);
 
     public void Apply(DocumentEditingContext context)
     {

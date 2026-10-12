@@ -5,7 +5,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class ChangeTextStyleOperation : IEditOperation
+public sealed class ChangeTextStyleOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
@@ -51,6 +51,10 @@ public sealed class ChangeTextStyleOperation : IEditOperation
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.AffectedParagraphs;
+
+    public long EstimatedPayloadBytes => 256L +
+        HistoryPayloadSizer.Inlines(_before) +
+        HistoryPayloadSizer.Inlines(_after);
 
     public void Apply(DocumentEditingContext context)
     {

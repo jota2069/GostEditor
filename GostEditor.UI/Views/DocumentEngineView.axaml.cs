@@ -8,6 +8,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
+using Avalonia.Input.TextInput;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -28,6 +29,7 @@ public partial class DocumentEngineView : UserControl
     private DocumentEditor _editor = null!;
     private RenderController _renderController = null!;
     private TextInputController _textInputController = null!;
+    private EditorTextInputMethodClient _textInputMethodClient = null!;
     private SelectionController _selectionController = null!;
     private MouseController _mouseController = null!;
     private ImageController _imageController = null!;
@@ -68,6 +70,9 @@ public partial class DocumentEngineView : UserControl
         _renderController = new RenderController(_editor, _layoutManager, defaultTypeface);
         _selectionController = new SelectionController(_editor);
         _textInputController = new TextInputController(_editor, _renderController);
+        _textInputMethodClient = new EditorTextInputMethodClient(
+            this,
+            _textInputController.NotifyPreeditText);
         _mouseController = new MouseController(
             _editor,
             _renderController);
@@ -82,6 +87,10 @@ public partial class DocumentEngineView : UserControl
         AddHandler(PointerMovedEvent, OnGlobalPointerMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnGlobalPointerReleased, RoutingStrategies.Tunnel);
         AddHandler(TextInputEvent, OnTextInputAsync, RoutingStrategies.Tunnel);
+        AddHandler(
+            TextInputMethodClientRequestedEvent,
+            OnTextInputMethodClientRequested,
+            RoutingStrategies.Bubble);
         AddHandler(KeyDownEvent, OnKeyDownAsync, RoutingStrategies.Tunnel);
 
         if (this.FindControl<StackPanel>("PagesStackPanel") is { } pagesPanel)
@@ -206,6 +215,8 @@ public partial class DocumentEngineView : UserControl
 
     internal bool IsInputFocusRequested => _inputFocusRequested;
     internal DocumentPosition CurrentCaretPosition => _editor.CaretPosition;
+    internal void BreakHistoryCoalescing() =>
+        _editor.BreakHistoryCoalescing();
 
     private void RequestInputFocus()
     {
@@ -232,6 +243,13 @@ public partial class DocumentEngineView : UserControl
             await _textInputController.HandleTextInputAsync(e.Text, topLevel?.Clipboard);
             e.Handled = true;
         }
+    }
+
+    private void OnTextInputMethodClientRequested(
+        object? sender,
+        TextInputMethodClientRequestedEventArgs e)
+    {
+        e.Client = _textInputMethodClient;
     }
 
     private async void OnKeyDownAsync(object? sender, KeyEventArgs e)

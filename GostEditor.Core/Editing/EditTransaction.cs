@@ -2,7 +2,7 @@ using GostEditor.Core.DocumentModel;
 
 namespace GostEditor.Core.Editing;
 
-public sealed class EditTransaction : IEditOperation
+public sealed class EditTransaction : IEditOperation, IHistoryPayloadSize
 {
     private readonly List<IEditOperation> _operations = new();
 
@@ -34,6 +34,9 @@ public sealed class EditTransaction : IEditOperation
             .ToArray();
 
     public bool IsEmpty => _operations.Count == 0;
+
+    public long EstimatedPayloadBytes =>
+        128L + _operations.Sum(HistoryPayloadSizer.Operation);
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.None;

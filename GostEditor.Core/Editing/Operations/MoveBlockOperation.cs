@@ -3,7 +3,7 @@ using GostEditor.Core.DocumentModel.Blocks;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class MoveBlockOperation : IEditOperation
+public sealed class MoveBlockOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _blockId;
     private readonly DocumentNodeId _destinationSectionId;
@@ -26,6 +26,8 @@ public sealed class MoveBlockOperation : IEditOperation
 
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _blockId };
+
+    public long EstimatedPayloadBytes => 256L;
 
     public void Apply(DocumentEditingContext context)
     {

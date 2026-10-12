@@ -1224,6 +1224,7 @@ public partial class MainWindow : Window
                 }
             }
 
+            MainEditor.BreakHistoryCoalescing();
             GostDocument documentToSave =
                 SyncDocumentFromViewModel(viewModel);
 

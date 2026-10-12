@@ -9,7 +9,9 @@ namespace GostEditor.Core.Editing.Operations;
 /// Stores the insertion style at a collapsed caret as a zero-length canonical
 /// inline marker. The marker is consumed naturally by the next text edit.
 /// </summary>
-internal sealed class ChangeTypingStyleOperation : IEditOperation
+internal sealed class ChangeTypingStyleOperation :
+    IEditOperation,
+    IHistoryPayloadSize
 {
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
@@ -34,6 +36,10 @@ internal sealed class ChangeTypingStyleOperation : IEditOperation
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.AffectedParagraphs;
+
+    public long EstimatedPayloadBytes => 256L +
+        HistoryPayloadSizer.Inlines(_before) +
+        HistoryPayloadSizer.Inlines(_after);
 
     public void Apply(DocumentEditingContext context)
     {

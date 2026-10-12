@@ -4,7 +4,9 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class ChangeParagraphPropertiesOperation : IEditOperation
+public sealed class ChangeParagraphPropertiesOperation :
+    IEditOperation,
+    IHistoryPayloadSize
 {
     private readonly DocumentNodeId _paragraphId;
     private readonly ParagraphProperties _newProperties;
@@ -26,6 +28,8 @@ public sealed class ChangeParagraphPropertiesOperation : IEditOperation
 
     public DocumentIndexUpdateKind IndexUpdateKind =>
         DocumentIndexUpdateKind.None;
+
+    public long EstimatedPayloadBytes => 512L;
 
     public void Apply(DocumentEditingContext context)
     {

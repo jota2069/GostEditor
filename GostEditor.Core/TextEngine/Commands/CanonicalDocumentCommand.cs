@@ -12,7 +12,8 @@ internal sealed class CanonicalDocumentCommand : IEditorCommand
     private readonly DocumentEditingSession _session;
     private readonly Action _action;
     private bool _isFirstExecution = true;
-    private int _operationCount;
+    private Guid? _undoGroupId;
+    private bool _isCommitted;
 
     public CanonicalDocumentCommand(
         DocumentEditingSession session,
@@ -22,7 +23,19 @@ internal sealed class CanonicalDocumentCommand : IEditorCommand
         _action = action ?? throw new ArgumentNullException(nameof(action));
     }
 
-    public bool IsCommitted => _operationCount > 0;
+    public bool IsCommitted => _isCommitted;
+
+    public bool IsUndoable => _undoGroupId.HasValue &&
+        _session.History.ContainsUndoGroup(_undoGroupId.Value);
+
+    public bool IsRedoable => _undoGroupId.HasValue &&
+        _session.History.ContainsRedoGroup(_undoGroupId.Value);
+
+    public bool SharesUndoGroup(CanonicalDocumentCommand other) =>
+        _undoGroupId.HasValue && _undoGroupId == other._undoGroupId;
+
+    public long HistoryEvictionVersion =>
+        _session.History.EvictionVersion;
 
     public void Execute()
     {
@@ -32,90 +45,44 @@ internal sealed class CanonicalDocumentCommand : IEditorCommand
             return;
         }
 
-        int undoCountBefore = _session.History.UndoCount;
+        long revisionBefore = _session.Revision;
         _action();
-        _operationCount = _session.History.UndoCount - undoCountBefore;
+        _isCommitted = _session.Revision != revisionBefore;
+        _undoGroupId = _isCommitted
+            ? _session.History.LastUndoGroupId
+            : null;
         _isFirstExecution = false;
     }
 
     public void Undo()
     {
-        int undone = 0;
-        try
+        if (!_isCommitted)
         {
-            for (; undone < _operationCount; undone++)
-            {
-                if (!_session.History.Undo())
-                {
-                    throw new InvalidOperationException(
-                        "Canonical history не содержит ожидаемую операцию.");
-                }
-            }
+            return;
         }
-        catch (Exception exception)
+
+        if (!_undoGroupId.HasValue ||
+            !_session.History.ContainsUndoGroup(_undoGroupId.Value) ||
+            !_session.History.Undo())
         {
-            Compensate(
-                undone,
-                _session.History.Redo,
-                "GostEditor.CanonicalDocumentCommand.UndoCompensationFailures",
-                exception);
-            throw;
+            throw new InvalidOperationException(
+                "Canonical history не содержит ожидаемую undo group.");
         }
     }
 
     private void RedoRecordedOperations()
     {
-        int redone = 0;
-        try
+        if (!_isCommitted)
         {
-            for (; redone < _operationCount; redone++)
-            {
-                if (!_session.History.Redo())
-                {
-                    throw new InvalidOperationException(
-                        "Canonical history не содержит ожидаемую redo operation.");
-                }
-            }
-        }
-        catch (Exception exception)
-        {
-            Compensate(
-                redone,
-                _session.History.Undo,
-                "GostEditor.CanonicalDocumentCommand.RedoCompensationFailures",
-                exception);
-            throw;
-        }
-    }
-
-    private static void Compensate(
-        int count,
-        Func<bool> compensate,
-        string dataKey,
-        Exception primaryException)
-    {
-        List<Exception> failures = new();
-        for (int index = 0; index < count; index++)
-        {
-            try
-            {
-                if (!compensate())
-                {
-                    failures.Add(new InvalidOperationException(
-                        "Canonical history compensation недоступна."));
-                    break;
-                }
-            }
-            catch (Exception exception)
-            {
-                failures.Add(exception);
-                break;
-            }
+            return;
         }
 
-        if (failures.Count > 0)
+        if (!_undoGroupId.HasValue ||
+            !_session.History.ContainsRedoGroup(_undoGroupId.Value) ||
+            !_session.History.Redo())
         {
-            primaryException.Data[dataKey] = failures.ToArray();
+            throw new InvalidOperationException(
+                "Canonical history не содержит ожидаемую redo group.");
         }
     }
 }

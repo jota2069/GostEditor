@@ -5,7 +5,7 @@ using GostEditor.Core.Layout.Incremental;
 
 namespace GostEditor.Core.Editing.Operations;
 
-public sealed class SplitParagraphOperation : IEditOperation
+public sealed class SplitParagraphOperation : IEditOperation, IHistoryPayloadSize
 {
     private readonly DocumentNodeId _paragraphId;
     private readonly int _offset;
@@ -43,6 +43,12 @@ public sealed class SplitParagraphOperation : IEditOperation
 
     public IReadOnlyCollection<DocumentNodeId> AffectedBlocks =>
         new[] { _paragraphId, _newParagraphId };
+
+    public long EstimatedPayloadBytes => 384L +
+        HistoryPayloadSizer.Inlines(_originalInlines) +
+        HistoryPayloadSizer.Inlines(_leftAfter) +
+        HistoryPayloadSizer.Inlines(_rightAfter) +
+        HistoryPayloadSizer.Block(_newParagraph);
 
     public void Apply(DocumentEditingContext context)
     {
