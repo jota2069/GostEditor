@@ -213,6 +213,36 @@ public partial class DocumentEditor
         SynchronizeLegacySelectionFromCanonical();
     }
 
+    private void ExecuteCanonicalStructuralEdit(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        EnsureCanonicalMatchesLegacy(Enumerable.Range(
+            0,
+            Document.Paragraphs.Count).ToArray());
+        LegacyTextProjection.ValidateLossless(_editingSession.Document);
+        SynchronizeCanonicalSelectionForStructure();
+        CanonicalDocumentCommand command = new(_editingSession, action);
+        History.TryExecuteCommand(command, () => command.IsCommitted);
+        if (command.IsCommitted)
+        {
+            SynchronizeLegacySelectionFromCanonical();
+        }
+    }
+
+    private void SynchronizeCanonicalSelectionForStructure()
+    {
+        DocumentLocation caret = GetNearestCanonicalTextLocation(CaretPosition);
+        if (SelectionAnchor.HasValue)
+        {
+            DocumentLocation anchor = GetNearestCanonicalTextLocation(
+                SelectionAnchor.Value);
+            _editingSession.Selection.SetSelection(anchor, caret);
+            return;
+        }
+
+        _editingSession.Selection.MoveCaret(caret);
+    }
+
     private void SynchronizeLegacySelectionFromCanonical()
     {
         _caretPosition = _legacyProjection.ToLegacyPosition(
@@ -454,6 +484,21 @@ public partial class DocumentEditor
         if (block is FigureBlock figure && legacy.IsImage)
         {
             return figure.ImageId == legacy.ImageId;
+        }
+
+        if (block is PageBreakBlock && !legacy.IsImage)
+        {
+            return legacy.PageBreakBefore &&
+                string.IsNullOrEmpty(legacy.GetPlainText());
+        }
+
+        if (block is CodeBlock code && !legacy.IsImage)
+        {
+            return legacy.Style == ParagraphStyle.Code &&
+                string.Equals(
+                    code.Code,
+                    legacy.GetPlainText(),
+                    StringComparison.Ordinal);
         }
 
         if (block is not ParagraphBlock paragraph || legacy.IsImage)

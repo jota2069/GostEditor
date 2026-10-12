@@ -13,6 +13,7 @@ internal sealed class LegacyTextProjection
 {
     private readonly GostDocument _target;
     private readonly Dictionary<DocumentNodeId, Paragraph> _paragraphs = new();
+    private readonly Dictionary<Guid, ImageAttachment> _images = new();
 
     public LegacyTextProjection(DocumentRoot source, GostDocument target)
     {
@@ -100,6 +101,7 @@ internal sealed class LegacyTextProjection
     public void Project(DocumentRoot source)
     {
         ValidateLossless(source);
+        ProjectResources(source);
         List<Paragraph> ordered = new();
         HashSet<DocumentNodeId> liveIds = new();
         foreach (BlockNode block in source.EnumerateBlocks())
@@ -156,6 +158,11 @@ internal sealed class LegacyTextProjection
 
     private void BindExisting(DocumentRoot source)
     {
+        foreach (ImageAttachment image in _target.Images)
+        {
+            _images[image.Id] = image;
+        }
+
         IReadOnlyList<BlockNode> blocks = source.EnumerateBlocks().ToList();
         int count = Math.Min(blocks.Count, _target.Paragraphs.Count);
         for (int index = 0; index < count; index++)
@@ -164,6 +171,48 @@ internal sealed class LegacyTextProjection
         }
 
         Project(source);
+    }
+
+    private void ProjectResources(DocumentRoot source)
+    {
+        List<ImageAttachment> ordered = new();
+        foreach (ImageResource resource in source.Resources.ImagesInOrder)
+        {
+            if (!_images.TryGetValue(resource.Id, out ImageAttachment? image) ||
+                image.FileName != resource.FileName ||
+                image.MediaType != resource.MediaType ||
+                image.Caption != resource.Caption ||
+                image.Order != resource.Order ||
+                !image.Data.Span.SequenceEqual(resource.Data.Span))
+            {
+                image = new ImageAttachment(
+                    resource.Id,
+                    resource.FileName,
+                    resource.MediaType,
+                    resource.Data,
+                    resource.Caption,
+                    resource.Order);
+                _images[resource.Id] = image;
+            }
+
+            ordered.Add(image);
+        }
+
+        foreach (Guid removed in _images.Keys
+                     .Where(id => !source.Resources.Images.ContainsKey(id))
+                     .ToArray())
+        {
+            _images.Remove(removed);
+        }
+
+        if (!_target.Images.SequenceEqual(ordered))
+        {
+            _target.MutableImages.Clear();
+            _target.MutableImages.AddRange(ordered);
+        }
+
+        _target.Counters.ImagesCount = source.EnumerateBlocks()
+            .Count(block => block is FigureBlock);
     }
 
     private static void ProjectParagraph(

@@ -45,6 +45,11 @@ public partial class DocumentEditor
             return;
         }
 
+        if (DeleteCanonicalStructuralSelection([text]))
+        {
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -126,6 +131,11 @@ public partial class DocumentEditor
                     end.ParagraphIndex - start.ParagraphIndex + 1)
                     .ToArray());
             _typingStyleOverride = newlineTypingStyle;
+            return;
+        }
+
+        if (DeleteCanonicalStructuralSelection([string.Empty, string.Empty]))
+        {
             return;
         }
 
@@ -223,6 +233,11 @@ public partial class DocumentEditor
 
     public void Backspace()
     {
+        if (HasSelection && DeleteCanonicalStructuralSelection())
+        {
+            return;
+        }
+
         if (!HasSelection && CaretPosition.Offset == 0 &&
             CaretPosition.ParagraphIndex == 0)
         {
@@ -362,6 +377,11 @@ public partial class DocumentEditor
 
     public void DeleteForward()
     {
+        if (HasSelection && DeleteCanonicalStructuralSelection())
+        {
+            return;
+        }
+
         (DocumentPosition canonicalStart, DocumentPosition canonicalEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -536,6 +556,11 @@ public partial class DocumentEditor
             return;
         }
 
+        if (DeleteCanonicalStructuralSelection())
+        {
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             GetNormalizedSelection();
         int mutationStartParagraph = mutationStart.ParagraphIndex;
@@ -572,6 +597,13 @@ public partial class DocumentEditor
     {
         if (string.IsNullOrEmpty(text)) return;
         TextBoundaries.EnsureValidUtf16(text, nameof(text));
+
+        if (HasSelection &&
+            !IsCanonicalTextSelection() &&
+            DeleteCanonicalStructuralSelection(SplitPastedText(text)))
+        {
+            return;
+        }
 
         if (IsCanonicalTextSelection())
         {

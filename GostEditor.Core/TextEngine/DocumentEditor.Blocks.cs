@@ -1,8 +1,9 @@
-using System;
-using System.Collections.Generic;
-using GostEditor.Core.Interfaces;
+using GostEditor.Core.DocumentModel;
+using GostEditor.Core.DocumentModel.Blocks;
+using GostEditor.Core.DocumentModel.Inlines;
+using GostEditor.Core.Editing;
+using GostEditor.Core.Editing.Operations;
 using GostEditor.Core.Models;
-using GostEditor.Core.TextEngine.Commands;
 using GostEditor.Core.TextEngine.DOM;
 
 namespace GostEditor.Core.TextEngine;
@@ -11,140 +12,179 @@ public partial class DocumentEditor
 {
     public void InsertHeading(int level, string text)
     {
-        int mutationInsertIndex = Document.Paragraphs.Count;
-
-        ExecuteParagraphMutation(
-            mutationInsertIndex,
-            0,
-            () =>
+        ParagraphBlock heading = new()
         {
-            Paragraph heading = new Paragraph();
-            heading.Runs.Add(new TextRun(text, isBold: true, isItalic: false)
+            Properties = new ParagraphProperties
             {
-                FontSize = level == 1 ? 16 : 14
-            });
-
-            heading.Style = level == 1 ? ParagraphStyle.Heading1 : ParagraphStyle.Heading2;
-            heading.Alignment = GostAlignment.Center;
-            heading.FirstLineIndent = 0;
-            heading.PageBreakBefore = level == 1;
-
-            Document.Paragraphs.Add(heading);
-            CaretPosition = new DocumentPosition(Document.Paragraphs.Count - 1, text.Length);
-            ClearSelection();
-        },
-            DocumentChangeKind.Structure |
-            DocumentChangeKind.Metrics |
-            DocumentChangeKind.Paint
-        );
+                Style = level == 1
+                    ? ParagraphStyle.Heading1
+                    : ParagraphStyle.Heading2,
+                Alignment = GostAlignment.Center,
+                FirstLineIndent = 0,
+                LineSpacing = 1.5,
+                PageBreakBefore = level == 1
+            },
+            Inlines =
+            {
+                new TextInline(text ?? string.Empty)
+                {
+                    Style = new TextStyle
+                    {
+                        IsBold = true,
+                        FontSize = level == 1 ? 16 : 14
+                    }
+                }
+            }
+        };
+        InsertCanonicalBlockAfterCaret(heading);
     }
 
     public void InsertTextBlock()
     {
-        int mutationInsertIndex = Math.Min(
-            CaretPosition.ParagraphIndex + 1,
-            Document.Paragraphs.Count);
-
-        ExecuteParagraphMutation(
-            mutationInsertIndex,
-            0,
-            () =>
+        ParagraphBlock paragraph = new()
         {
-            Paragraph paragraph = new Paragraph
+            Properties = new ParagraphProperties
             {
                 Alignment = GostAlignment.Justify,
                 FirstLineIndent = 47.0,
                 LineSpacing = 1.5,
                 Style = ParagraphStyle.Normal
-            };
-            paragraph.Runs.Add(new TextRun(string.Empty, false, false) { FontSize = 14 });
-
-            int insertIndex = Math.Min(CaretPosition.ParagraphIndex + 1, Document.Paragraphs.Count);
-            Document.Paragraphs.Insert(insertIndex, paragraph);
-            CaretPosition = new DocumentPosition(insertIndex, 0);
-            ClearSelection();
-        },
-            DocumentChangeKind.Structure |
-            DocumentChangeKind.Metrics |
-            DocumentChangeKind.Paint
-        );
+            },
+            Inlines =
+            {
+                new TextInline(string.Empty)
+                {
+                    Style = new TextStyle { FontSize = 14 }
+                }
+            }
+        };
+        InsertCanonicalBlockAfterCaret(paragraph);
     }
+
+    public void InsertPageBreak() =>
+        InsertCanonicalBlockAfterCaret(new PageBreakBlock());
 
     public void InsertTablePlaceholder(int rows = 3, int columns = 3)
     {
         rows = Math.Clamp(rows, 1, 20);
         columns = Math.Clamp(columns, 1, 8);
-
-        int mutationInsertIndex = Math.Min(
-            CaretPosition.ParagraphIndex + 1,
-            Document.Paragraphs.Count);
-
-        ExecuteParagraphMutation(
-            mutationInsertIndex,
-            0,
-            () =>
+        List<ParagraphBlock> paragraphs = new();
+        paragraphs.Add(CreateCanonicalParagraph(new Paragraph
         {
-            List<Paragraph> tableParagraphs = new List<Paragraph>();
+            Alignment = GostAlignment.Right,
+            FirstLineIndent = 0,
+            Style = ParagraphStyle.Normal,
+            Runs = { new TextRun("Таблица 1 - Название таблицы") { FontSize = 14 } }
+        }));
 
-            Paragraph title = new Paragraph
+        for (int row = 0; row < rows; row++)
+        {
+            string[] cells = Enumerable.Range(0, columns)
+                .Select(column => row == 0
+                    ? $"Заголовок {column + 1}"
+                    : "Данные")
+                .ToArray();
+            paragraphs.Add(CreateCanonicalParagraph(new Paragraph
             {
-                Alignment = GostAlignment.Right,
+                Alignment = GostAlignment.Left,
                 FirstLineIndent = 0,
-                Style = ParagraphStyle.Normal
-            };
-            title.Runs.Add(new TextRun("Таблица 1 - Название таблицы") { FontSize = 14 });
-            tableParagraphs.Add(title);
+                Style = ParagraphStyle.Code,
+                Runs = { new TextRun(string.Join(" | ", cells)) { FontSize = 12 } }
+            }));
+        }
 
-            for (int row = 0; row < rows; row++)
-            {
-                Paragraph line = new Paragraph
-                {
-                    Alignment = GostAlignment.Left,
-                    FirstLineIndent = 0,
-                    Style = ParagraphStyle.Code
-                };
-
-                string[] cells = new string[columns];
-                for (int column = 0; column < columns; column++)
-                {
-                    cells[column] = row == 0 ? $"Заголовок {column + 1}" : "Данные";
-                }
-
-                line.Runs.Add(new TextRun(string.Join(" | ", cells)) { FontSize = 12 });
-                tableParagraphs.Add(line);
-            }
-
-            int insertIndex = Math.Min(CaretPosition.ParagraphIndex + 1, Document.Paragraphs.Count);
-            Document.Paragraphs.InsertRange(insertIndex, tableParagraphs);
-            CaretPosition = new DocumentPosition(insertIndex, 0);
-            ClearSelection();
-        },
-            DocumentChangeKind.Structure |
-            DocumentChangeKind.Metrics |
-            DocumentChangeKind.Paint
-        );
+        InsertCanonicalBlocksAfterCaret(paragraphs);
     }
 
     public void AppendParagraphs(List<Paragraph> paragraphs)
     {
-        if (paragraphs == null || paragraphs.Count == 0)
+        if (paragraphs is null || paragraphs.Count == 0)
         {
             return;
         }
 
-        int mutationInsertIndex = Document.Paragraphs.Count;
-        ExecuteParagraphMutation(
-            mutationInsertIndex,
-            0,
-            () =>
+        DocumentSection section = _editingSession.Document.Sections[^1];
+        List<ParagraphBlock> blocks = paragraphs
+            .Select(CreateCanonicalParagraph)
+            .ToList();
+        ExecuteCanonicalStructuralEdit(() =>
+        {
+            EditTransaction transaction = new("Добавление абзацев");
+            int index = section.Blocks.Count;
+            foreach (ParagraphBlock block in blocks)
             {
-                foreach (Paragraph paragraph in paragraphs)
+                transaction.Add(new InsertBlockOperation(section.Id, index++, block));
+            }
+
+            _editingSession.Execute(transaction);
+        });
+    }
+
+    private void InsertCanonicalBlockAfterCaret(BlockNode block) =>
+        InsertCanonicalBlocksAfterCaret([block]);
+
+    private void InsertCanonicalBlocksAfterCaret(IReadOnlyList<BlockNode> blocks)
+    {
+        IReadOnlyList<BlockNode> ordered = _editingSession.Document
+            .EnumerateBlocks()
+            .ToList();
+        int currentIndex = Math.Clamp(CaretPosition.ParagraphIndex, 0, ordered.Count - 1);
+        BlockNode current = ordered[currentIndex];
+        DocumentSection section = _editingSession.Document.FindSectionContaining(current.Id)
+            ?? throw new InvalidOperationException("Секция caret не найдена.");
+        int sectionIndex = section.Blocks.FindIndex(item => item.Id == current.Id) + 1;
+
+        ExecuteCanonicalStructuralEdit(() =>
+        {
+            EditTransaction transaction = new("Добавление блоков");
+            for (int index = 0; index < blocks.Count; index++)
+            {
+                transaction.Add(new InsertBlockOperation(
+                    section.Id,
+                    sectionIndex + index,
+                    blocks[index]));
+            }
+
+            BlockNode first = blocks[0];
+            DocumentLocation location = first is ParagraphBlock paragraph
+                ? new DocumentLocation(paragraph.Id, paragraph.TextLength)
+                : GetNearestCanonicalTextLocation(new DocumentPosition(
+                    currentIndex + blocks.Count,
+                    0));
+            _editingSession.ExecuteWithSelection(
+                transaction,
+                () => _editingSession.Selection.MoveCaret(location));
+        });
+    }
+
+    private static ParagraphBlock CreateCanonicalParagraph(Paragraph source)
+    {
+        ParagraphBlock block = new()
+        {
+            Properties = new ParagraphProperties
+            {
+                Alignment = source.Alignment,
+                FirstLineIndent = source.FirstLineIndent,
+                LineSpacing = source.LineSpacing,
+                Style = source.Style,
+                PageBreakBefore = source.PageBreakBefore
+            }
+        };
+        foreach (TextRun run in source.Runs)
+        {
+            block.Inlines.Add(new TextInline(run.Text)
+            {
+                Style = new TextStyle
                 {
-                    Document.Paragraphs.Add(paragraph);
+                    IsBold = run.IsBold,
+                    IsItalic = run.IsItalic,
+                    Color = run.Color,
+                    FontSize = run.FontSize
                 }
-            },
-            DocumentChangeKind.Structure |
-            DocumentChangeKind.Metrics |
-            DocumentChangeKind.Paint);
+            });
+        }
+
+        block.EnsureEditableInline();
+        return block;
     }
 }
