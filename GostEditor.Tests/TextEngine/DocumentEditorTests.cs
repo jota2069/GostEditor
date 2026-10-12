@@ -268,19 +268,24 @@ public class DocumentEditorTests
     [Fact]
     public void ToggleBold_FormatsOnlySelectedText()
     {
-        DocumentEditor editor = new DocumentEditor();
-        editor.InsertText("abcdef");
-        editor.Document.Paragraphs[0].Runs[0].FontSize = 18;
-        editor.Document.Paragraphs[0].Runs[0].Color = 0xFF123456;
+        GostDocument document = new();
+        Paragraph paragraph = new();
+        paragraph.Runs.Add(new TextRun("abcdef")
+        {
+            FontSize = 18,
+            Color = 0xFF123456
+        });
+        document.Paragraphs.Add(paragraph);
+        DocumentEditor editor = new(document);
         editor.SelectionAnchor = new DocumentPosition(0, 1);
         editor.CaretPosition = new DocumentPosition(0, 4);
 
         editor.ToggleBold();
 
-        Paragraph paragraph = editor.Document.Paragraphs[0];
-        Assert.Equal("abcdef", paragraph.GetPlainText());
+        Paragraph formatted = editor.Document.Paragraphs[0];
+        Assert.Equal("abcdef", formatted.GetPlainText());
         Assert.Collection(
-            paragraph.Runs.Where(run => run.Text.Length > 0),
+            formatted.Runs.Where(run => run.Text.Length > 0),
             run =>
             {
                 Assert.Equal("a", run.Text);
@@ -376,14 +381,18 @@ public class DocumentEditorTests
     [Fact]
     public void InsertNewLine_InMiddle_PreservesFormattingAndParagraphStyle()
     {
-        DocumentEditor editor = new DocumentEditor();
-        editor.InsertText("abcdef");
-        Paragraph original = editor.Document.Paragraphs[0];
-        original.Runs[0].FontSize = 18;
-        original.Runs[0].Color = 0xFF123456;
+        GostDocument document = new();
+        Paragraph original = new();
+        original.Runs.Add(new TextRun("abcdef")
+        {
+            FontSize = 18,
+            Color = 0xFF123456
+        });
         original.Style = ParagraphStyle.Heading2;
         original.Alignment = GostAlignment.Center;
         original.FirstLineIndent = 0;
+        document.Paragraphs.Add(original);
+        DocumentEditor editor = new(document);
         editor.CaretPosition = new DocumentPosition(0, 3);
 
         editor.InsertNewLine();
@@ -406,12 +415,19 @@ public class DocumentEditorTests
     [Fact]
     public void InsertNewLine_AtEnd_PreservesTypingStyleInNewParagraph()
     {
-        DocumentEditor editor = new DocumentEditor();
-        editor.InsertText("abc");
-        TextRun originalRun = editor.Document.Paragraphs[0].Runs[0];
-        originalRun.IsItalic = true;
-        originalRun.FontSize = 18;
-        originalRun.Color = 0xFF123456;
+        GostDocument document = new();
+        Paragraph paragraph = new();
+        paragraph.Runs.Add(new TextRun("abc")
+        {
+            IsItalic = true,
+            FontSize = 18,
+            Color = 0xFF123456
+        });
+        document.Paragraphs.Add(paragraph);
+        DocumentEditor editor = new(document)
+        {
+            CaretPosition = new DocumentPosition(0, 3)
+        };
 
         editor.InsertNewLine();
         editor.InsertText("x");
@@ -426,11 +442,18 @@ public class DocumentEditorTests
     [Fact]
     public void ToggleBold_AtCaret_PreservesOtherTypingProperties()
     {
-        DocumentEditor editor = new DocumentEditor();
-        editor.InsertText("abc");
-        TextRun originalRun = editor.Document.Paragraphs[0].Runs[0];
-        originalRun.FontSize = 18;
-        originalRun.Color = 0xFF123456;
+        GostDocument document = new();
+        Paragraph paragraph = new();
+        paragraph.Runs.Add(new TextRun("abc")
+        {
+            FontSize = 18,
+            Color = 0xFF123456
+        });
+        document.Paragraphs.Add(paragraph);
+        DocumentEditor editor = new(document)
+        {
+            CaretPosition = new DocumentPosition(0, 3)
+        };
 
         editor.ToggleBold();
         editor.InsertText("x");

@@ -37,6 +37,7 @@ public sealed class OperationHistory
     private readonly Stack<IEditOperation> _undo = new();
     private readonly Stack<IEditOperation> _redo = new();
     private readonly DocumentEditingContext _context;
+    private Action? _postApplyValidation;
 
     public OperationHistory(DocumentEditingContext context)
     {
@@ -64,6 +65,7 @@ public sealed class OperationHistory
         ArgumentNullException.ThrowIfNull(operation);
 
         ApplyAndUpdateIndex(operation);
+        ValidateOrRevert(operation);
         _undo.Push(operation);
         _redo.Clear();
         RaiseChanged(OperationHistoryChangeKind.Executed, operation);
@@ -93,6 +95,7 @@ public sealed class OperationHistory
 
         IEditOperation operation = _redo.Peek();
         ApplyAndUpdateIndex(operation);
+        ValidateOrRevert(operation);
         _redo.Pop();
         _undo.Push(operation);
         RaiseChanged(OperationHistoryChangeKind.Redone, operation);
@@ -112,6 +115,51 @@ public sealed class OperationHistory
             OperationHistoryChangeKind.Cleared,
             null,
             incrementRevision: false);
+    }
+
+    internal void PublishCompatibilityMutation(bool discardRedo)
+    {
+        if (discardRedo)
+        {
+            _redo.Clear();
+        }
+
+        RaiseChanged(OperationHistoryChangeKind.Executed, null);
+    }
+
+    internal void SetPostApplyValidation(Action validation) =>
+        _postApplyValidation = validation ??
+            throw new ArgumentNullException(nameof(validation));
+
+    private void ValidateOrRevert(IEditOperation operation)
+    {
+        if (_postApplyValidation is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _postApplyValidation();
+        }
+        catch (Exception primaryException)
+        {
+            try
+            {
+                RevertAndUpdateIndex(operation);
+            }
+            catch (Exception rollbackException)
+            {
+                primaryException.Data[
+                    "GostEditor.OperationHistory.ValidationRollbackFailure"] =
+                    rollbackException;
+            }
+
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo
+                .Capture(primaryException)
+                .Throw();
+            throw;
+        }
     }
 
     private void RaiseChanged(

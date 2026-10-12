@@ -1,4 +1,5 @@
 using GostEditor.Core.Interfaces;
+using GostEditor.Core.DocumentModel.Blocks;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.DOM;
 using System.Runtime.ExceptionServices;
@@ -73,6 +74,9 @@ public sealed class DocumentMutationCommand : IEditorCommand
                 exception);
             throw;
         }
+        _editor.RebaseCanonicalAfterLegacyMutation(
+            _after.CanonicalBlocks,
+            _after.Range);
         _editor.NotifyDocumentChanged(
             Math.Min(_before.Range.Start, _after.Range.Start),
             _changeKind);
@@ -97,6 +101,9 @@ public sealed class DocumentMutationCommand : IEditorCommand
                 exception);
             throw;
         }
+        _editor.RebaseCanonicalAfterLegacyMutation(
+            _before.CanonicalBlocks,
+            _before.Range);
         _editor.NotifyDocumentChanged(
             Math.Min(_before.Range.Start, _after.Range.Start),
             _changeKind);
@@ -153,6 +160,13 @@ public sealed class DocumentMutationCommand : IEditorCommand
 
         if (_isCommitted)
         {
+            _editor.RebaseCanonicalAfterLegacyMutation(
+                discardCanonicalRedo: true);
+            _after = _after with
+            {
+                CanonicalBlocks = _editor.CaptureCanonicalBlocks(
+                    _after.Range)
+            };
             _editor.NotifyDocumentChanged(
                 Math.Min(beforeRange.Start, afterRange.Start),
                 _changeKind);
@@ -235,6 +249,10 @@ public sealed class DocumentMutationCommand : IEditorCommand
             Paragraphs = _before.Paragraphs
                 .Skip(prefix)
                 .Take(_before.Paragraphs.Count - prefix - suffix)
+                .ToList(),
+            CanonicalBlocks = _before.CanonicalBlocks
+                .Skip(prefix)
+                .Take(_before.CanonicalBlocks.Count - prefix - suffix)
                 .ToList()
         };
 
@@ -246,6 +264,10 @@ public sealed class DocumentMutationCommand : IEditorCommand
             Paragraphs = _after.Paragraphs
                 .Skip(prefix)
                 .Take(_after.Paragraphs.Count - prefix - suffix)
+                .ToList(),
+            CanonicalBlocks = _after.CanonicalBlocks
+                .Skip(prefix)
+                .Take(_after.CanonicalBlocks.Count - prefix - suffix)
                 .ToList()
         };
     }
@@ -266,6 +288,7 @@ public sealed class DocumentMutationCommand : IEditorCommand
         return new MutationState(
             range,
             paragraphs,
+            _editor.CaptureCanonicalBlocks(range),
             images,
             CloneCounters(_editor.Document.Counters),
             _editor.CaretPosition,
@@ -504,6 +527,7 @@ public sealed class DocumentMutationCommand : IEditorCommand
     private sealed record MutationState(
         DocumentMutationRange Range,
         List<Paragraph> Paragraphs,
+        List<BlockNode> CanonicalBlocks,
         List<ImageAttachment>? Images,
         DocumentCounters Counters,
         DocumentPosition Caret,

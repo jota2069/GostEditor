@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using GostEditor.Core.DocumentModel;
+using GostEditor.Core.DocumentModel.Blocks;
+using GostEditor.Core.DocumentModel.Inlines;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.Commands;
@@ -13,6 +16,34 @@ public partial class DocumentEditor
     {
         if (string.IsNullOrEmpty(text)) return;
         TextBoundaries.EnsureValidUtf16(text, nameof(text));
+
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+            ExecuteCanonicalEdit(
+                () =>
+                {
+                    TextStyle style = GetCanonicalTypingStyle();
+                    if (_editingSession.Selection.HasSelection)
+                    {
+                        _editingSession.Text.ReplaceSelection(text, style);
+                    }
+                    else
+                    {
+                        _editingSession.Text.InsertText(
+                            _editingSession.Selection.Caret,
+                            text,
+                            style);
+                    }
+                },
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
 
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
@@ -41,6 +72,50 @@ public partial class DocumentEditor
 
     public void InsertNewLine()
     {
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+            TextStyle? newlineTypingStyle = null;
+            ExecuteCanonicalEdit(
+                () =>
+                {
+                    TextStyle typingStyle = GetCanonicalTypingStyle();
+                    newlineTypingStyle = typingStyle.Clone();
+                    DocumentRange selection =
+                        _editingSession.Selection.GetRange();
+                    ParagraphBlock sourceParagraph = (ParagraphBlock)
+                        _editingSession.Document.FindBlock(
+                            selection.Start.BlockId)!;
+                    ParagraphBlock endParagraph = (ParagraphBlock)
+                        _editingSession.Document.FindBlock(
+                            selection.End.BlockId)!;
+                    bool normalizeHeading = sourceParagraph.Properties.Style is
+                            ParagraphStyle.Heading1 or ParagraphStyle.Heading2 &&
+                        selection.End.Offset == endParagraph.TextLength;
+                    _editingSession.Text.ReplaceSelectionWithParagraphs(
+                        [string.Empty, string.Empty],
+                        typingStyle,
+                        normalizeHeading
+                            ? properties =>
+                            {
+                                properties.Style = ParagraphStyle.Normal;
+                                properties.Alignment = GostAlignment.Justify;
+                                properties.FirstLineIndent = 47.0;
+                                properties.PageBreakBefore = false;
+                                return properties;
+                            }
+                    : null);
+                },
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            _typingStyleOverride = newlineTypingStyle;
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -135,6 +210,70 @@ public partial class DocumentEditor
 
     public void Backspace()
     {
+        if (!HasSelection && CaretPosition.Offset == 0 &&
+            CaretPosition.ParagraphIndex == 0)
+        {
+            return;
+        }
+
+        (DocumentPosition canonicalStart, DocumentPosition canonicalEnd) =
+            HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+        int canonicalFirstIndex = !HasSelection &&
+                                  CaretPosition.Offset == 0
+            ? CaretPosition.ParagraphIndex - 1
+            : canonicalStart.ParagraphIndex;
+        EnsureCanonicalMatchesLegacy(Enumerable.Range(
+            canonicalFirstIndex,
+            canonicalEnd.ParagraphIndex - canonicalFirstIndex + 1).ToArray());
+        if (_legacyProjection.IsTextRange(
+                _editingSession.Document,
+                canonicalFirstIndex,
+                canonicalEnd.ParagraphIndex))
+        {
+            ExecuteCanonicalEdit(
+                () =>
+                {
+                    if (_editingSession.Selection.HasSelection)
+                    {
+                        _editingSession.Text.DeleteSelection();
+                        return;
+                    }
+
+                    DocumentLocation caret = _editingSession.Selection.Caret;
+                    ParagraphBlock paragraph = (ParagraphBlock)
+                        _editingSession.Document.FindBlock(caret.BlockId)!;
+                    if (caret.Offset > 0)
+                    {
+                        int previous = TextBoundaries.Previous(
+                            paragraph.GetPlainText(),
+                            caret.Offset);
+                        _editingSession.Text.DeleteText(
+                            new DocumentLocation(caret.BlockId, previous),
+                            caret.Offset - previous);
+                        return;
+                    }
+
+                    IReadOnlyList<BlockNode> blocks = _editingSession.Document
+                        .EnumerateBlocks()
+                        .ToList();
+                    int index = _editingSession.Document.GetBlockIndex(
+                        caret.BlockId);
+                    ParagraphBlock previousParagraph =
+                        (ParagraphBlock)blocks[index - 1];
+                    _editingSession.Text.MergeParagraphs(
+                        previousParagraph.Id,
+                        paragraph.Id,
+                        previousParagraph.TextLength);
+                },
+                Enumerable.Range(
+                    canonicalFirstIndex,
+                    canonicalEnd.ParagraphIndex - canonicalFirstIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         int mutationStartParagraph;
         int mutationBeforeCount;
         if (HasSelection)
@@ -210,6 +349,71 @@ public partial class DocumentEditor
 
     public void DeleteForward()
     {
+        (DocumentPosition canonicalStart, DocumentPosition canonicalEnd) =
+            HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+        int possibleEnd = canonicalEnd.ParagraphIndex;
+        if (!HasSelection &&
+            CaretPosition.ParagraphIndex < Document.Paragraphs.Count - 1 &&
+            CaretPosition.Offset == Document.Paragraphs[
+                CaretPosition.ParagraphIndex].GetPlainText().Length)
+        {
+            possibleEnd++;
+        }
+
+        EnsureCanonicalMatchesLegacy(Enumerable.Range(
+            canonicalStart.ParagraphIndex,
+            possibleEnd - canonicalStart.ParagraphIndex + 1).ToArray());
+        if (_legacyProjection.IsTextRange(
+                _editingSession.Document,
+                canonicalStart.ParagraphIndex,
+                possibleEnd))
+        {
+            ExecuteCanonicalEdit(
+                () =>
+                {
+                    if (_editingSession.Selection.HasSelection)
+                    {
+                        _editingSession.Text.DeleteSelection();
+                        return;
+                    }
+
+                    DocumentLocation caret = _editingSession.Selection.Caret;
+                    ParagraphBlock paragraph = (ParagraphBlock)
+                        _editingSession.Document.FindBlock(caret.BlockId)!;
+                    if (caret.Offset < paragraph.TextLength)
+                    {
+                        int next = TextBoundaries.Next(
+                            paragraph.GetPlainText(),
+                            caret.Offset);
+                        _editingSession.Text.DeleteText(
+                            caret,
+                            next - caret.Offset);
+                        return;
+                    }
+
+                    IReadOnlyList<BlockNode> blocks = _editingSession.Document
+                        .EnumerateBlocks()
+                        .ToList();
+                    int index = _editingSession.Document.GetBlockIndex(
+                        caret.BlockId);
+                    if (index < blocks.Count - 1 &&
+                        blocks[index + 1] is ParagraphBlock nextParagraph)
+                    {
+                        _editingSession.Text.MergeParagraphs(
+                            paragraph.Id,
+                            nextParagraph.Id,
+                            caret.Offset);
+                    }
+                },
+                Enumerable.Range(
+                    canonicalStart.ParagraphIndex,
+                    possibleEnd - canonicalStart.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         int mutationStartParagraph;
         int mutationBeforeCount;
         if (HasSelection)
@@ -306,6 +510,19 @@ public partial class DocumentEditor
     {
         if (!HasSelection) return;
 
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) =
+                GetNormalizedSelection();
+            ExecuteCanonicalEdit(
+                _editingSession.Text.DeleteSelection,
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             GetNormalizedSelection();
         int mutationStartParagraph = mutationStart.ParagraphIndex;
@@ -342,6 +559,23 @@ public partial class DocumentEditor
     {
         if (string.IsNullOrEmpty(text)) return;
         TextBoundaries.EnsureValidUtf16(text, nameof(text));
+
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+            IReadOnlyList<string> paragraphs = SplitPastedText(text);
+            ExecuteCanonicalEdit(
+                () => _editingSession.Text.ReplaceSelectionWithParagraphs(
+                    paragraphs,
+                    GetCanonicalTypingStyle()),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
 
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection

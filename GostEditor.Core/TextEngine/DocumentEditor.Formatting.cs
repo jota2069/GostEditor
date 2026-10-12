@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using GostEditor.Core.DocumentModel;
+using GostEditor.Core.DocumentModel.Blocks;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.Models;
 using GostEditor.Core.TextEngine.Commands;
@@ -80,6 +82,26 @@ public partial class DocumentEditor
 
     public void ToggleBold()
     {
+        if (!HasSelection)
+        {
+            ChangeTypingStyle(style => style.IsBold = !style.IsBold);
+            return;
+        }
+
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) =
+                GetNormalizedSelection();
+            ExecuteCanonicalEdit(
+                () => _editingSession.Formatting.ToggleBold(
+                    _editingSession.Selection.GetRange()),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -130,6 +152,26 @@ public partial class DocumentEditor
 
     public void ToggleItalic()
     {
+        if (!HasSelection)
+        {
+            ChangeTypingStyle(style => style.IsItalic = !style.IsItalic);
+            return;
+        }
+
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) =
+                GetNormalizedSelection();
+            ExecuteCanonicalEdit(
+                () => _editingSession.Formatting.ToggleItalic(
+                    _editingSession.Selection.GetRange()),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -180,6 +222,32 @@ public partial class DocumentEditor
 
     public void SetFontSize(double fontSize)
     {
+        if (!double.IsFinite(fontSize) || fontSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(fontSize));
+        }
+
+        if (!HasSelection)
+        {
+            ChangeTypingStyle(style => style.FontSize = fontSize);
+            return;
+        }
+
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) =
+                GetNormalizedSelection();
+            ExecuteCanonicalEdit(
+                () => _editingSession.Formatting.SetFontSize(
+                    _editingSession.Selection.GetRange(),
+                    fontSize),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -230,6 +298,47 @@ public partial class DocumentEditor
 
     public void ClearFormatting()
     {
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (new DocumentPosition(CaretPosition.ParagraphIndex, 0),
+                    new DocumentPosition(
+                        CaretPosition.ParagraphIndex,
+                        Document.Paragraphs[CaretPosition.ParagraphIndex]
+                            .GetPlainText().Length));
+            ExecuteCanonicalEdit(
+                () =>
+                {
+                    DocumentRange textRange = ToCanonicalRange(start, end);
+                    _editingSession.Formatting.ApplyFormatting(
+                        textRange,
+                        textStyle =>
+                        {
+                            textStyle.IsBold = false;
+                            textStyle.IsItalic = false;
+                            textStyle.FontSize = 14;
+                            textStyle.Color = 0xFF000000;
+                            textStyle.FontFamily = null;
+                        },
+                        properties =>
+                        {
+                            properties.Style = ParagraphStyle.Normal;
+                            properties.Alignment = GostAlignment.Justify;
+                            properties.FirstLineIndent = 47.0;
+                            properties.PageBreakBefore = false;
+                            return properties;
+                        },
+                        clearSelection: true);
+                },
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            _typingStyleOverride = null;
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -288,6 +397,26 @@ public partial class DocumentEditor
 
     public void SetAlignment(GostAlignment alignment)
     {
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+            ExecuteCanonicalEdit(
+                () => _editingSession.Formatting.SetParagraphProperties(
+                    _editingSession.Selection.GetRange(),
+                    properties =>
+                    {
+                        properties.Alignment = alignment;
+                        return properties;
+                    }),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()
@@ -314,6 +443,20 @@ public partial class DocumentEditor
 
     public void SetParagraphStyle(ParagraphStyle style)
     {
+        if (IsCanonicalTextSelection())
+        {
+            (DocumentPosition start, DocumentPosition end) = HasSelection
+                ? GetNormalizedSelection()
+                : (CaretPosition, CaretPosition);
+            ExecuteCanonicalEdit(
+                () => ApplyCanonicalParagraphStyle(start, end, style),
+                Enumerable.Range(
+                    start.ParagraphIndex,
+                    end.ParagraphIndex - start.ParagraphIndex + 1)
+                    .ToArray());
+            return;
+        }
+
         (DocumentPosition mutationStart, DocumentPosition mutationEnd) =
             HasSelection
                 ? GetNormalizedSelection()

@@ -221,11 +221,7 @@ public sealed class TextBoundaryServiceTests
     [Fact]
     public void NavigationAndDelete_CrossParagraphBoundaries()
     {
-        DocumentEditor editor = CreateEditor("A");
-        editor.Document.Paragraphs.Add(new Paragraph
-        {
-            Runs = { new TextRun("😀B") }
-        });
+        DocumentEditor editor = CreateTwoParagraphEditor("A", "😀B");
         editor.CaretPosition = new DocumentPosition(0, 1);
 
         editor.MoveRight();
@@ -246,11 +242,7 @@ public sealed class TextBoundaryServiceTests
     [Fact]
     public void DeleteForward_AtParagraphEnd_MergeCanBeUndoneAndRedone()
     {
-        DocumentEditor editor = CreateEditor("A");
-        editor.Document.Paragraphs.Add(new Paragraph
-        {
-            Runs = { new TextRun("😀B") }
-        });
+        DocumentEditor editor = CreateTwoParagraphEditor("A", "😀B");
         editor.CaretPosition = new DocumentPosition(0, 1);
 
         editor.DeleteForward();
@@ -271,6 +263,23 @@ public sealed class TextBoundaryServiceTests
 
     private static DocumentEditor CreateEditor(string text) =>
         CreateEditorFromRuns(text);
+
+    private static DocumentEditor CreateTwoParagraphEditor(
+        string first,
+        string second)
+    {
+        GostDocument document = new();
+        document.Paragraphs.Clear();
+        document.Paragraphs.Add(new Paragraph
+        {
+            Runs = { new TextRun(first) }
+        });
+        document.Paragraphs.Add(new Paragraph
+        {
+            Runs = { new TextRun(second) }
+        });
+        return new DocumentEditor(document, new ImageService());
+    }
 
     private static DocumentEditor CreateEditorFromRuns(params string[] runs)
     {
