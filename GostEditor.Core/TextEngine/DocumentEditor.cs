@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using GostEditor.Core.Interfaces;
 using GostEditor.Core.DocumentModel;
+using GostEditor.Core.DocumentModel.Inlines;
 using GostEditor.Core.DocumentModel.Legacy;
 using GostEditor.Core.Editing;
 using GostEditor.Core.Models;
@@ -16,6 +17,9 @@ public partial class DocumentEditor
 {
     private DocumentPosition _caretPosition;
     private DocumentPosition? _selectionAnchor;
+    private DocumentEditingSession _editingSession = null!;
+    private LegacyTextProjection _legacyProjection = null!;
+    private TextStyle? _typingStyleOverride;
 
     public GostDocument Document { get; private set; }
     public IImageService ImageService { get; }
@@ -24,7 +28,16 @@ public partial class DocumentEditor
     public DocumentPosition CaretPosition
     {
         get => _caretPosition;
-        set => _caretPosition = NormalizePosition(value);
+        set
+        {
+            DocumentPosition normalized = NormalizePosition(value);
+            if (!normalized.Equals(_caretPosition))
+            {
+                _typingStyleOverride = null;
+            }
+
+            _caretPosition = normalized;
+        }
     }
     public DocumentPosition? SelectionAnchor
     {
@@ -40,6 +53,10 @@ public partial class DocumentEditor
     public bool HasSelection => SelectionAnchor.HasValue && SelectionAnchor.Value.CompareTo(CaretPosition) != 0;
 
     public long DocumentChangeVersion { get; private set; }
+
+    public DocumentEditingSession ActiveEditingSession => _editingSession;
+
+    public long CanonicalRevision => _editingSession.Revision;
 
     public event EventHandler<DocumentChangedEventArgs>? DocumentChanged;
 
@@ -64,6 +81,8 @@ public partial class DocumentEditor
         {
             Document.Paragraphs.Add(new Paragraph());
         }
+        InitializeCanonicalSession();
+        _typingStyleOverride = null;
         CaretPosition = new DocumentPosition(0, 0);
     }
 
@@ -76,6 +95,8 @@ public partial class DocumentEditor
         {
             Document.Paragraphs.Add(new Paragraph());
         }
+        InitializeCanonicalSession();
+        _typingStyleOverride = null;
         CaretPosition = new DocumentPosition(0, 0);
         ClearSelection();
         History.Clear();
@@ -109,7 +130,7 @@ public partial class DocumentEditor
     }
 
     public DocumentEditingSession CreateStructuredEditingSession() =>
-        _structuredBridge.CreateSession(Document);
+        _editingSession;
 
     public void ApplyStructuredDocument(DocumentRoot document)
     {

@@ -36,6 +36,8 @@ public sealed class DocumentEditingSession
 
     public LayoutInvalidationTracker InvalidationTracker { get; }
 
+    internal bool RequiresLegacyLosslessProjection { get; private set; }
+
     /// <summary>
     /// Compatibility alias for <see cref="Revision"/>. It is not the
     /// persistence revision owned by the active legacy document session.
@@ -72,6 +74,15 @@ public sealed class DocumentEditingSession
         {
             History.Execute(transaction);
         }
+    }
+
+    internal void PublishCompatibilityMutation(bool discardRedo) =>
+        History.PublishCompatibilityMutation(discardRedo);
+
+    internal void RequireLegacyLosslessProjection(Action validation)
+    {
+        RequiresLegacyLosslessProjection = true;
+        History.SetPostApplyValidation(validation);
     }
 
     private void OnHistoryChanged(

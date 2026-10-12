@@ -129,4 +129,89 @@ public sealed class TextEditingService
 
         InsertParagraphBreak(_session.Selection.Caret);
     }
+
+    public void ReplaceSelectionWithParagraphs(
+        IReadOnlyList<string> paragraphs,
+        TextStyle? style = null,
+        Func<ParagraphProperties, ParagraphProperties>?
+            finalParagraphChange = null)
+    {
+        ArgumentNullException.ThrowIfNull(paragraphs);
+        if (paragraphs.Count == 0)
+        {
+            return;
+        }
+
+        if (paragraphs.Count == 1)
+        {
+            ReplaceSelection(paragraphs[0], style);
+            return;
+        }
+
+        DocumentRange range = _session.Selection.GetRange();
+        ParagraphProperties sourceProperties = ((ParagraphBlock)
+            _session.Document.FindBlock(range.Start.BlockId)!)
+            .Properties
+            .Clone();
+        ReplaceTextRangeOperation replace = new(
+            _session.Document,
+            range,
+            paragraphs[0],
+            style);
+        EditTransaction transaction = new("Вставка многострочного текста");
+        transaction.Add(replace);
+
+        DocumentNodeId currentParagraphId = replace.ResultLocation.BlockId;
+        int currentOffset = replace.ResultLocation.Offset;
+        for (int index = 1; index < paragraphs.Count; index++)
+        {
+            DocumentNodeId newParagraphId = DocumentNodeId.New();
+            transaction.Add(new SplitParagraphOperation(
+                currentParagraphId,
+                currentOffset,
+                newParagraphId));
+            if (paragraphs[index].Length > 0)
+            {
+                transaction.Add(new InsertTextOperation(
+                    newParagraphId,
+                    0,
+                    paragraphs[index],
+                    style));
+            }
+
+            currentParagraphId = newParagraphId;
+            currentOffset = paragraphs[index].Length;
+        }
+
+        if (finalParagraphChange is not null)
+        {
+            ParagraphProperties changed = finalParagraphChange(
+                sourceProperties.Clone())
+                ?? throw new InvalidOperationException(
+                    "Функция форматирования вернула null.");
+            transaction.Add(new ChangeParagraphPropertiesOperation(
+                currentParagraphId,
+                changed));
+        }
+
+        DocumentLocation result = new(currentParagraphId, currentOffset);
+        _session.ExecuteWithSelection(
+            transaction,
+            () => _session.Selection.MoveCaret(result));
+    }
+
+    public void MergeParagraphs(
+        DocumentNodeId firstParagraphId,
+        DocumentNodeId secondParagraphId,
+        int resultOffset)
+    {
+        MergeParagraphsOperation operation = new(
+            firstParagraphId,
+            secondParagraphId);
+        _session.ExecuteWithSelection(
+            operation,
+            () => _session.Selection.MoveCaret(new DocumentLocation(
+                firstParagraphId,
+                resultOffset)));
+    }
 }
